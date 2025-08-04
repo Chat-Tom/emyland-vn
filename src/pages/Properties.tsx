@@ -28,7 +28,7 @@ export default function Properties() {
     try {
       setIsLoading(true);
       const result = await PropertyService.getProperties(filters);
-      setProperties(result.data || []);
+      setProperties(result || []);
     } catch (error) {
       console.error('Error loading properties:', error);
       toast({

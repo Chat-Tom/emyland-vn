@@ -1,3 +1,4 @@
+// ====================== USER ===========================
 export interface UserAccount {
   id: string;
   email: string;
@@ -9,8 +10,12 @@ export interface UserAccount {
   isLoggedIn: boolean;
   rememberMe: boolean;
   isAdmin?: boolean;
+  // --- BỔ SUNG CHUẨN ĐỂ KHÔNG LỖI TYPE ---
+  createdAt?: string;    // Hỗ trợ Dashboard hiển thị ngày tạo (nếu có)
+  updatedAt?: string;    // Hỗ trợ cập nhật User (UserEditModal)
 }
 
+// ==================== PROPERTY =========================
 export interface PropertyListing {
   id: string;
   title: string;
@@ -28,6 +33,7 @@ export interface PropertyListing {
     name: string;
     phone: string;
     email: string;
+    ownerVerified?: boolean; // BỔ SUNG: dùng khi cần xác minh chính chủ
   };
   images: string[];
   userEmail: string;
@@ -35,17 +41,16 @@ export interface PropertyListing {
   updatedAt: string;
 }
 
+// ================== MANAGER ============================
 export class StorageManager {
   static readonly USERS_KEY = 'emyland_users';
   static readonly PROPERTIES_KEY = 'emyland_properties';
   static readonly CURRENT_USER_KEY = 'emyland_user';
 
-  // Generate unique ID
   static generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }
 
-  // Initialize admin account
   static initializeAdmin(): void {
     const adminEmail = 'chat301277@gmail.com';
     const existingAdmin = this.getUserByEmail(adminEmail);
@@ -68,7 +73,6 @@ export class StorageManager {
     }
   }
 
-  // User management
   static saveUser(user: UserAccount): void {
     const users = this.getAllUsers();
     const existingIndex = users.findIndex(u => u.email === user.email);
@@ -119,7 +123,7 @@ export class StorageManager {
     localStorage.removeItem(this.CURRENT_USER_KEY);
   }
 
-  // Property management
+  // ================== PROPERTY =========================
   static saveProperty(property: PropertyListing): void {
     const properties = this.getAllProperties();
     const existingIndex = properties.findIndex(p => p.id === property.id);
@@ -154,12 +158,12 @@ export class StorageManager {
     localStorage.setItem(this.PROPERTIES_KEY, JSON.stringify(filteredProperties));
   }
 
-  // Authentication
+  // =================== AUTH ===========================
   static login(email: string, password: string): UserAccount | null {
     const user = this.getUserByEmail(email);
     if (user && user.password === password) {
       user.isLoggedIn = true;
-      user.rememberMe = true; // ✅ Luôn ghi nhớ đăng nhập
+      user.rememberMe = true;
       this.saveUser(user);
       this.setCurrentUser(user);
       return user;
@@ -186,7 +190,7 @@ export class StorageManager {
       registeredAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
       isLoggedIn: true,
-      rememberMe: true // ✅ Mặc định ghi nhớ luôn
+      rememberMe: true
     };
 
     this.saveUser(newUser);
@@ -194,7 +198,6 @@ export class StorageManager {
     return newUser;
   }
 
-  // Utility methods
   static clearAllData(): void {
     localStorage.removeItem(this.USERS_KEY);
     localStorage.removeItem(this.PROPERTIES_KEY);

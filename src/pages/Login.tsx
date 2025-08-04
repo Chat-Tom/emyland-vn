@@ -18,7 +18,6 @@ const Login = () => {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check for auto-login on component mount
   useEffect(() => {
     const currentUser = StorageManager.getCurrentUser();
     if (currentUser && currentUser.isLoggedIn) {
@@ -53,19 +52,19 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      // Kiểm tra thông tin đăng nhập với StorageManager
       const user = StorageManager.getUserByEmail(formData.email);
 
       if (user && user.password === formData.password) {
         const updatedUser: UserAccount = {
           ...user,
           isLoggedIn: true,
-          rememberMe: true, // ✅ Tự động ghi nhớ luôn
+          rememberMe: true,
           lastLoginAt: new Date().toISOString()
         };
 
         StorageManager.saveUser(updatedUser);
         StorageManager.setCurrentUser(updatedUser);
+        localStorage.setItem('user_email', updatedUser.email); // ✅ lưu email để khôi phục
 
         login(updatedUser);
 
@@ -178,9 +177,18 @@ const Login = () => {
                 type="button"
                 className="text-sm text-blue-600 hover:underline"
                 onClick={() => {
-                  const email = prompt('Nhập email để khôi phục mật khẩu:');
-                  if (email) {
-                    alert('Liên kết khôi phục mật khẩu đã được gửi đến email của bạn!');
+                  const storedEmail = localStorage.getItem('user_email');
+                  if (!storedEmail) {
+                    alert('Không tìm thấy email đã đăng ký. Vui lòng đăng nhập lại trước khi khôi phục mật khẩu.');
+                    return;
+                  }
+
+                  const confirmReset = window.confirm(
+                    `Chúng tôi sẽ gửi hướng dẫn khôi phục mật khẩu đến:\n\n${storedEmail}\n\nBạn có muốn tiếp tục?`
+                  );
+
+                  if (confirmReset) {
+                    alert('📩 Liên kết khôi phục mật khẩu đã được gửi đến email của bạn!');
                   }
                 }}
               >

@@ -1,6 +1,7 @@
+import React from "react";
 import { Building, Phone, Mail, MapPin, Facebook, Youtube, Zap } from "lucide-react";
 
-export default function Footer() {
+const Footer: React.FC = () => {
   return (
     <footer className="bg-gradient-to-r from-gray-900 via-blue-900 to-purple-900 text-white">
       <div className="container mx-auto px-4 py-12">
@@ -126,4 +127,6 @@ export default function Footer() {
       </div>
     </footer>
   );
-}
+};
+
+export default Footer;

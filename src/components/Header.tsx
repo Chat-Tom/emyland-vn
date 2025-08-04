@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Building2, Menu, X, User, LogOut, LayoutDashboard, ChevronDown } from 'lucide-react';
 import { Button } from './ui/button';
@@ -10,10 +10,23 @@ import {
   DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 import { useAuth } from '../contexts/AuthContext';
-const Header = () => {
+
+// ----------- Chỉ thêm dòng này -----------
+type HeaderProps = {
+  user?: any;
+  onLogout?: () => void;
+};
+// ----------- Kết thúc bổ sung type -----------
+
+const Header: React.FC<HeaderProps> = ({ user: propsUser, onLogout }) => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  // Nếu props user/onLogout không truyền vào thì fallback về hook cũ (backward compatibility)
+  const { user: hookUser, logout: hookLogout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Ưu tiên props nếu được truyền, còn lại fallback về hook như trước
+  const user = propsUser !== undefined ? propsUser : hookUser;
+  const logout = onLogout !== undefined ? onLogout : hookLogout;
 
   const handlePostProperty = () => {
     if (user && user.isLoggedIn) {
@@ -24,14 +37,13 @@ const Header = () => {
   };
 
   const handleLogout = () => {
-    logout();
+    logout && logout();
     navigate('/');
   };
 
   const menuItems = [
     { label: 'Tra cứu quy hoạch', path: '/planning-lookup' },
     { label: 'Thẩm định giá - Chứng thư', path: '/valuation-certificate' },
-
   ];
 
   return (

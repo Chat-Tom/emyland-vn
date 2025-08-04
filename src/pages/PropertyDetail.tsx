@@ -17,7 +17,7 @@ export default function PropertyDetail() {
       
       try {
         const result = await PropertyService.getPropertyById(id);
-        return result.data;
+        return result;
       } catch (error) {
         console.error("Failed to fetch property:", error);
         // Fallback to mock data for demo
