@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Eye, EyeOff, Building2 } from 'lucide-react';
 import { StorageManager, UserAccount } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+
 const Login = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -13,7 +14,6 @@ const Login = () => {
     email: '',
     password: ''
   });
-  const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -21,7 +21,7 @@ const Login = () => {
   // Check for auto-login on component mount
   useEffect(() => {
     const currentUser = StorageManager.getCurrentUser();
-    if (currentUser && currentUser.rememberMe && currentUser.isLoggedIn) {
+    if (currentUser && currentUser.isLoggedIn) {
       navigate('/post-property');
     }
   }, [navigate]);
@@ -45,7 +45,7 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -55,26 +55,22 @@ const Login = () => {
     try {
       // Kiểm tra thông tin đăng nhập với StorageManager
       const user = StorageManager.getUserByEmail(formData.email);
-      
+
       if (user && user.password === formData.password) {
-        // Cập nhật thông tin đăng nhập
         const updatedUser: UserAccount = {
           ...user,
           isLoggedIn: true,
-          rememberMe: rememberMe,
+          rememberMe: true, // ✅ Tự động ghi nhớ luôn
           lastLoginAt: new Date().toISOString()
         };
-        
-        // Lưu user vào storage trước
+
         StorageManager.saveUser(updatedUser);
         StorageManager.setCurrentUser(updatedUser);
-        
-        // Cập nhật auth context
+
         login(updatedUser);
-        
+
         console.log('✅ User logged in successfully:', updatedUser.email);
-        
-        // Chuyển hướng dựa trên quyền admin
+
         if (updatedUser.isAdmin) {
           navigate('/system-dashboard', { replace: true });
         } else {
@@ -97,8 +93,7 @@ const Login = () => {
       ...prev,
       [name]: value
     }));
-    
-    // Xóa lỗi khi người dùng bắt đầu nhập
+
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -177,20 +172,8 @@ const Login = () => {
                 <p className="text-red-500 text-sm">{errors.password}</p>
               )}
             </div>
-            
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="rememberMe"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <label htmlFor="rememberMe" className="text-sm text-gray-600">
-                  Ghi nhớ đăng nhập
-                </label>
-              </div>
+
+            <div className="flex justify-end">
               <button
                 type="button"
                 className="text-sm text-blue-600 hover:underline"

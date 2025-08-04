@@ -39,6 +39,7 @@ export class StorageManager {
   static readonly USERS_KEY = 'emyland_users';
   static readonly PROPERTIES_KEY = 'emyland_properties';
   static readonly CURRENT_USER_KEY = 'emyland_user';
+
   // Generate unique ID
   static generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -48,7 +49,7 @@ export class StorageManager {
   static initializeAdmin(): void {
     const adminEmail = 'chat301277@gmail.com';
     const existingAdmin = this.getUserByEmail(adminEmail);
-    
+
     if (!existingAdmin) {
       const adminUser: UserAccount = {
         id: this.generateId(),
@@ -59,24 +60,25 @@ export class StorageManager {
         registeredAt: new Date().toISOString(),
         lastLoginAt: new Date().toISOString(),
         isLoggedIn: false,
-        rememberMe: false,
+        rememberMe: true,
         isAdmin: true
       };
-      
+
       this.saveUser(adminUser);
     }
   }
+
   // User management
   static saveUser(user: UserAccount): void {
     const users = this.getAllUsers();
     const existingIndex = users.findIndex(u => u.email === user.email);
-    
+
     if (existingIndex >= 0) {
       users[existingIndex] = user;
     } else {
       users.push(user);
     }
-    
+
     localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
   }
 
@@ -98,8 +100,7 @@ export class StorageManager {
     const users = this.getAllUsers();
     const filteredUsers = users.filter(u => u.email !== email);
     localStorage.setItem(this.USERS_KEY, JSON.stringify(filteredUsers));
-    
-    // Xóa tin đăng của user
+
     const properties = this.getAllProperties();
     const filteredProperties = properties.filter(p => p.userEmail !== email);
     localStorage.setItem(this.PROPERTIES_KEY, JSON.stringify(filteredProperties));
@@ -122,13 +123,13 @@ export class StorageManager {
   static saveProperty(property: PropertyListing): void {
     const properties = this.getAllProperties();
     const existingIndex = properties.findIndex(p => p.id === property.id);
-    
+
     if (existingIndex >= 0) {
       properties[existingIndex] = property;
     } else {
       properties.push(property);
     }
-    
+
     localStorage.setItem(this.PROPERTIES_KEY, JSON.stringify(properties));
   }
 
@@ -158,6 +159,7 @@ export class StorageManager {
     const user = this.getUserByEmail(email);
     if (user && user.password === password) {
       user.isLoggedIn = true;
+      user.rememberMe = true; // ✅ Luôn ghi nhớ đăng nhập
       this.saveUser(user);
       this.setCurrentUser(user);
       return user;
@@ -174,8 +176,7 @@ export class StorageManager {
     this.clearCurrentUser();
   }
 
-  static register(userData: Omit<UserAccount, 'registeredAt' | 'lastLoginAt' | 'isLoggedIn'>): UserAccount | null {
-    // Kiểm tra email đã tồn tại
+  static register(userData: Omit<UserAccount, 'registeredAt' | 'lastLoginAt' | 'isLoggedIn' | 'rememberMe'>): UserAccount | null {
     if (this.getUserByEmail(userData.email)) {
       return null;
     }
@@ -184,7 +185,8 @@ export class StorageManager {
       ...userData,
       registeredAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
-      isLoggedIn: true
+      isLoggedIn: true,
+      rememberMe: true // ✅ Mặc định ghi nhớ luôn
     };
 
     this.saveUser(newUser);
