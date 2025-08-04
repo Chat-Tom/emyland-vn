@@ -43,7 +43,7 @@ const Header = () => {
             <Link to="/" className="flex flex-col items-center">
               <div className="flex items-center gap-2">
                 <img 
-                  src="https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754128379233_45efa0a3.png" 
+                  src="/logo-emyland.png"
                   alt="EmyLand Logo" 
                   className="h-8 w-8 object-cover rounded-full"
                 />
