@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './index.css';
-import { StorageManager } from 'import ... from '../utils/storage';
+import { StorageManager } from '../utils/storage';
 
 // Khởi tạo tài khoản admin khi app start (chỉ chạy 1 lần khi app mount)
 StorageManager.initializeAdmin();
