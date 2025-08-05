@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 
+// Lấy biến môi trường từ hệ thống deploy (Vercel, v.v.)
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
 const EMAIL_FROM = process.env.EMAIL_FROM || EMAIL_USER;
@@ -16,6 +17,12 @@ export const transporter = nodemailer.createTransport({
   },
 });
 
+/**
+ * Gửi email cấp lại mật khẩu mới cho user.
+ * @param to Email người nhận
+ * @param userName Tên hiển thị (có thể để mặc định nếu chưa có DB userName)
+ * @param newPassword Mật khẩu mới
+ */
 export async function sendPasswordResetEmail(to: string, userName: string, newPassword: string) {
   const mailOptions = {
     from: EMAIL_FROM,
