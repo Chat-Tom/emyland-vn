@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sendPasswordResetEmail } from '../utils/mailer';
-import { generateResetToken, saveResetToken } from '../utils/resetTokenStore';
-// import { getUserByEmail } from '../utils/userStore'; // Nếu cần check user tồn tại
+import { sendPasswordResetEmail } from '../../utils/mailer';
+import { generateResetToken, saveResetToken } from '../../utils/resetTokenStore';
+// import { getUserByEmail } from '../../utils/userStore'; // Nếu cần check user tồn tại
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
