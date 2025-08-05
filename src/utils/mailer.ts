@@ -16,20 +16,19 @@ export const transporter = nodemailer.createTransport({
   },
 });
 
-export async function sendPasswordResetEmail(to: string, resetLink: string) {
+export async function sendPasswordResetEmail(to: string, userName: string, newPassword: string) {
   const mailOptions = {
     from: EMAIL_FROM,
     to,
     subject: 'Khôi phục mật khẩu EmyLand.vn',
     html: `
-      <h2>Khôi phục mật khẩu EmyLand.vn</h2>
-      <p>Bạn (hoặc ai đó) vừa yêu cầu đặt lại mật khẩu. Nếu không phải bạn, hãy bỏ qua email này.</p>
-      <p>Để tạo mật khẩu mới, vui lòng nhấp vào đường link sau:</p>
-      <a href="${resetLink}" target="_blank" style="color:#1570EF;">Tạo mật khẩu mới</a>
-      <p>Nếu bạn không nhấp được, sao chép và dán vào trình duyệt: <br/><b>${resetLink}</b></p>
-      <p><i>Đường link chỉ có hiệu lực trong 15 phút.</i></p>
+      <h2>Xin chào ${userName},</h2>
+      <p>Bạn vừa yêu cầu khôi phục mật khẩu cho tài khoản EmyLand.vn.</p>
+      <p>Mật khẩu mới của bạn là:</p>
+      <h3 style="color:#1570EF;">${newPassword}</h3>
+      <p>Hãy đăng nhập và đổi lại mật khẩu ngay để đảm bảo an toàn!</p>
       <hr />
-      <p>Trợ lý EmyLand</p>
+      <p><i>Đây là email tự động, vui lòng không phản hồi lại.</i></p>
     `
   };
   await transporter.sendMail(mailOptions);
