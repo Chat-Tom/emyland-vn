@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sendPasswordResetEmail } from '../utils/mailer'; // Đã sửa đường dẫn
+import { sendPasswordResetLink } from '../utils/mailer'; // Đã sửa đường dẫn
 import { generateResetToken, saveResetToken } from '../utils/resetTokenStore'; // Đã sửa đường dẫn
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const resetLink = `${baseUrl}/reset-password?token=${token}`;
 
   try {
-    await sendPasswordResetEmail(email, resetLink);
+    await sendPasswordResetLink(email, resetLink);
     return res.status(200).json({ message: 'Đã gửi email khôi phục mật khẩu!' });
   } catch (error) {
     console.error('Lỗi gửi email:', error);
