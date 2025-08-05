@@ -1,52 +1,41 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import nodemailer from 'nodemailer';
+import { NextApiRequest, NextApiResponse } from 'next';
+import { createResetToken } from '../utils/resetTokenStore'; // Tạo token lưu tạm
+import { sendMail } from '../utils/mailer'; // Hàm gửi mail
 
-// API route: POST /api/send-password-reset
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return res.status(405).end();
 
   const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Thiếu email' });
-  }
+  if (!email) return res.status(400).json({ error: 'Thiếu email' });
 
-  const userName = 'Khách hàng';
-  const newPassword = Math.random().toString(36).slice(-8);
+  // Kiểm tra user tồn tại trong hệ thống (nếu có DB user thì truy vấn tại đây)
+  // const user = await getUserByEmail(email);
+  // if (!user) return res.status(404).json({ error: 'Email không tồn tại' });
 
-  try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER, // Lấy từ biến môi trường Vercel
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+  // 1. Sinh token khôi phục
+  const token = createResetToken(email);
 
-    await transporter.sendMail({
-      from: `"Trợ lý EmyLand" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Khôi phục mật khẩu EmyLand.vn',
-      html: `
-        <div style="font-family:Arial,sans-serif;padding:24px;border-radius:8px;background:#fff7f0">
-          <h2 style="color:#d62828">Xin chào ${userName},</h2>
-          <p>Bạn vừa yêu cầu khôi phục mật khẩu cho tài khoản EmyLand.vn.</p>
-          <p><strong>Mật khẩu mới của bạn:</strong></p>
-          <div style="background:#eefbe7;padding:12px 24px;border-radius:4px;display:inline-block;font-size:18px;margin:8px 0">
-            ${newPassword}
-          </div>
-          <p style="margin-top:18px">Hãy đăng nhập và đổi lại mật khẩu ngay để đảm bảo an toàn.</p>
-          <hr style="margin:24px 0"/>
-          <div style="font-size:12px;color:#888">Đây là email tự động, vui lòng không phản hồi lại.</div>
-        </div>
-      `,
-    });
+  // 2. Link đặt lại mật khẩu (lấy từ biến môi trường base url FE hoặc hardcode cũng được)
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://emyland-vn.vercel.app';
+  const resetLink = `${baseUrl}/reset-password?token=${token}`;
 
-    console.log(`[API] Đã gửi mail khôi phục cho: ${email} (mật khẩu mới: ${newPassword})`);
-    res.status(200).json({ message: 'Đã gửi email khôi phục' });
-  } catch (error) {
-    console.error('Email error:', error);
-    res.status(500).json({ error: 'Không gửi được email' });
-  }
+  // 3. Gửi mail link đặt lại mật khẩu
+  await sendMail({
+    to: email,
+    subject: 'Khôi phục mật khẩu EmyLand.vn',
+    html: `
+      <p>Xin chào,</p>
+      <p>Bạn vừa yêu cầu đặt lại mật khẩu tài khoản tại <b>EmyLand.vn</b>.</p>
+      <p>Nhấn vào liên kết dưới đây để đổi mật khẩu mới:</p>
+      <p><a href="${resetLink}">${resetLink}</a></p>
+      <p>Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
+      <hr>
+      <small>Email này được gửi tự động, vui lòng không trả lời.</small>
+    `
+  });
+
+  // 4. Chỉ trả kết quả chung, KHÔNG trả token, KHÔNG trả password ra FE!
+  return res.status(200).json({
+    message: 'Đã gửi email hướng dẫn khôi phục mật khẩu. Vui lòng kiểm tra hộp thư đến (hoặc cả Spam).'
+  });
 }

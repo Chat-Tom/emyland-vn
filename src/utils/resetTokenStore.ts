@@ -1,26 +1,22 @@
-// utils/resetTokenStore.ts
-type TokenData = {
-  email: string;
-  expires: number; // timestamp
-};
+const tokenMap = new Map<string, { email: string, expiresAt: number }>();
 
-const store = new Map<string, TokenData>();
-
-export function saveToken(token: string, email: string, expiresInMinutes = 30) {
-  const expires = Date.now() + expiresInMinutes * 60 * 1000;
-  store.set(token, { email, expires });
+export function createResetToken(email: string): string {
+  const token = Math.random().toString(36).substr(2, 16);
+  const expiresAt = Date.now() + 1000 * 60 * 30; // 30 phút
+  tokenMap.set(token, { email, expiresAt });
+  return token;
 }
 
 export function getEmailByToken(token: string): string | null {
-  const data = store.get(token);
+  const data = tokenMap.get(token);
   if (!data) return null;
-  if (Date.now() > data.expires) {
-    store.delete(token);
+  if (Date.now() > data.expiresAt) {
+    tokenMap.delete(token);
     return null;
   }
   return data.email;
 }
 
 export function removeToken(token: string) {
-  store.delete(token);
+  tokenMap.delete(token);
 }
