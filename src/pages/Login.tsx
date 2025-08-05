@@ -10,122 +10,86 @@ import { useAuth } from '../contexts/AuthContext';
 const Login = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  });
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const currentUser = StorageManager.getCurrentUser();
-    if (currentUser && currentUser.isLoggedIn) {
-      navigate('/post-property');
-    }
+    if (currentUser?.isLoggedIn) navigate('/post-property');
   }, [navigate]);
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
-
-    if (!formData.email) {
-      newErrors.email = 'Email là bắt buộc';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email không hợp lệ';
-    }
-
-    if (!formData.password) {
-      newErrors.password = 'Mật khẩu là bắt buộc';
-    }
-
+    if (!formData.email) newErrors.email = 'Email là bắt buộc';
+    else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email không hợp lệ';
+    if (!formData.password) newErrors.password = 'Mật khẩu là bắt buộc';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
     setIsLoading(true);
-
     try {
       const user = StorageManager.getUserByEmail(formData.email);
-
       if (user && user.password === formData.password) {
         const updatedUser: UserAccount = {
           ...user,
           isLoggedIn: true,
           rememberMe: true,
-          lastLoginAt: new Date().toISOString()
+          lastLoginAt: new Date().toISOString(),
         };
-
         StorageManager.saveUser(updatedUser);
         StorageManager.setCurrentUser(updatedUser);
-        localStorage.setItem('user_email', updatedUser.email); // ✅ lưu email để khôi phục
-
+        localStorage.setItem('user_email', updatedUser.email);
         login(updatedUser);
-
-        if (updatedUser.isAdmin) {
-          navigate('/system-dashboard', { replace: true });
-        } else {
-          navigate('/post-property', { replace: true });
-        }
+        navigate(updatedUser.isAdmin ? '/system-dashboard' : '/post-property', { replace: true });
       } else {
         setErrors({ general: 'Email hoặc mật khẩu không đúng' });
       }
-    } catch (error) {
+    } catch {
       setErrors({ general: 'Có lỗi xảy ra. Vui lòng thử lại.' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // === LOGIC KHÔI PHỤC MẬT KHẨU CHUẨN ===
+  // ✅ GỌI API THẬT GỬI LINK QUA EMAIL (KHÔNG GỬI MẬT KHẨU MỚI)
   const handleForgotPassword = async () => {
     const storedEmail = localStorage.getItem('user_email') || formData.email;
     if (!storedEmail) {
-      alert('Không tìm thấy email đã đăng ký. Vui lòng nhập email trước khi khôi phục mật khẩu.');
+      alert('Vui lòng nhập email trước khi khôi phục mật khẩu.');
       return;
     }
 
-    const confirmReset = window.confirm(
-      `Chúng tôi sẽ gửi hướng dẫn khôi phục mật khẩu đến:\n\n${storedEmail}\n\nBạn có muốn tiếp tục?`
-    );
-    if (!confirmReset) return;
+    const confirm = window.confirm(`Gửi link khôi phục mật khẩu đến:\n\n${storedEmail}?`);
+    if (!confirm) return;
 
-    // Sinh mật khẩu mới
-    const newPassword = Math.random().toString(36).slice(-8);
-    // Gửi mail (chỉ giả lập ở local, nếu muốn gọi API thật thì sửa tại đây)
-    // Gửi password qua email -- ở đây chỉ giả lập alert
-    setTimeout(() => {
-      alert(`📩 Đã gửi mật khẩu mới tới email của bạn!\n\nMật khẩu mới: ${newPassword}`);
-    }, 500);
+    try {
+      const res = await fetch('/api/send-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: storedEmail }),
+      });
 
-    // Update password mới vào localStorage
-    const users = JSON.parse(localStorage.getItem('users') || '[]');
-    const idx = users.findIndex((u: UserAccount) => u.email === storedEmail);
-    if (idx !== -1) {
-      users[idx].password = newPassword;
-      localStorage.setItem('users', JSON.stringify(users));
+      if (res.ok) {
+        alert('📩 Đã gửi email khôi phục. Vui lòng kiểm tra hộp thư (hoặc thư rác).');
+      } else {
+        alert('Không thể gửi email. Vui lòng thử lại sau.');
+      }
+    } catch (err) {
+      alert('Lỗi hệ thống. Vui lòng thử lại.');
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
   };
 
   return (
@@ -138,12 +102,8 @@ const Login = () => {
               EmyLand
             </span>
           </div>
-          <CardTitle className="text-2xl font-bold text-gray-800">
-            Đăng nhập
-          </CardTitle>
-          <p className="text-gray-600 mt-2">
-            Đăng nhập để tiếp tục đăng tin bất động sản
-          </p>
+          <CardTitle className="text-2xl font-bold text-gray-800">Đăng nhập</CardTitle>
+          <p className="text-gray-600 mt-2">Đăng nhập để tiếp tục đăng tin bất động sản</p>
         </CardHeader>
 
         <CardContent>
@@ -155,9 +115,7 @@ const Login = () => {
             )}
 
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-gray-700">
-                Email *
-              </label>
+              <label htmlFor="email" className="text-sm font-medium text-gray-700">Email *</label>
               <Input
                 id="email"
                 name="email"
@@ -165,17 +123,13 @@ const Login = () => {
                 value={formData.email}
                 onChange={handleChange}
                 placeholder="Nhập địa chỉ email"
-                className={`${errors.email ? 'border-red-500 focus:border-red-500' : ''}`}
+                className={errors.email ? 'border-red-500 focus:border-red-500' : ''}
               />
-              {errors.email && (
-                <p className="text-red-500 text-sm">{errors.email}</p>
-              )}
+              {errors.email && <p className="text-red-500 text-sm">{errors.email}</p>}
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium text-gray-700">
-                Mật khẩu *
-              </label>
+              <label htmlFor="password" className="text-sm font-medium text-gray-700">Mật khẩu *</label>
               <div className="relative">
                 <Input
                   id="password"
@@ -194,9 +148,7 @@ const Login = () => {
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
-              {errors.password && (
-                <p className="text-red-500 text-sm">{errors.password}</p>
-              )}
+              {errors.password && <p className="text-red-500 text-sm">{errors.password}</p>}
             </div>
 
             <div className="flex justify-end">
