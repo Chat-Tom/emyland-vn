@@ -1,25 +1,36 @@
 import nodemailer from 'nodemailer';
 
-export async function sendResetEmail(email: string, resetLink: string) {
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER, // email của bạn
-      pass: process.env.EMAIL_PASS, // app password
-    },
-  });
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
+const EMAIL_FROM = process.env.EMAIL_FROM || EMAIL_USER;
 
-  await transporter.sendMail({
-    from: '"Trợ lý EmyLand" <emyland.vn@gmail.com>',
-    to: email,
-    subject: 'Đặt lại mật khẩu EmyLand.vn',
+if (!EMAIL_USER || !EMAIL_PASS) {
+  throw new Error('Thiếu thông tin email hoặc mật khẩu ứng dụng trong biến môi trường');
+}
+
+export const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: EMAIL_USER,
+    pass: EMAIL_PASS,
+  },
+});
+
+export async function sendPasswordResetEmail(to: string, resetLink: string) {
+  const mailOptions = {
+    from: EMAIL_FROM,
+    to,
+    subject: 'Khôi phục mật khẩu EmyLand.vn',
     html: `
-      <p>Xin chào,</p>
-      <p>Bạn vừa yêu cầu đặt lại mật khẩu. Vui lòng bấm vào liên kết dưới đây để đổi mật khẩu mới:</p>
-      <p><a href="${resetLink}" target="_blank">Đặt lại mật khẩu</a></p>
-      <p>Nếu không phải bạn yêu cầu, hãy bỏ qua email này.</p>
-      <hr>
-      <p><small>Trân trọng, EmyLand.vn</small></p>
-    `,
-  });
+      <h2>Khôi phục mật khẩu EmyLand.vn</h2>
+      <p>Bạn (hoặc ai đó) vừa yêu cầu đặt lại mật khẩu. Nếu không phải bạn, hãy bỏ qua email này.</p>
+      <p>Để tạo mật khẩu mới, vui lòng nhấp vào đường link sau:</p>
+      <a href="${resetLink}" target="_blank" style="color:#1570EF;">Tạo mật khẩu mới</a>
+      <p>Nếu bạn không nhấp được, sao chép và dán vào trình duyệt: <br/><b>${resetLink}</b></p>
+      <p><i>Đường link chỉ có hiệu lực trong 15 phút.</i></p>
+      <hr />
+      <p>Trợ lý EmyLand</p>
+    `
+  };
+  await transporter.sendMail(mailOptions);
 }
