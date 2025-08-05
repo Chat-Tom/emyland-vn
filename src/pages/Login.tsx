@@ -64,11 +64,9 @@ const Login = () => {
 
         StorageManager.saveUser(updatedUser);
         StorageManager.setCurrentUser(updatedUser);
-        localStorage.setItem('user_email', updatedUser.email); // ✅ lưu email để khôi phục
+        localStorage.setItem('user_email', updatedUser.email);
 
         login(updatedUser);
-
-        console.log('✅ User logged in successfully:', updatedUser.email);
 
         if (updatedUser.isAdmin) {
           navigate('/system-dashboard', { replace: true });
@@ -98,6 +96,36 @@ const Login = () => {
         ...prev,
         [name]: ''
       }));
+    }
+  };
+
+  // Xử lý gửi yêu cầu khôi phục mật khẩu (chuẩn API backend)
+  const handleForgotPassword = async () => {
+    const storedEmail = localStorage.getItem('user_email') || formData.email;
+    if (!storedEmail || !/\S+@\S+\.\S+/.test(storedEmail)) {
+      alert('Vui lòng nhập đúng địa chỉ email đã đăng ký để khôi phục mật khẩu!');
+      return;
+    }
+
+    const confirmReset = window.confirm(
+      `Chúng tôi sẽ gửi hướng dẫn khôi phục mật khẩu đến:\n\n${storedEmail}\n\nBạn có muốn tiếp tục?`
+    );
+    if (!confirmReset) return;
+
+    try {
+      const res = await fetch('/api/send-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: storedEmail }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('📩 Liên kết khôi phục mật khẩu đã được gửi đến email của bạn!');
+      } else {
+        alert(data.error || 'Có lỗi khi gửi email!');
+      }
+    } catch (err) {
+      alert('Không thể kết nối server. Vui lòng thử lại.');
     }
   };
 
@@ -163,6 +191,7 @@ const Login = () => {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  tabIndex={-1}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
@@ -176,21 +205,7 @@ const Login = () => {
               <button
                 type="button"
                 className="text-sm text-blue-600 hover:underline"
-                onClick={() => {
-                  const storedEmail = localStorage.getItem('user_email');
-                  if (!storedEmail) {
-                    alert('Không tìm thấy email đã đăng ký. Vui lòng đăng nhập lại trước khi khôi phục mật khẩu.');
-                    return;
-                  }
-
-                  const confirmReset = window.confirm(
-                    `Chúng tôi sẽ gửi hướng dẫn khôi phục mật khẩu đến:\n\n${storedEmail}\n\nBạn có muốn tiếp tục?`
-                  );
-
-                  if (confirmReset) {
-                    alert('📩 Liên kết khôi phục mật khẩu đã được gửi đến email của bạn!');
-                  }
-                }}
+                onClick={handleForgotPassword}
               >
                 Quên mật khẩu?
               </button>
