@@ -15,7 +15,7 @@ import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
 import LocationInput from "@/components/LocationInput";
 import { vietnamProvinces, vietnamWards } from "@/data/vietnam-locations";
-import { StorageManager, PropertyListing } from "@/utils/storage";
+import { StorageManager, PropertyListing } from "../../utils/storage";
 import { PropertyService } from "@/services/propertyService";
 
 export default function PostProperty() {
