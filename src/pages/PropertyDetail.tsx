@@ -7,6 +7,32 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Bed, Bath, Square, Phone, Mail, Heart, Share2, Calendar, Eye } from "lucide-react";
 import { PropertyService } from "@/services/propertyService";
+
+// ===== TYPE FIX BỔ SUNG =====
+type Owner = {
+  name: string;
+  phone: string;
+  email: string;
+};
+
+type EnrichedProperty = {
+  id: string;
+  title: string;
+  description: string;
+  price: number;
+  area: number;
+  bedrooms: number;
+  bathrooms: number;
+  features: string[];
+  images: string[];
+  owner: Owner;
+  posted: string;
+  created_at: string;
+  province?: string;
+  ward?: string;
+  address?: string;
+};
+
 export default function PropertyDetail() {
   const { id } = useParams();
 
@@ -14,7 +40,6 @@ export default function PropertyDetail() {
     queryKey: ["property", id],
     queryFn: async () => {
       if (!id) throw new Error("Property ID is required");
-      
       try {
         const result = await PropertyService.getPropertyById(id);
         return result;
@@ -25,7 +50,6 @@ export default function PropertyDetail() {
           id: id,
           title: "Căn hộ cao cấp Vinhomes Central Park - View sông tuyệt đẹp",
           price: 8500000000,
-          location: "Quận Bình Thạnh, TP.HCM",
           area: 85,
           description: "Căn hộ cao cấp với thiết kế hiện đại, view sông Sài Gòn tuyệt đẹp. Đầy đủ nội thất cao cấp, tiện ích đẳng cấp 5 sao.",
           phone: "0903496118",
@@ -34,25 +58,37 @@ export default function PropertyDetail() {
             "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800",
             "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800"
           ],
-          created_at: "2024-01-15T00:00:00Z"
+          created_at: "2024-01-15T00:00:00Z",
+          province: "TP.HCM",
+          ward: "",
+          address: "Quận Bình Thạnh"
         };
       }
     },
     enabled: !!id
   });
 
-  // Add mock data for missing fields
-  const enrichedProperty = property ? {
-    ...property,
-    bedrooms: 2,
-    bathrooms: 2,
-    features: ["Hồ bơi", "Gym", "Sân tennis", "Siêu thị", "Trường học"],
+  // ===== ENRICHED PROPERTY CHUẨN TYPE =====
+  const enrichedProperty: EnrichedProperty | null = property ? {
+    id: (property as any).id,
+    title: (property as any).title,
+    description: (property as any).description,
+    price: (property as any).price ?? 0,
+    area: (property as any).area ?? 0,
+    bedrooms: (property as any).bedrooms ?? 2,
+    bathrooms: (property as any).bathrooms ?? 2,
+    features: (property as any).features ?? ["Hồ bơi", "Gym", "Sân tennis", "Siêu thị", "Trường học"],
+    images: (property as any).images ?? [],
     owner: {
       name: "Chính chủ",
-      phone: property.phone || "0903496118",
+      phone: (property as any).phone || "0903496118",
       email: "owner@example.com"
     },
-    posted: property.created_at || "2024-01-15T00:00:00Z"
+    posted: (property as any).created_at || "2024-01-15T00:00:00Z",
+    created_at: (property as any).created_at || "2024-01-15T00:00:00Z",
+    province: (property as any).province ?? "",
+    ward: (property as any).ward ?? "",
+    address: (property as any).address ?? ""
   } : null;
 
   if (isLoading) {
@@ -93,6 +129,8 @@ export default function PropertyDetail() {
     return `${(price / 1000000).toFixed(0)} triệu`;
   };
 
+  // ========== RENDER ==========
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
       <Header />
@@ -132,7 +170,12 @@ export default function PropertyDetail() {
                     </h1>
                     <div className="flex items-center gap-2 text-gray-600 mb-4">
                       <MapPin className="w-5 h-5 text-red-500" />
-                      <span className="font-medium">{enrichedProperty.location}</span>
+                      {/* Sửa location: */}
+                      <span className="font-medium">
+                        {[enrichedProperty.address, enrichedProperty.ward, enrichedProperty.province]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </span>
                     </div>
                   </div>
                   <div className="flex gap-2">

@@ -1,16 +1,20 @@
 import nodemailer from 'nodemailer';
 
+// NÊN dùng biến môi trường để bảo mật tài khoản (khuyên dùng khi deploy)
+const MAIL_USER = process.env.MAIL_USER || 'emyland.vn@gmail.com';
+const MAIL_PASS = process.env.MAIL_PASS || 'ysrxergbeamivrli';
+
 export const sendPasswordResetEmail = async (toEmail: string, userName: string, newPassword: string) => {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: 'emyland.vn@gmail.com',
-      pass: 'ysrxergbeamivrli', // chính là App Password
+      user: MAIL_USER,
+      pass: MAIL_PASS,
     },
   });
 
   const mailOptions = {
-    from: '"Trợ lý EmyLand" <emyland.vn@gmail.com>',
+    from: `"Trợ lý EmyLand" <${MAIL_USER}>`,
     to: toEmail,
     subject: 'Khôi phục mật khẩu EmyLand.vn',
     html: `
