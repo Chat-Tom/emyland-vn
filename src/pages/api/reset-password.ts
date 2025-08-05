@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getEmailByToken, removeToken } from '../../utils/resetTokenStore';
-// import { updateUserPassword } from '../../utils/userStore'; // tuỳ hệ thống
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -11,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const email = getEmailByToken(token);
   if (!email) return res.status(400).json({ error: 'Token không hợp lệ hoặc đã hết hạn' });
 
-  // await updateUserPassword(email, newPassword); // tuỳ hệ thống
+  // TODO: Update user password vào DB thực tế ở đây
 
   removeToken(token);
   return res.status(200).json({ message: 'Đặt lại mật khẩu thành công!' });
