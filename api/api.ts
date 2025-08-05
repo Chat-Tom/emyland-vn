@@ -1,5 +1,5 @@
 import express from 'express';
-import { sendPasswordResetEmail } from './mailer'; // Không cần .ts nếu dùng Node/ESM chuẩn
+import { sendPasswordResetEmail } from '../utils/mailer'; // Không cần .ts nếu dùng Node/ESM chuẩn
 
 const router = express.Router();
 
