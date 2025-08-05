@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StorageManager, UserAccount, PropertyListing } from '@/utils/storage';
+import { StorageManager, UserAccount, PropertyListing } from '../../utils/storage';
 import { Users, Home, Settings, BarChart3, Trash2, Eye } from 'lucide-react';
 import LogsContent from '@/components/LogsContent';
 
