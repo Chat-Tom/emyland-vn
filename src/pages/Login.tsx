@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Eye, EyeOff, Building2 } from 'lucide-react';
-import { StorageManager, UserAccount } from '../utils/storage';
+import { StorageManager, UserAccount } from '../../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login = () => {
