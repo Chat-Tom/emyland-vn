@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { StorageManager, PropertyListing, UserAccount } from '@/utils/storage';
+import { StorageManager, PropertyListing, UserAccount } from '../../utils/storage';
 import { User, Home, Edit, Trash2, Eye, Plus } from 'lucide-react';
 
 const Dashboard = () => {
