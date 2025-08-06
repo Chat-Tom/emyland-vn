@@ -3,6 +3,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { AppProvider } from '@/contexts/AppContext';
+
 import Home from '@/pages/Home';
 import Properties from '@/pages/Properties';
 import PropertyDetail from '@/pages/PropertyDetail';
@@ -15,7 +16,9 @@ import PlanningLookup from '@/pages/PlanningLookup';
 import ValuationCertificate from '@/pages/ValuationCertificate';
 import LogsDashboard from '@/pages/LogsDashboard';
 import NotFound from '@/pages/NotFound';
+
 import './App.css';
+
 function App() {
   return (
     <ThemeProvider defaultTheme="light" storageKey="emyland-ui-theme">
@@ -34,7 +37,7 @@ function App() {
                 <Route path="/system-dashboard" element={<SystemDashboard />} />
                 <Route path="/planning-lookup" element={<PlanningLookup />} />
                 <Route path="/valuation-certificate" element={<ValuationCertificate />} />
-
+                <Route path="/logs-dashboard" element={<LogsDashboard />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <Toaster />
