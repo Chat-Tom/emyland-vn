@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import PropertyCard from "@/components/PropertyCard";
 import { provinces as PROVINCES_ORG } from "@/data/vietnam-locations";
-import { PropertyService, type Property as DBProperty } from "@/services/PropertyService";
+import { PropertyService, type Property as DBProperty } from "@/services/propertyService";
 
 /* ===== Types ===== */
 type ListingType = "sell" | "rent";

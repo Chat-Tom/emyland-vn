@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import PropertyCard from "@/components/PropertyCard";
 import { provinces as PROVINCES_ORG } from "@/data/vietnam-locations";
-import { PropertyService, type Property as DBProperty } from "@/services/PropertyService";
+import { PropertyService, type Property as DBProperty } from "@/services/propertyService";
 import "@/index.css";
 
 type ListingType = "sell" | "rent";

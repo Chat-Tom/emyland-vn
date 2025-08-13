@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 // ✅ THÊM: nguồn dữ liệu thật và fallback local
-import { PropertyService } from "@/services/PropertyService";
+import { PropertyService } from "@/services/propertyService";
 import { StorageManager, type PropertyListing } from "@utils/storage";
 
 type ListingType = "sell" | "rent";
