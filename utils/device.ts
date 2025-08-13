@@ -22,3 +22,4 @@ export function getDeviceId(): string {
   }
   return id;
 }
+export const getOrCreateDeviceId = getDeviceId;
