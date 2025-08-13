@@ -1,16 +1,33 @@
-// vite.config.ts
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react-swc';
-import { fileURLToPath, URL } from 'node:url';
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
 
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@utils': fileURLToPath(new URL('./utils', import.meta.url)), // alias tới utils ở thư mục gốc
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "useDefineForClassFields": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@utils/*": ["utils/*"]
     },
+
+    "types": ["vite/client", "node"]
   },
-  server: { host: true, port: 8080, strictPort: false },
-  preview: { host: true, port: 8080, strictPort: false },
-});
+  "include": [
+    "src/**/*",
+    "utils/**/*",
+    "vite.config.ts",
+    "tailwind.config.ts",
+    "postcss.config.js",
+    "env.d.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
