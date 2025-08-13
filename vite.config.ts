@@ -1,33 +1,15 @@
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react-swc'
+import path from 'node:path'
 
-    "strict": true,
-    "skipLibCheck": true,
-    "noEmit": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "useDefineForClassFields": true,
-
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"],
-      "@utils/*": ["utils/*"]
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@utils': path.resolve(__dirname, './utils'),
     },
-
-    "types": ["vite/client", "node"]
   },
-  "include": [
-    "src/**/*",
-    "utils/**/*",
-    "vite.config.ts",
-    "tailwind.config.ts",
-    "postcss.config.js",
-    "env.d.ts"
-  ],
-  "exclude": ["node_modules", "dist"]
-}
+  server: { host: true, port: 8080 },
+  preview: { host: true, port: 8080 },
+})
