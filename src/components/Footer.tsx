@@ -1,4 +1,6 @@
+// src/components/Footer.tsx
 import React from "react";
+import { Link } from "react-router-dom";
 import { Building, Phone, Mail, MapPin, Facebook, Youtube, Zap } from "lucide-react";
 
 const Footer: React.FC = () => {
@@ -18,7 +20,7 @@ const Footer: React.FC = () => {
               </div>
             </div>
             <p className="text-gray-300 text-sm leading-relaxed">
-              Nền tảng bất động sản chính chủ hàng đầu Việt Nam. 
+              Nền tảng bất động sản chính chủ hàng đầu Việt Nam.
               Kết nối trực tiếp chủ nhà và khách hàng.
             </p>
             <div className="flex gap-3">
@@ -38,13 +40,7 @@ const Footer: React.FC = () => {
           <div className="space-y-4">
             <h4 className="text-lg font-semibold text-orange-300">Liên kết nhanh</h4>
             <ul className="space-y-2 text-sm">
-              {[
-                "Trang chủ",
-                "Bất động sản",
-                "Tin tức",
-                "Hướng dẫn",
-                "Liên hệ"
-              ].map((item, index) => (
+              {["Trang chủ", "Bất động sản", "Tin tức", "Hướng dẫn", "Liên hệ"].map((item, index) => (
                 <li key={index}>
                   <a href="#" className="text-gray-300 hover:text-orange-300 transition-colors">
                     {item}
@@ -58,19 +54,15 @@ const Footer: React.FC = () => {
           <div className="space-y-4">
             <h4 className="text-lg font-semibold text-orange-300">Dịch vụ</h4>
             <ul className="space-y-2 text-sm">
-              {[
-                "Mua bán BĐS",
-                "Cho thuê",
-                "Thẩm định giá",
-                "Tư vấn đầu tư",
-                "Tra cứu quy hoạch"
-              ].map((item, index) => (
-                <li key={index}>
-                  <a href="#" className="text-gray-300 hover:text-orange-300 transition-colors">
-                    {item}
-                  </a>
-                </li>
-              ))}
+              {["Mua bán BĐS", "Cho thuê", "Thẩm định giá", "Tư vấn đầu tư", "Tra cứu quy hoạch"].map(
+                (item, index) => (
+                  <li key={index}>
+                    <a href="#" className="text-gray-300 hover:text-orange-300 transition-colors">
+                      {item}
+                    </a>
+                  </li>
+                )
+              )}
             </ul>
           </div>
 
@@ -80,17 +72,20 @@ const Footer: React.FC = () => {
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-3">
                 <Phone className="w-4 h-4 text-green-400" />
-                <span className="text-gray-300">0903.496.118</span>
+                {/* giữ nguyên nội dung; thêm tel/mailto để tiện gọi/mail nếu muốn */}
+                <a href="tel:0903496118" className="text-gray-300 hover:text-white transition-colors">
+                  0903.496.118
+                </a>
               </div>
               <div className="flex items-center gap-3">
                 <Mail className="w-4 h-4 text-blue-400" />
-                <span className="text-gray-300">info@emyland.vn</span>
+                <a href="mailto:info@emyland.vn" className="text-gray-300 hover:text-white transition-colors">
+                  info@emyland.vn
+                </a>
               </div>
               <div className="flex items-start gap-3">
                 <MapPin className="w-4 h-4 text-red-400 mt-0.5" />
-                <span className="text-gray-300">
-                  TP. Hồ Chí Minh, Việt Nam
-                </span>
+                <span className="text-gray-300">TP. Hồ Chí Minh, Việt Nam</span>
               </div>
             </div>
           </div>
@@ -99,21 +94,20 @@ const Footer: React.FC = () => {
         {/* Admin Section */}
         <div className="border-t border-gray-700 mt-8 pt-6">
           <div className="text-center">
-            <a 
-              href="/system-dashboard" 
+            {/* dùng Link để không reload trang; dùng alias /system → /system-dashboard */}
+            <Link
+              to="/system"
               className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-medium rounded-lg hover:from-orange-600 hover:to-red-600 transition-all duration-300 shadow-lg hover:shadow-xl"
             >
               <span>🔧 Quản lý hệ thống</span>
-            </a>
+            </Link>
           </div>
         </div>
 
         {/* Bottom Bar */}
         <div className="border-t border-gray-700 mt-8 pt-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-sm text-gray-400">
-              © 2024 EmyLand.vn. Tất cả quyền được bảo lưu.
-            </p>
+            <p className="text-sm text-gray-400">© 2024 EmyLand.vn. Tất cả quyền được bảo lưu.</p>
             <div className="flex gap-6 text-sm">
               <a href="#" className="text-gray-400 hover:text-orange-300 transition-colors">
                 Điều khoản sử dụng

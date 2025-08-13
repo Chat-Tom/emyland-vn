@@ -1,305 +1,337 @@
-import { useParams } from "react-router-dom";
+// src/pages/PropertyDetail.tsx
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Bed, Bath, Square, Phone, Mail, Heart, Share2, Calendar, Eye } from "lucide-react";
-import { PropertyService } from "@/services/propertyService";
+import { Button } from "@/components/ui/button";
 
-// ===== TYPE FIX BỔ SUNG =====
-type Owner = {
-  name: string;
-  phone: string;
-  email: string;
-};
+// ✅ THÊM: nguồn dữ liệu thật và fallback local
+import { PropertyService } from "@/services/PropertyService";
+import { StorageManager, type PropertyListing } from "@utils/storage";
 
-type EnrichedProperty = {
+type ListingType = "sell" | "rent";
+type Verify = "verified" | "pending" | "unverified";
+
+type Property = {
   id: string;
   title: string;
-  description: string;
-  price: number;
-  area: number;
-  bedrooms: number;
-  bathrooms: number;
-  features: string[];
-  images: string[];
-  owner: Owner;
-  posted: string;
-  created_at: string;
-  province?: string;
+  price?: number;
+  listingType?: ListingType;
+  addressLine?: string;
   ward?: string;
-  address?: string;
+  district?: string;
+  province?: string;
+  location?: string;
+  area?: number;
+  bedrooms?: number;
+  bathrooms?: number;
+  images?: string[];
+  description?: string;
+  verificationStatus?: Verify;
+  ownerName?: string;
+  ownerPhone?: string;
+  latitude?: number;
+  longitude?: number;
+  mapUrl?: string;
+  type?: string;
+  rating?: number;
 };
 
-export default function PropertyDetail() {
-  const { id } = useParams();
+// ✅ Placeholder SVG nội tuyến để không bị trắng khi lỗi ảnh
+const FALLBACK_SVG = encodeURIComponent(
+  `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'>
+    <defs><linearGradient id='g' x1='0' x2='1'>
+      <stop stop-color='#2563eb'/><stop offset='1' stop-color='#f97316'/></linearGradient></defs>
+    <rect width='1200' height='675' fill='url(#g)'/>
+    <text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle'
+      fill='white' font-family='Arial' font-size='44'>EmyLand</text>
+  </svg>`
+);
+const PLACEHOLDER = `data:image/svg+xml;charset=UTF-8,${FALLBACK_SVG}`;
 
-  const { data: property, isLoading, error } = useQuery({
-    queryKey: ["property", id],
+/* ---------- Helpers ---------- */
+function formatPriceVn(price?: number, listingType?: ListingType) {
+  if (!price || price <= 0) return "Thoả thuận";
+  if (listingType === "rent")
+    return `${Math.round(price / 1_000_000).toLocaleString("vi-VN")} triệu/tháng`;
+  if (price >= 1_000_000_000) return `${(price / 1_000_000_000).toFixed(2)} tỷ`;
+  return `${Math.round(price / 1_000_000).toLocaleString("vi-VN")} triệu`;
+}
+function verifyBadge(status?: Verify) {
+  if (status === "verified") return <Badge className="bg-emerald-600 text-white">Đã xác nhận chính chủ</Badge>;
+  if (status === "pending") return <Badge className="bg-amber-500 text-white">Đang xác nhận chính chủ</Badge>;
+  return null;
+}
+
+/* ---------- Normalize (giữ toàn bộ logic cũ) ---------- */
+function normalizeProperty(raw: any): Property {
+  if (!raw) return { id: "", title: "Tin bất động sản" };
+
+  const images: string[] =
+    raw.images ?? raw.photos ?? (raw.imageUrl ? [raw.imageUrl] : []) ?? [];
+
+  const latitude =
+    raw.latitude ?? raw.lat ?? (typeof raw.location === "object" ? raw.location?.lat : undefined);
+  const longitude =
+    raw.longitude ?? raw.lng ?? (typeof raw.location === "object" ? raw.location?.lng : undefined);
+  const mapUrl =
+    raw.mapUrl ??
+    (latitude && longitude ? `https://www.google.com/maps?q=${latitude},${longitude}` : undefined);
+
+  return {
+    id: raw.id ?? raw._id ?? raw.uuid ?? "",
+    title: raw.title ?? raw.name ?? raw.heading ?? "Tin bất động sản",
+    price: raw.price ?? raw.priceVnd ?? raw.sellPrice ?? raw.rentPrice ?? raw.amount,
+    listingType:
+      raw.listingType ?? (raw.rentPrice || raw.isRent ? "rent" : raw.isSell ? "sell" : undefined),
+
+    addressLine: raw.addressLine ?? raw.address ?? raw.streetAddress,
+    ward: raw.ward ?? raw.commune ?? raw.wardName,
+    district: raw.district ?? raw.districtName ?? raw.cityDistrict,
+    province: raw.province ?? raw.city ?? raw.provinceName,
+    location: typeof raw.location === "string" ? raw.location : raw.fullAddress,
+
+    area: raw.area ?? raw.acreage ?? raw.size ?? raw.square,
+    bedrooms: raw.bedrooms ?? raw.bedroom ?? raw.bed ?? raw.rooms?.bedrooms,
+    bathrooms: raw.bathrooms ?? raw.bathroom ?? raw.rooms?.bathrooms,
+
+    images,
+    description: raw.description ?? raw.desc ?? raw.content,
+    verificationStatus: raw.verificationStatus ?? (raw.isOwnerVerified ? "verified" : undefined),
+
+    ownerName: raw.ownerName ?? raw.contactName ?? raw.sellerName,
+    ownerPhone: raw.ownerPhone ?? raw.phone ?? raw.contactPhone ?? raw.sellerPhone,
+
+    latitude,
+    longitude,
+    mapUrl,
+
+    type: raw.type ?? raw.propertyType,
+    rating: raw.rating ?? 4.8,
+  };
+}
+
+// ✅ THÊM: chuẩn hoá từ localStorage (tin do người dùng đăng trên site)
+function normalizeFromLocal(p: PropertyListing | null): Property | null {
+  if (!p) return null;
+  return {
+    id: p.id,
+    title: p.title || "Tin bất động sản",
+    price: typeof p.price === "number" ? p.price : undefined,
+    listingType: "sell",
+    addressLine: p.location?.address,
+    ward: p.location?.ward,
+    district: p.location?.district,
+    province: p.location?.province,
+    location: [p.location?.address, p.location?.ward, p.location?.province].filter(Boolean).join(", "),
+    area: Number(p.area || 0),
+    bedrooms: (p as any).bedrooms, // nếu có
+    bathrooms: (p as any).bathrooms, // nếu có
+    images: Array.isArray(p.images) ? p.images : [],
+    description: p.description,
+    verificationStatus: p.contactInfo?.ownerVerified ? "verified" : undefined,
+    ownerName: p.contactInfo?.name,
+    ownerPhone: p.contactInfo?.phone,
+    type: p.propertyType,
+    rating: 4.8,
+  };
+}
+
+const buildMapsLink = (p: Property, address: string) => {
+  if (p.mapUrl) return p.mapUrl;
+  if (p.latitude && p.longitude) return `https://www.google.com/maps?q=${p.latitude},${p.longitude}`;
+  if (address) return `https://www.google.com/maps?q=${encodeURIComponent(address)}`;
+  return undefined;
+};
+
+/* ---------- Page ---------- */
+export default function PropertyDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const location = useLocation() as { state?: { property?: any } };
+
+  const stateProp = location.state?.property ? normalizeProperty(location.state.property) : undefined;
+
+  // ✅ SỬA: fetch thật theo id → Supabase trước, không có thì fallback local
+  const { data: fetchedProp, isLoading } = useQuery<Property | null>({
+    queryKey: ["property-detail", id],
+    enabled: !stateProp && !!id,
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      if (!id) throw new Error("Property ID is required");
-      try {
-        const result = await PropertyService.getPropertyById(id);
-        return result;
-      } catch (error) {
-        console.error("Failed to fetch property:", error);
-        // Fallback to mock data for demo
-        return {
-          id: id,
-          title: "Căn hộ cao cấp Vinhomes Central Park - View sông tuyệt đẹp",
-          price: 8500000000,
-          area: 85,
-          description: "Căn hộ cao cấp với thiết kế hiện đại, view sông Sài Gòn tuyệt đẹp. Đầy đủ nội thất cao cấp, tiện ích đẳng cấp 5 sao.",
-          phone: "0903496118",
-          images: [
-            "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800",
-            "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800",
-            "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800"
-          ],
-          created_at: "2024-01-15T00:00:00Z",
-          province: "TP.HCM",
-          ward: "",
-          address: "Quận Bình Thạnh"
-        };
-      }
+      if (!id) return null;
+
+      // 1) Supabase
+      const db = await PropertyService.getPropertyById(id);
+      if (db) return normalizeProperty(db);
+
+      // 2) Fallback localStorage (tin từ Dashboard/đăng mới)
+      const local = StorageManager.getPropertyById(id);
+      const normalizedLocal = normalizeFromLocal(local);
+      if (normalizedLocal) return normalizedLocal;
+
+      // 3) Không có
+      return null;
     },
-    enabled: !!id
   });
 
-  // ===== ENRICHED PROPERTY CHUẨN TYPE =====
-  const enrichedProperty: EnrichedProperty | null = property ? {
-    id: (property as any).id,
-    title: (property as any).title,
-    description: (property as any).description,
-    price: (property as any).price ?? 0,
-    area: (property as any).area ?? 0,
-    bedrooms: (property as any).bedrooms ?? 2,
-    bathrooms: (property as any).bathrooms ?? 2,
-    features: (property as any).features ?? ["Hồ bơi", "Gym", "Sân tennis", "Siêu thị", "Trường học"],
-    images: (property as any).images ?? [],
-    owner: {
-      name: "Chính chủ",
-      phone: (property as any).phone || "0903496118",
-      email: "owner@example.com"
-    },
-    posted: (property as any).created_at || "2024-01-15T00:00:00Z",
-    created_at: (property as any).created_at || "2024-01-15T00:00:00Z",
-    province: (property as any).province ?? "",
-    ward: (property as any).ward ?? "",
-    address: (property as any).address ?? ""
-  } : null;
+  const property = stateProp ?? fetchedProp ?? null;
 
-  if (isLoading) {
+  // Gallery state
+  const pics = useMemo(
+    () => (property?.images?.length ? property.images : [PLACEHOLDER]),
+    [property]
+  );
+  const [active, setActive] = useState(0);
+  useEffect(() => setActive(0), [property?.id]);
+
+  if (!property || (isLoading && !stateProp)) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Header />
-        <div className="container mx-auto px-4 py-8">
-          <div className="animate-pulse space-y-6">
-            <div className="h-96 bg-gray-200 rounded-lg"></div>
-            <div className="h-8 bg-gray-200 rounded w-3/4"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-          </div>
-        </div>
+      <div className="max-w-6xl mx-auto px-4 py-10">
+        <div className="h-72 rounded-xl bg-gray-100 animate-pulse" />
+        <div className="mt-6 h-8 w-2/3 bg-gray-100 animate-pulse rounded" />
+        <div className="mt-3 h-4 w-1/2 bg-gray-100 animate-pulse rounded" />
       </div>
     );
   }
 
-  if (!enrichedProperty) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Header />
-        <div className="container mx-auto px-4 py-8 text-center">
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">
-            Không tìm thấy bất động sản
-          </h1>
-          <Button onClick={() => window.history.back()}>
-            Quay lại
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const addressParts = [property.addressLine, property.ward, property.district, property.province]
+    .filter(Boolean)
+    .join(", ");
+  const fallbackAddress =
+    [property.ward, property.province].filter(Boolean).join(", ") || property.location || "";
+  const address = addressParts || fallbackAddress;
 
-  const formatPrice = (price: number) => {
-    if (price >= 1000000000) {
-      return `${(price / 1000000000).toFixed(1)} tỷ`;
-    }
-    return `${(price / 1000000).toFixed(0)} triệu`;
-  };
-
-  // ========== RENDER ==========
+  const priceText = formatPriceVn(property.price, property.listingType);
+  const mapsLink = buildMapsLink(property, address);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-      <Header />
-      
-      <div className="container mx-auto px-4 py-8">
-        {/* Image Gallery */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-          <div className="lg:col-span-2">
+    <div className="bg-white">
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        {/* Top actions – bỏ hẳn ô trống bên phải */}
+        <div className="mb-4">
+          <Button variant="ghost" onClick={() => navigate(-1)}>Quay lại</Button>
+        </div>
+
+        {/* Gallery */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="lg:col-span-2 rounded-xl overflow-hidden bg-gray-100">
             <img
-              src={enrichedProperty.images[0]}
-              alt={enrichedProperty.title}
-              className="w-full h-96 object-cover rounded-2xl shadow-xl"
+              src={pics[active] || PLACEHOLDER}
+              onError={(e) => ((e.currentTarget as HTMLImageElement).src = PLACEHOLDER)}
+              className="w-full aspect-[16/9] object-cover"
+              alt={property.title}
             />
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-1 gap-4">
-            {enrichedProperty.images.slice(1, 3).map((image, index) => (
-              <img
-                key={index}
-                src={image}
-                alt={`${enrichedProperty.title} ${index + 2}`}
-                className="w-full h-44 lg:h-44 object-cover rounded-xl shadow-lg"
-              />
-            ))}
+
+        {/* Chỉ render thumbnail khi có >1 ảnh */}
+          {pics.length > 1 ? (
+            <div className="flex lg:flex-col gap-3">
+              {pics.slice(0, 6).map((src, i) => (
+                <button
+                  key={src + i}
+                  onMouseEnter={() => setActive(i)}
+                  onFocus={() => setActive(i)}
+                  className={[
+                    "overflow-hidden rounded-lg border bg-gray-100",
+                    active === i ? "ring-2 ring-primary" : "opacity-90 hover:opacity-100",
+                    "h-24 w-32 lg:h-28 lg:w-auto",
+                  ].join(" ")}
+                  aria-label={`Ảnh ${i + 1}`}
+                >
+                  {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                  <img
+                    src={src || PLACEHOLDER}
+                    onError={(e) => ((e.currentTarget as HTMLImageElement).src = PLACEHOLDER)}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="hidden lg:block" />
+          )}
+        </div>
+
+        {/* Title & Price */}
+        <div className="mt-8 space-y-3">
+          <h1 className="text-3xl md:text-4xl font-extrabold leading-tight tracking-tight">
+            {property.title}
+          </h1>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant="secondary" className="text-base font-semibold">{priceText}</Badge>
+            {verifyBadge(property.verificationStatus)}
+            {property.listingType && (
+              <Badge className="bg-blue-600 text-white">
+                {property.listingType === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
+              </Badge>
+            )}
+            {property.type && <Badge variant="outline">{property.type}</Badge>}
+          </div>
+
+          {/* Summary row */}
+          <div className="text-gray-700 text-base leading-relaxed">
+            <div className="mb-1">{address}</div>
+            <div className="font-medium">
+              {(property.area ?? "--") + " m²"}
+              {typeof property.bedrooms === "number" ? ` • ${property.bedrooms} PN` : ""}
+              {typeof property.bathrooms === "number" ? ` • ${property.bathrooms} WC` : ""}
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Title & Price */}
-            <Card className="shadow-xl border-0 bg-gradient-to-r from-white to-blue-50">
-              <CardContent className="p-8">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <h1 className="text-3xl font-black text-gray-800 mb-3">
-                      {enrichedProperty.title}
-                    </h1>
-                    <div className="flex items-center gap-2 text-gray-600 mb-4">
-                      <MapPin className="w-5 h-5 text-red-500" />
-                      {/* Sửa location: */}
-                      <span className="font-medium">
-                        {[enrichedProperty.address, enrichedProperty.ward, enrichedProperty.province]
-                          .filter(Boolean)
-                          .join(', ')}
-                      </span>
-                    </div>
+        {/* Contact card (2 cột desktop, 1 cột mobile) */}
+        {(property.ownerName || property.ownerPhone || mapsLink) && (
+          <div className="mt-6 rounded-xl border bg-gray-50">
+            <div className="p-4 md:p-5 grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 items-center">
+              {/* Left: info */}
+              <div className="md:col-span-2 space-y-1">
+                {property.ownerName && (
+                  <div>
+                    <span className="text-gray-600">Chủ tin: </span>
+                    <span className="font-semibold">{property.ownerName}</span>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm">
-                      <Heart className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Share2 className="w-4 h-4" />
-                    </Button>
+                )}
+                {property.ownerPhone && (
+                  <div>
+                    <span className="text-gray-600">Điện thoại liên hệ: </span>
+                    <a className="text-primary font-semibold underline" href={`tel:${property.ownerPhone}`}>
+                      {property.ownerPhone}
+                    </a>
                   </div>
-                </div>
+                )}
+              </div>
 
-                <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-2xl mb-6">
-                  <div className="text-4xl font-black mb-2">
-                    {formatPrice(enrichedProperty.price)} VNĐ
-                  </div>
-                  <div className="text-blue-100">
-                    ~{Math.round(enrichedProperty.price / enrichedProperty.area / 1000000)} triệu/m²
-                  </div>
-                </div>
-
-                {/* Property Details */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-blue-50 rounded-xl">
-                    <Square className="w-8 h-8 text-blue-500 mx-auto mb-2" />
-                    <div className="font-bold text-lg">{enrichedProperty.area}m²</div>
-                    <div className="text-sm text-gray-600">Diện tích</div>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-xl">
-                    <Bed className="w-8 h-8 text-green-500 mx-auto mb-2" />
-                    <div className="font-bold text-lg">{enrichedProperty.bedrooms}</div>
-                    <div className="text-sm text-gray-600">Phòng ngủ</div>
-                  </div>
-                  <div className="text-center p-4 bg-purple-50 rounded-xl">
-                    <Bath className="w-8 h-8 text-purple-500 mx-auto mb-2" />
-                    <div className="font-bold text-lg">{enrichedProperty.bathrooms}</div>
-                    <div className="text-sm text-gray-600">Phòng tắm</div>
-                  </div>
-                  <div className="text-center p-4 bg-orange-50 rounded-xl">
-                    <Eye className="w-8 h-8 text-orange-500 mx-auto mb-2" />
-                    <div className="font-bold text-lg">1,234</div>
-                    <div className="text-sm text-gray-600">Lượt xem</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Description */}
-            <Card className="shadow-lg">
-              <CardContent className="p-6">
-                <h3 className="text-xl font-bold mb-4">Mô tả chi tiết</h3>
-                <p className="text-gray-700 leading-relaxed">
-                  {enrichedProperty.description}
-                </p>
-              </CardContent>
-            </Card>
-
-            {/* Features */}
-            <Card className="shadow-lg">
-              <CardContent className="p-6">
-                <h3 className="text-xl font-bold mb-4">Tiện ích</h3>
-                <div className="flex flex-wrap gap-2">
-                  {enrichedProperty.features.map((feature, index) => (
-                    <Badge key={index} variant="secondary" className="px-3 py-1">
-                      {feature}
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+              {/* Right: actions */}
+              <div className="flex flex-wrap md:justify-end gap-2">
+                {property.ownerPhone && (
+                  <>
+                    <a href={`tel:${property.ownerPhone}`}>
+                      <Button className="bg-emerald-600 hover:bg-emerald-700">Gọi ngay</Button>
+                    </a>
+                    <a href={`sms:${property.ownerPhone}`}>
+                      <Button variant="outline">Nhắn tin</Button>
+                    </a>
+                  </>
+                )}
+                {mapsLink && (
+                  <a href={mapsLink} target="_blank" rel="noopener noreferrer">
+                    <Button variant="secondary">Mở Google Maps</Button>
+                  </a>
+                )}
+              </div>
+            </div>
           </div>
+        )}
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Contact Card */}
-            <Card className="shadow-xl border-2 border-blue-200 bg-gradient-to-br from-white to-blue-50">
-              <CardContent className="p-6">
-                <h3 className="text-xl font-bold mb-4 text-center">
-                  📞 Liên hệ chính chủ
-                </h3>
-                
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <span className="text-white font-bold text-xl">
-                      {enrichedProperty.owner.name.charAt(0)}
-                    </span>
-                  </div>
-                  <h4 className="font-bold text-lg">{enrichedProperty.owner.name}</h4>
-                  <p className="text-sm text-gray-600">Chủ nhà</p>
-                </div>
-
-                <div className="space-y-3">
-                  <Button className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 h-12">
-                    <Phone className="w-4 h-4 mr-2" />
-                    {enrichedProperty.owner.phone}
-                  </Button>
-                  <Button variant="outline" className="w-full h-12">
-                    <Mail className="w-4 h-4 mr-2" />
-                    Gửi email
-                  </Button>
-                </div>
-
-                <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm text-yellow-800 font-medium text-center">
-                    ⚠️ Lưu ý: Chỉ liên hệ trong giờ hành chính
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Posted Date */}
-            <Card className="shadow-lg">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Calendar className="w-4 h-4" />
-                  <span>Đăng ngày: {new Date(enrichedProperty.posted).toLocaleDateString('vi-VN')}</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+        {/* Description */}
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-2">Mô tả chi tiết</h2>
+          <p className="text-gray-700 leading-relaxed">
+            {property.description || "Chưa có mô tả cho tin đăng này."}
+          </p>
         </div>
       </div>
-
-      <Footer />
     </div>
   );
 }

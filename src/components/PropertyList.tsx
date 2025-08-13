@@ -1,85 +1,298 @@
-import { useEffect, useState } from "react";
-import SearchFilters from "./SearchFilters";
-import PropertyCard from "./PropertyCard";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
+// src/pages/PropertyList.tsx
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
+import PropertyCard from "@/components/PropertyCard";
+import { provinces as PROVINCES_ORG } from "@/data/vietnam-locations";
+import { PropertyService, type Property as DBProperty } from "@/services/PropertyService";
 
-interface Property {
-  id: string;
-  title: string;
-  price: number;
-  location: string;
-  area: number;
-  bedrooms?: number;
-  bathrooms?: number;
-  images: string[];
-  type: string;
-  verificationStatus?: 'verified' | 'pending' | 'unverified';
+/* ===== Types ===== */
+type ListingType = "sell" | "rent";
+
+/* ===== helpers ===== */
+function normProvinceName(p: any): string | null {
+  if (!p) return null;
+  if (typeof p === "string") return p.trim() || null;
+  if (typeof p === "object") {
+    const cand = p.name ?? p.label ?? p.title ?? p.province ?? p.value ?? p.text ?? null;
+    if (typeof cand === "string") return cand.trim() || null;
+  }
+  return null;
 }
 
 export default function PropertyList() {
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(true);
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
 
-  // Giả lập gọi API
-  useEffect(() => {
-    setTimeout(() => {
-      fetch("/mock-data/properties.json")
-        .then(res => res.json())
-        .then(data => {
-          setProperties(data);
-          setFilteredProperties(data);
-          setLoading(false);
-        });
-    }, 1200); // Loading đẹp hơn
+  const filtersFromState: any = location.state?.filters;
+  const typeFromUrl = (searchParams.get("type") as ListingType) || undefined;
+
+  // ====== State tìm kiếm (trung tâm) ======
+  const [listingType, setListingType] = useState<ListingType>(
+    (filtersFromState?.listingType as ListingType) || typeFromUrl || "sell"
+  );
+  const [province, setProvince] = useState<string>(filtersFromState?.province ?? "");
+  const [type, setType] = useState<string>(filtersFromState?.type ?? "");
+  const [minPrice, setMinPrice] = useState<number | undefined>(filtersFromState?.minPrice);
+  const [maxPrice, setMaxPrice] = useState<number | undefined>(filtersFromState?.maxPrice);
+  const [minArea, setMinArea] = useState<number | undefined>(filtersFromState?.minArea);
+  const [maxArea, setMaxArea] = useState<number | undefined>(filtersFromState?.maxArea);
+
+  const [loading, setLoading] = useState(false);
+  const [properties, setProperties] = useState<DBProperty[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // Provinces: "Trên toàn quốc" đứng đầu, sau đó A→Z
+  const provinceOptions = useMemo(() => {
+    const names: string[] = [];
+    for (const it of PROVINCES_ORG ?? []) {
+      const n = normProvinceName(it);
+      if (n) names.push(n);
+    }
+    const uniq = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "vi"));
+    return ["Trên toàn quốc", ...uniq];
   }, []);
 
-  const handleSearch = (filters: any) => {
-    const results = properties.filter(p => {
-      const inLocation = !filters.location || p.location === filters.location;
-      const inType = !filters.type || p.type === filters.type;
-      const inPrice = p.price >= filters.priceMin && p.price <= filters.priceMax;
-      const inArea = p.area >= filters.areaMin && p.area <= filters.areaMax;
-      const inBedrooms = !filters.bedrooms || p.bedrooms === Number(filters.bedrooms);
-      const inBathrooms = !filters.bathrooms || p.bathrooms === Number(filters.bathrooms);
-      return inLocation && inType && inPrice && inArea && inBedrooms && inBathrooms;
-    });
+  const isRent = listingType === "rent";
+  const priceUnitLabel = isRent ? "Mức giá (triệu/tháng)" : "Mức giá (tỷ)";
 
-    setFilteredProperties(results);
+  // ====== Fetch từ Supabase qua service ======
+  const loadFromSupabase = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { items } = await PropertyService.getPropertiesPaged(
+        {
+          listingType,
+          province: province || undefined, // "" => không lọc
+          type: type || undefined,
+          minPrice,
+          maxPrice,
+          minArea,
+          maxArea,
+        },
+        { page: 1, pageSize: 24 }
+      );
+      setProperties(items);
+    } catch (e: any) {
+      setError(e?.message ?? "Đã có lỗi khi tải dữ liệu");
+      setProperties([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // lần đầu + khi đổi tab bán/thuê
+  useEffect(() => {
+    // Đổi tab ⇒ reset các ngưỡng để tránh lệch đơn vị giữa BÁN/THUÊ
+    setMinPrice(undefined);
+    setMaxPrice(undefined);
+    setMinArea(undefined);
+    setMaxArea(undefined);
+    setType((prev) => prev || ""); // giữ nguyên loại nếu có, không bắt buộc
+    loadFromSupabase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingType]);
+
+  const onSearch = async (e?: React.FormEvent) => {
+    e?.preventDefault?.();
+
+    // chuẩn hoá min/max trước khi gọi API
+    let a = minArea, b = maxArea;
+    if (typeof a === "number" && typeof b === "number" && a > b) [a, b] = [b, a];
+    let pmin = minPrice, pmax = maxPrice;
+    if (typeof pmin === "number" && typeof pmax === "number" && pmin > pmax) [pmin, pmax] = [pmax, pmin];
+
+    setMinArea(a);
+    setMaxArea(b);
+    setMinPrice(pmin);
+    setMaxPrice(pmax);
+
+    await loadFromSupabase();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // ====== UI ======
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 px-6 py-10">
-      {/* Sidebar Filters */}
-      <div className="md:col-span-1">
-        <SearchFilters onSearch={handleSearch} />
+    <div className="min-h-screen bg-gray-50">
+      {/* HERO search center */}
+      <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-orange-500">
+        <div className="container mx-auto px-4 py-6 sm:py-10">
+          {/* Tabs Bán/Thuê */}
+          <div className="mb-3 flex gap-2">
+            <button
+              onClick={() => setListingType("sell")}
+              className={`px-4 py-2 rounded-lg font-semibold ${
+                listingType === "sell" ? "bg-white text-black" : "bg-white/20 text-white"
+              }`}
+            >
+              Nhà đất bán
+            </button>
+            <button
+              onClick={() => setListingType("rent")}
+              className={`px-4 py-2 rounded-lg font-semibold ${
+                listingType === "rent" ? "bg-white text-black" : "bg-white/20 text-white"
+              }`}
+            >
+              Nhà đất cho thuê
+            </button>
+          </div>
+
+          {/* Search bar trung tâm */}
+          <form
+            onSubmit={onSearch}
+            className="bg-white rounded-xl shadow-xl p-3 sm:p-4 grid grid-cols-1 md:grid-cols-12 gap-3"
+          >
+            {/* Khu vực */}
+            <div className="md:col-span-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Khu vực
+              </label>
+              <select
+                className="w-full h-11 rounded-md border px-3"
+                value={province || ""}
+                onChange={(e) => setProvince(e.target.value || "")}
+              >
+                {provinceOptions.map((p) => (
+                  <option key={p} value={p === "Trên toàn quốc" ? "" : p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Loại BĐS */}
+            <div className="md:col-span-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Loại nhà đất
+              </label>
+              <select
+                className="w-full h-11 rounded-md border px-3"
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+              >
+                <option value="">Tất cả loại</option>
+                <option value="apartment">Căn hộ</option>
+                <option value="house">Nhà phố</option>
+                <option value="land">Đất</option>
+                <option value="villa">Biệt thự</option>
+                <option value="office">Văn phòng</option>
+              </select>
+            </div>
+
+            {/* Giá */}
+            <div className="md:col-span-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                {priceUnitLabel}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  className="h-11 rounded-md border px-3"
+                  placeholder={isRent ? "Tối thiểu (triệu)" : "Tối thiểu (tỷ)"}
+                  value={
+                    !minPrice || minPrice <= 0
+                      ? ""
+                      : isRent
+                      ? Math.round(minPrice / 1_000_000)
+                      : Number((minPrice / 1_000_000_000).toFixed(2))
+                  }
+                  onChange={(e) => {
+                    const v = e.currentTarget.value;
+                    if (v === "") return setMinPrice(undefined);
+                    const n = Number(v);
+                    setMinPrice(isRent ? n * 1_000_000 : n * 1_000_000_000);
+                  }}
+                />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  className="h-11 rounded-md border px-3"
+                  placeholder={isRent ? "Tối đa (triệu)" : "Tối đa (tỷ)"}
+                  value={
+                    !maxPrice || maxPrice <= 0
+                      ? ""
+                      : isRent
+                      ? Math.round(maxPrice / 1_000_000)
+                      : Number((maxPrice / 1_000_000_000).toFixed(2))
+                  }
+                  onChange={(e) => {
+                    const v = e.currentTarget.value;
+                    if (v === "") return setMaxPrice(undefined);
+                    const n = Number(v);
+                    setMaxPrice(isRent ? n * 1_000_000 : n * 1_000_000_000);
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Diện tích */}
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Diện tích (m²)
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  className="h-11 rounded-md border px-3"
+                  placeholder="Tối thiểu"
+                  value={minArea ?? ""}
+                  onChange={(e) =>
+                    setMinArea(e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber)
+                  }
+                />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  className="h-11 rounded-md border px-3"
+                  placeholder="Tối đa"
+                  value={maxArea ?? ""}
+                  onChange={(e) =>
+                    setMaxArea(e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber)
+                  }
+                />
+              </div>
+            </div>
+
+            {/* CTA */}
+            <div className="md:col-span-12 flex justify-end">
+              <button
+                type="submit"
+                className="h-11 px-6 rounded-lg font-semibold bg-red-500 hover:bg-red-600 text-white shadow"
+              >
+                Tìm kiếm
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
 
-      {/* Property Cards */}
-      <ScrollArea className="md:col-span-3 h-[calc(100vh-120px)] pr-2">
+      {/* RESULTS */}
+      <div className="container mx-auto px-4 py-6">
+        {error && (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+            {error}
+          </div>
+        )}
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }).map((_, idx) => (
-              <Skeleton key={idx} className="h-[450px] w-full rounded-xl shadow-lg" />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />
             ))}
           </div>
-        ) : filteredProperties.length === 0 ? (
-          <div className="text-center text-gray-500 text-lg mt-12">
+        ) : properties.length === 0 ? (
+          <div className="text-center text-gray-600 py-20">
             Không tìm thấy bất động sản phù hợp.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProperties.map(property => (
-              <PropertyCard 
-                key={property.id} 
-                property={property} 
-                onViewDetails={(id) => console.log("Xem chi tiết:", id)} 
-              />
+            {properties.map((p) => (
+              <PropertyCard key={p.id} property={p as any} />
             ))}
           </div>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }

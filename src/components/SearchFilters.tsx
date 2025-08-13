@@ -1,218 +1,122 @@
-import { useState } from "react";
+// src/components/SearchFilters.tsx
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Slider } from "@/components/ui/slider";
-import { MapPin, Home, DollarSign, Square, Bed, Bath } from "lucide-react";
+// ⛳️ Dùng đúng dataset của Tom
+import { provinces, wardsByProvince } from "@/data/vietnam-locations";
 
-interface SearchFiltersProps {
-  onSearch: (filters: any) => void;
-}
+// (tuỳ chỗ dùng) type đơn giản cho callback
+export type SearchFiltersValue = {
+  provinceId: string; // "02" | "" ...
+  ward: string;       // tên phường/xã
+  keyword?: string;   // ví dụ từ khoá
+};
 
-export default function SearchFilters({ onSearch }: SearchFiltersProps) {
-  const [filters, setFilters] = useState({
-    location: "",
-    type: "",
-    priceMin: 0,
-    priceMax: 50000000000,
-    areaMin: 0,
-    areaMax: 1000,
-    bedrooms: "",
-    bathrooms: ""
-  });
+type Props = {
+  defaultValue?: Partial<SearchFiltersValue>;
+  onSearch?: (v: SearchFiltersValue) => void;
+  className?: string;
+};
 
-  const handleFilterChange = (key: string, value: any) => {
-    const newFilters = { ...filters, [key]: value };
-    setFilters(newFilters);
+const SearchFilters: React.FC<Props> = ({ defaultValue, onSearch, className }) => {
+  // Lưu ID tỉnh, tên phường
+  const [provinceId, setProvinceId] = React.useState<string>(defaultValue?.provinceId ?? "");
+  const [ward, setWard] = React.useState<string>(defaultValue?.ward ?? "");
+  const [keyword, setKeyword] = React.useState<string>(defaultValue?.keyword ?? "");
+
+  // Bỏ option placeholder trong provinces (provinceId === "01")
+  const provinceOptions = React.useMemo(
+    () =>
+      provinces
+        .filter((p) => p.provinceId !== "01")
+        .sort((a, b) => a.provinceName.localeCompare(b.provinceName, "vi")),
+    []
+  );
+
+  // Lấy danh sách phường theo ID tỉnh
+  const wardOptions = React.useMemo<string[]>(
+    () => (provinceId ? wardsByProvince[provinceId] ?? [] : []),
+    [provinceId]
+  );
+
+  // Đổi tỉnh -> reset phường
+  const handleProvinceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    setProvinceId(id);
+    setWard("");
   };
 
-  const handleSearch = () => {
-    onSearch(filters);
+  const handleWardChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setWard(e.target.value);
   };
 
-  const handleReset = () => {
-    const resetFilters = {
-      location: "",
-      type: "",
-      priceMin: 0,
-      priceMax: 50000000000,
-      areaMin: 0,
-      areaMax: 1000,
-      bedrooms: "",
-      bathrooms: ""
-    };
-    setFilters(resetFilters);
-    onSearch(resetFilters);
-  };
-
-  const formatPrice = (price: number) => {
-    if (price >= 1000000000) {
-      return `${(price / 1000000000).toFixed(1)} tỷ`;
-    }
-    if (price >= 1000000) {
-      return `${(price / 1000000).toFixed(0)} triệu`;
-    }
-    return price.toLocaleString();
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const value: SearchFiltersValue = { provinceId, ward, keyword: keyword.trim() };
+    onSearch ? onSearch(value) : console.log("SearchFilters submit:", value);
   };
 
   return (
-    <Card className="sticky top-24 shadow-lg border-2 border-blue-100">
-      <CardHeader className="bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-t-lg">
-        <CardTitle className="flex items-center gap-2">
-          <MapPin className="w-5 h-5" />
-          Bộ lọc tìm kiếm
-        </CardTitle>
-      </CardHeader>
-      
-      <CardContent className="p-6 space-y-6">
-        {/* Location */}
-        <div className="space-y-2">
-          <Label className="flex items-center gap-2 font-semibold text-gray-700">
-            <MapPin className="w-4 h-4 text-red-500" />
-            Khu vực
-          </Label>
-          <Select value={filters.location} onValueChange={(value) => handleFilterChange("location", value)}>
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Chọn khu vực" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">Tất cả khu vực</SelectItem>
-              <SelectItem value="quan-1">Quận 1</SelectItem>
-              <SelectItem value="quan-2">Quận 2</SelectItem>
-              <SelectItem value="quan-3">Quận 3</SelectItem>
-              <SelectItem value="binh-thanh">Quận Bình Thạnh</SelectItem>
-              <SelectItem value="thu-duc">TP. Thủ Đức</SelectItem>
-              <SelectItem value="quan-7">Quận 7</SelectItem>
-            </SelectContent>
-          </Select>
+    <form onSubmit={handleSubmit} className={className ?? ""}>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        {/* Tỉnh/Thành */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">Khu vực</label>
+          <select
+            value={provinceId}
+            onChange={handleProvinceChange}
+            className="h-11 w-full rounded-md border bg-white px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Trên toàn quốc</option>
+            {provinceOptions.map((p) => (
+              <option key={p.provinceId} value={p.provinceId} title={p.provinceName}>
+                {p.provinceName}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Property Type */}
-        <div className="space-y-2">
-          <Label className="flex items-center gap-2 font-semibold text-gray-700">
-            <Home className="w-4 h-4 text-blue-500" />
-            Loại bất động sản
-          </Label>
-          <Select value={filters.type} onValueChange={(value) => handleFilterChange("type", value)}>
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Chọn loại BĐS" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">Tất cả loại</SelectItem>
-              <SelectItem value="apartment">Căn hộ</SelectItem>
-              <SelectItem value="house">Nhà phố</SelectItem>
-              <SelectItem value="villa">Biệt thự</SelectItem>
-              <SelectItem value="land">Đất nền</SelectItem>
-            </SelectContent>
-          </Select>
+        {/* Phường/Xã */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">Phường/Xã</label>
+          <select
+            value={ward}
+            onChange={handleWardChange}
+            disabled={!provinceId}
+            className="h-11 w-full rounded-md border bg-white px-3 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">{provinceId ? "Chọn Phường/Xã" : "Chọn tỉnh trước"}</option>
+            {wardOptions.map((w) => (
+              <option key={w} value={w}>
+                {w}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Price Range */}
-        <div className="space-y-4">
-          <Label className="flex items-center gap-2 font-semibold text-gray-700">
-            <DollarSign className="w-4 h-4 text-green-500" />
-            Khoảng giá
-          </Label>
-          <div className="px-2">
-            <Slider
-              value={[filters.priceMin, filters.priceMax]}
-              onValueChange={([min, max]) => {
-                handleFilterChange("priceMin", min);
-                handleFilterChange("priceMax", max);
-              }}
-              max={50000000000}
-              step={500000000}
-              className="w-full"
-            />
-          </div>
-          <div className="flex items-center justify-between text-sm font-medium text-gray-600">
-            <span>{formatPrice(filters.priceMin)}</span>
-            <span>{formatPrice(filters.priceMax)}</span>
-          </div>
+        {/* Từ khoá (tuỳ chọn) */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">Từ khoá</label>
+          <Input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="VD: nhà phố, căn góc…"
+            className="h-11"
+          />
         </div>
 
-        {/* Area Range */}
-        <div className="space-y-4">
-          <Label className="flex items-center gap-2 font-semibold text-gray-700">
-            <Square className="w-4 h-4 text-purple-500" />
-            Diện tích (m²)
-          </Label>
-          <div className="px-2">
-            <Slider
-              value={[filters.areaMin, filters.areaMax]}
-              onValueChange={([min, max]) => {
-                handleFilterChange("areaMin", min);
-                handleFilterChange("areaMax", max);
-              }}
-              max={1000}
-              step={10}
-              className="w-full"
-            />
-          </div>
-          <div className="flex items-center justify-between text-sm font-medium text-gray-600">
-            <span>{filters.areaMin}m²</span>
-            <span>{filters.areaMax}m²</span>
-          </div>
-        </div>
-
-        {/* Bedrooms */}
-        <div className="space-y-2">
-          <Label className="flex items-center gap-2 font-semibold text-gray-700">
-            <Bed className="w-4 h-4 text-orange-500" />
-            Số phòng ngủ
-          </Label>
-          <Select value={filters.bedrooms} onValueChange={(value) => handleFilterChange("bedrooms", value)}>
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Chọn số phòng ngủ" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">Không yêu cầu</SelectItem>
-              <SelectItem value="1">1 phòng</SelectItem>
-              <SelectItem value="2">2 phòng</SelectItem>
-              <SelectItem value="3">3 phòng</SelectItem>
-              <SelectItem value="4">4+ phòng</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Bathrooms */}
-        <div className="space-y-2">
-          <Label className="flex items-center gap-2 font-semibold text-gray-700">
-            <Bath className="w-4 h-4 text-cyan-500" />
-            Số phòng tắm
-          </Label>
-          <Select value={filters.bathrooms} onValueChange={(value) => handleFilterChange("bathrooms", value)}>
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Chọn số phòng tắm" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">Không yêu cầu</SelectItem>
-              <SelectItem value="1">1 phòng</SelectItem>
-              <SelectItem value="2">2 phòng</SelectItem>
-              <SelectItem value="3">3+ phòng</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-3 pt-4">
-          <Button 
-            onClick={handleSearch}
-            className="flex-1 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 h-12 font-semibold"
+        {/* Nút tìm */}
+        <div className="space-y-1">
+          <Button
+            type="submit"
+            className="h-11 w-full bg-gradient-to-r from-blue-600 to-orange-500 text-white font-semibold"
           >
             Tìm kiếm
           </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleReset}
-            className="px-6 h-12"
-          >
-            Đặt lại
-          </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </form>
   );
-}
+};
+
+export default SearchFilters;

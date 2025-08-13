@@ -1,95 +1,101 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Eye, EyeOff, Building2 } from 'lucide-react';
-import { StorageManager, UserAccount } from '../../utils/storage';
-import { useAuth } from '../contexts/AuthContext';
+// src/pages/Login.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Eye, EyeOff, Building2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { StorageManager } from "@utils/storage";
 
-const Login = () => {
+const ADMIN_EMAIL = "chat301277@gmail.com";
+const ADMIN_PASSWORD = "Chat@1221";
+
+function isEmail(v: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+}
+function sanitizePhone(v: string) {
+  return v.replace(/\D/g, "");
+}
+function isValidVNPhone(v: string) {
+  return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
+}
+
+const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const { loginByEmailOrPhone, isAuthenticated, user } = useAuth();
+
+  const [identifier, setIdentifier] = useState(""); // email hoặc phone
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
 
+  // Seed admin (idempotent)
   useEffect(() => {
-    const currentUser = StorageManager.getCurrentUser();
-    if (currentUser?.isLoggedIn) navigate('/post-property');
-  }, [navigate]);
+    StorageManager.initializeAdmin?.();
+    // Nếu admin đã có nhưng mật khẩu khác, nâng về mật khẩu chuẩn
+    const admin = StorageManager.getUserByEmail(ADMIN_EMAIL);
+    if (admin && admin.isAdmin && admin.password !== ADMIN_PASSWORD) {
+      StorageManager.saveUser({ ...admin, password: ADMIN_PASSWORD, isAdmin: true });
+    }
+  }, []);
 
-  const validateForm = () => {
-    const newErrors: { [key: string]: string } = {};
-    if (!formData.email) newErrors.email = 'Email là bắt buộc';
-    else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email không hợp lệ';
-    if (!formData.password) newErrors.password = 'Mật khẩu là bắt buộc';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  // Nếu đã đăng nhập, điều hướng theo quyền
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(user?.isAdmin ? "/system-dashboard" : "/post-property", { replace: true });
+    }
+  }, [isAuthenticated, user, navigate]);
+
+  const mode: "email" | "phone" = useMemo(
+    () => (isEmail(identifier) ? "email" : "phone"),
+    [identifier]
+  );
+
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!identifier.trim()) e.identifier = "Vui lòng nhập số điện thoại hoặc email";
+    else if (mode === "email") {
+      if (!isEmail(identifier)) e.identifier = "Email không hợp lệ";
+    } else {
+      if (!isValidVNPhone(identifier))
+        e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
+    }
+    if (!password) e.password = "Vui lòng nhập mật khẩu";
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) return;
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (isLoading) return;
+    if (!validate()) return;
 
     setIsLoading(true);
+    setErrors((p) => ({ ...p, general: "" }));
+
     try {
-      const user = StorageManager.getUserByEmail(formData.email);
-      if (user && user.password === formData.password) {
-        const updatedUser: UserAccount = {
-          ...user,
-          isLoggedIn: true,
-          rememberMe: true,
-          lastLoginAt: new Date().toISOString(),
-        };
-        StorageManager.saveUser(updatedUser);
-        StorageManager.setCurrentUser(updatedUser);
-        localStorage.setItem('user_email', updatedUser.email);
-        login(updatedUser);
-        navigate(updatedUser.isAdmin ? '/system-dashboard' : '/post-property', { replace: true });
-      } else {
-        setErrors({ general: 'Email hoặc mật khẩu không đúng' });
+      const ok = await loginByEmailOrPhone(identifier.trim(), password);
+      if (!ok) {
+        setErrors({ general: "Thông tin đăng nhập không đúng" });
+        return;
       }
+
+      // Phát tín hiệu để chỗ khác sync UI (nếu có lắng nghe)
+      try {
+        localStorage.setItem("emyland_user_updated", String(Date.now()));
+      } catch {
+        /* no-op */
+      }
+
+      // Không điều hướng ngay ở đây — để effect dựa trên isAuthenticated + user xử lý,
+      // tránh race-condition khi state Context chưa kịp cập nhật.
     } catch {
-      setErrors({ general: 'Có lỗi xảy ra. Vui lòng thử lại.' });
+      setErrors({ general: "Có lỗi xảy ra. Vui lòng thử lại." });
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // ✅ GỌI API THẬT GỬI LINK QUA EMAIL (KHÔNG GỬI MẬT KHẨU MỚI)
-  const handleForgotPassword = async () => {
-    const storedEmail = localStorage.getItem('user_email') || formData.email;
-    if (!storedEmail) {
-      alert('Vui lòng nhập email trước khi khôi phục mật khẩu.');
-      return;
-    }
-
-    const confirm = window.confirm(`Gửi link khôi phục mật khẩu đến:\n\n${storedEmail}?`);
-    if (!confirm) return;
-
-    try {
-      const res = await fetch('/api/send-password-reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: storedEmail }),
-      });
-
-      if (res.ok) {
-        alert('📩 Đã gửi email khôi phục. Vui lòng kiểm tra hộp thư (hoặc thư rác).');
-      } else {
-        alert('Không thể gửi email. Vui lòng thử lại sau.');
-      }
-    } catch (err) {
-      alert('Lỗi hệ thống. Vui lòng thử lại.');
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
   };
 
   return (
@@ -97,87 +103,128 @@ const Login = () => {
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center pb-6">
           <div className="flex items-center justify-center gap-2 mb-4">
-            <Building2 className="h-8 w-8 text-blue-600" />
+            <Building2 className="h-8 w-8 text-blue-600" aria-hidden />
             <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-orange-500 bg-clip-text text-transparent">
               EmyLand
             </span>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">Đăng nhập</CardTitle>
-          <p className="text-gray-600 mt-2">Đăng nhập để tiếp tục đăng tin bất động sản</p>
+          <p className="text-gray-600 mt-2">
+            Sử dụng số điện thoại <b>hoặc email</b> để đăng nhập
+          </p>
         </CardHeader>
 
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             {errors.general && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              <div
+                className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+                role="alert"
+              >
                 {errors.general}
               </div>
             )}
 
+            {/* Identifier */}
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-gray-700">Email *</label>
+              <label htmlFor="identifier" className="text-sm font-medium text-gray-700">
+                Số điện thoại hoặc email *
+              </label>
               <Input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="Nhập địa chỉ email"
-                className={errors.email ? 'border-red-500 focus:border-red-500' : ''}
+                id="identifier"
+                name="identifier"
+                type="text"
+                autoComplete="username"
+                value={identifier}
+                onChange={(e) => {
+                  setIdentifier(e.target.value);
+                  if (errors.identifier) setErrors((p) => ({ ...p, identifier: "" }));
+                  if (errors.general) setErrors((p) => ({ ...p, general: "" }));
+                }}
+                placeholder="090xxxxxxx hoặc name@example.com"
+                aria-invalid={!!errors.identifier}
+                aria-describedby={errors.identifier ? "identifier-error" : undefined}
+                className={errors.identifier ? "border-red-500 focus:border-red-500" : ""}
               />
-              {errors.email && <p className="text-red-500 text-sm">{errors.email}</p>}
+              {mode === "phone" ? (
+                <p className="text-xs text-gray-500">
+                  Chấp nhận số Việt Nam 10 số (đầu 03/05/07/08/09).
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500">Ví dụ: {ADMIN_EMAIL}</p>
+              )}
+              {errors.identifier && (
+                <p id="identifier-error" className="text-red-500 text-sm">
+                  {errors.identifier}
+                </p>
+              )}
             </div>
 
+            {/* Password */}
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium text-gray-700">Mật khẩu *</label>
+              <label htmlFor="password" className="text-sm font-medium text-gray-700">
+                Mật khẩu *
+              </label>
               <div className="relative">
                 <Input
                   id="password"
                   name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={formData.password}
-                  onChange={handleChange}
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password) setErrors((p) => ({ ...p, password: "" }));
+                    if (errors.general) setErrors((p) => ({ ...p, general: "" }));
+                  }}
                   placeholder="Nhập mật khẩu"
-                  className={`pr-10 ${errors.password ? 'border-red-500 focus:border-red-500' : ''}`}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? "password-error" : undefined}
+                  className={`pr-10 ${errors.password ? "border-red-500 focus:border-red-500" : ""}`}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
-              {errors.password && <p className="text-red-500 text-sm">{errors.password}</p>}
+              {errors.password && (
+                <p id="password-error" className="text-red-500 text-sm">
+                  {errors.password}
+                </p>
+              )}
             </div>
 
-            <div className="flex justify-end">
-              <button
-                type="button"
-                className="text-sm text-blue-600 hover:underline"
-                onClick={handleForgotPassword}
-              >
-                Quên mật khẩu?
-              </button>
-            </div>
-
+            {/* Submit */}
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-orange-500 hover:from-blue-700 hover:to-orange-600 text-white font-semibold py-3 rounded-lg transition-all duration-200 transform hover:scale-105"
+              className="relative group w-full overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to-orange-500 text-white font-semibold py-3 transition-transform duration-200 hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {isLoading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-blue-500 via-purple-500 to-orange-500 blur-sm"
+              />
+              <span className="relative">{isLoading ? "Đang đăng nhập..." : "Đăng nhập"}</span>
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-gray-600">
-              Chưa có tài khoản?{' '}
+              Chưa có tài khoản?{" "}
               <button
-                onClick={() => navigate('/register')}
-                className="text-blue-600 hover:underline font-medium"
+                type="button"
+                onClick={() => navigate("/register")}
+                className="relative group inline-flex items-center px-2 py-1 rounded-md font-medium text-blue-600 hover:text-blue-700 transition-colors"
               >
-                Đăng ký ngay
+                <span
+                  aria-hidden
+                  className="absolute inset-0 rounded-md bg-blue-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                />
+                <span className="relative">Đăng ký mới</span>
               </button>
             </p>
           </div>
