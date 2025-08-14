@@ -1,3 +1,4 @@
+// src/pages/Home.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -25,28 +26,23 @@ function normalizeForCard(p: any) {
   const id = String(p.id ?? p._id ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`));
   const title = p.title ?? p.name ?? p.headline ?? "Tin đăng bất động sản";
 
-  // Loại bài: cố gắng suy ra nếu thiếu
   const listingType: ListingType =
     (p.listingType as ListingType) ??
     (p.for_rent ? "rent" : undefined) ??
     (p.for_sale ? "sell" : undefined) ??
     (p.rent_per_month ? "rent" : "sell");
 
-  // Giá bán/thuê
   const price: number | undefined =
     p.price ?? p.sale_price ?? p.asking_price ?? (listingType === "sell" ? p.total_price : undefined);
 
   const rent_per_month: number | undefined =
     p.rent_per_month ?? p.monthly_rent ?? p.rent ?? (listingType === "rent" ? p.price : undefined);
 
-  // Diện tích
   const area: number = Number(p.area ?? p.acreage ?? p.squareMeters ?? p.sqm ?? p.size) || 0;
 
-  // Giá/m² (tự tính nếu thiếu khi BÁN)
   const price_per_m2: number | undefined =
     p.price_per_m2 ?? (listingType === "sell" && area > 0 && price ? Math.round(price / area) : undefined);
 
-  // Địa chỉ
   const ward = p.ward ?? p.wardName ?? p.commune ?? p.subdistrict ?? "";
   const province = p.province ?? p.provinceName ?? p.city ?? p.region ?? "";
   const location =
@@ -54,23 +50,18 @@ function normalizeForCard(p: any) {
     p.address ??
     [p.street, p.district || p.districtName, ward, province].filter(Boolean).join(", ");
 
-  // Ảnh
   const images =
     p.images ?? p.imageUrls ?? p.photos ?? p.gallery ?? (p.media && (p.media.urls || p.media)) ?? p.cover;
 
-  // Kiểu BĐS
   const type: string | undefined = p.type ?? p.category ?? p.propertyType ?? p.kind ?? undefined;
 
-  // Xác minh
   const verificationStatus =
     p.verificationStatus ?? (p.is_verified ? "verified" : undefined) ?? (p.verified ? "verified" : undefined);
   const is_verified: boolean | undefined = p.is_verified ?? p.verified ?? (verificationStatus === "verified");
 
-  // Phòng ngủ/tắm
   const bedrooms: number | undefined = p.bedrooms ?? p.bedroom_count ?? p.bed ?? undefined;
   const bathrooms: number | undefined = p.bathrooms ?? p.bathroom_count ?? p.bath ?? undefined;
 
-  // HOT / rating
   const isHot: boolean | undefined = p.isHot ?? p.hot ?? undefined;
   const rating: number | undefined = Number(p.rating ?? 4.8);
 
@@ -252,7 +243,7 @@ export default function Home() {
     setMaxArea(undefined);
     loadFromSupabase(1);
     loadTotals();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType]);
 
   // Lần đầu -> tổng toàn quốc
@@ -263,7 +254,7 @@ export default function Home() {
     if (!loading && properties.length === 0) loadLatest();
   }, [loading, properties.length, loadLatest]);
 
-  // TỰ CẬP NHẬT KHI LOCALSTORAGE THAY ĐỔI (đăng tin ở trang khác)
+  // TỰ CẬP NHẬT KHI LOCALSTORAGE THAY ĐỔI
   useEffect(() => {
     const refreshAll = () => {
       loadFromSupabase(1);
@@ -291,7 +282,7 @@ export default function Home() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // chuẩn hoá + tìm kiếm (áp dụng ngay giá trị hiện tại hoặc overrides)
+  // chuẩn hoá + tìm kiếm
   const applySearchNow = async (overrides?: Partial<{
     minPrice: number | undefined; maxPrice: number | undefined;
     minArea: number | undefined; maxArea: number | undefined;
@@ -380,7 +371,7 @@ export default function Home() {
     return chips;
   }, [listingType, province, type, priceSummary, areaSummary]);
 
-  // ✅ Gom filters đưa cho Header, cast mềm để khỏi vướng type union cũ
+  // ✅ Gom filters đưa cho Header
   const headerFilters = useMemo(
     () =>
       ({
@@ -417,10 +408,10 @@ export default function Home() {
       {/* Header: truyền filters để hiển thị tag */}
       <Header filters={headerFilters} />
 
-      {/* HERO: nền gradient + thanh tìm kiếm */}
+      {/* HERO */}
       <section className="bg-gradient-to-r from-blue-600 via-purple-600 to-orange-500">
         <div className="container mx-auto px-4 py-6 sm:py-10">
-          {/* Tabs Bán/Thuê */}
+          {/* Tabs */}
           <div className="mb-3 flex gap-2">
             <button
               onClick={() => setListingType("sell")}
@@ -436,12 +427,23 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Thanh tìm kiếm */}
-          <form onSubmit={onSearch} className="bg-white rounded-xl shadow-xl p-3 sm:p-4 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div className="md:col-span-4">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Khu vực</label>
+          {/* Search bar */}
+          <form
+            onSubmit={onSearch}
+            className="
+              searchbar
+              bg-white rounded-xl shadow-xl p-3 sm:p-4
+              grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto]
+              items-end gap-3
+            "
+          >
+            {/* Khu vực */}
+            <div>
+              <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+                Khu vực
+              </label>
               <select
-                className="w-full h-11 rounded-md border px-3"
+                className="search-select control-11 w-full rounded-md border px-3 text-sm appearance-none text-center"
                 value={province || ""}
                 onChange={(e) => setProvince(e.target.value || "")}
               >
@@ -453,23 +455,26 @@ export default function Home() {
               </select>
             </div>
 
-            <div className="md:col-span-3">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Loại nhà đất</label>
+            {/* Loại nhà đất */}
+            <div>
+              <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+                Loại nhà đất
+              </label>
               <select
-                className="w-full h-11 rounded-md border px-3"
+                className="search-select control-11 w-full rounded-md border px-3 text-sm appearance-none text-center"
                 value={type}
                 onChange={(e) => setType(e.target.value)}
               >
                 <option value="">Tất cả</option>
-                <option value="apartment" title="Căn hộ chung cư, officetel, studio…">Căn hộ</option>
-                <option value="house" title="Nhà riêng, nhà phố, liền kề">Nhà đất riêng</option>
-                <option value="villa" title="Biệt thự đơn lập, song lập, villa nghỉ dưỡng">Biệt thự</option>
-                <option value="office" title="Văn phòng, shophouse office, co-working">Văn phòng</option>
-                <option value="land" title="Mặt bằng kinh doanh, khách sạn, nhà trọ, kho xưởng, đất nông nghiệp…">Nhà đất khác</option>
+                <option value="apartment">Căn hộ</option>
+                <option value="house">Nhà đất riêng</option>
+                <option value="villa">Biệt thự</option>
+                <option value="office">Văn phòng</option>
+                <option value="land">Nhà đất khác</option>
               </select>
             </div>
 
-            {/* Nút 'Mức giá' */}
+            {/* 'Mức giá' */}
             <PricePopover
               label={priceUnitLabel}
               summary={priceSummary}
@@ -487,7 +492,7 @@ export default function Home() {
               onChangeUnits={handlePriceChange}
             />
 
-            {/* Nút 'Diện tích' */}
+            {/* 'Diện tích' */}
             <AreaPopover
               summary={areaSummary}
               show={showArea}
@@ -502,8 +507,12 @@ export default function Home() {
               onChange={handleAreaChange}
             />
 
-            <div className="md:col-span-12 flex justify-end">
-              <button type="submit" className="h-11 px-6 rounded-lg font-semibold bg-red-500 hover:bg-red-600 text-white shadow">
+            {/* Tìm kiếm */}
+            <div className="flex md:justify-end">
+              <button
+                type="submit"
+                className="control-11-btn w-full md:w-auto px-6 rounded-lg font-semibold bg-red-500 hover:bg-red-600 text-white shadow"
+              >
                 Tìm kiếm
               </button>
             </div>
@@ -511,8 +520,27 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Styles slider */}
+      {/* STYLES (slider + canh giữa controls + dropdown trái) */}
       <style>{`
+        /* Cân giữa nội dung bên trong ô (giữ nguyên như yêu cầu trước) */
+        .searchbar .control-11{
+          height:44px;line-height:44px;padding:0 12px;text-align:center;
+        }
+        .searchbar .control-11-btn{
+          height:44px;display:flex;align-items:center;justify-content:center;
+        }
+        .popover-input.control-11-input{
+          height:40px;line-height:40px;padding:0 12px;text-align:center;
+        }
+
+        /* ✅ Chỉ chỉnh danh sách BUNG RA của select căn trái.
+           - Selected value trong ô vẫn căn giữa (text-align-last:center).
+           - Options trong dropdown căn trái (text-align:left). */
+        .searchbar .search-select{ text-align:left; text-align-last:center; }
+        .searchbar .search-select option,
+        .searchbar .search-select optgroup{ text-align:left; }
+
+        /* Slider */
         .range-2 .track-base{background:linear-gradient(90deg,#93c5fd,#d8b4fe,#fdba74);opacity:.65;}
         .range-2 .track-fill{background:linear-gradient(90deg,#fbbf24,#ef4444);}
         .range-2 input[type="range"]{-webkit-appearance:none;appearance:none;height:0;position:absolute;left:0;right:0;pointer-events:all;}
@@ -636,9 +664,15 @@ function PricePopover({
   };
 
   return (
-    <div className="md:col-span-3 relative" ref={priceRefEl}>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-      <button type="button" onClick={() => setShow((v: boolean) => !v)} className="w-full h-11 rounded-md border px-3 text-left hover:bg-gray-50">
+    <div className="relative" ref={priceRefEl}>
+      <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+        {label}
+      </label>
+      <button
+        type="button"
+        onClick={() => setShow((v: boolean) => !v)}
+        className="control-11-btn w-full rounded-md border px-3 text-center hover:bg-gray-50"
+      >
         {summary}
       </button>
 
@@ -654,7 +688,7 @@ function PricePopover({
               <div className="text-xs text-gray-600 mb-1">Giá thấp nhất</div>
               <input
                 type="number" inputMode="numeric" placeholder="Từ"
-                className="w-full h-10 rounded-md border px-3"
+                className="popover-input control-11-input w-full rounded-md border px-3"
                 value={typeof minD === "number" ? minD : ""}
                 onChange={(e) => changeMin(e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value))}
               />
@@ -663,7 +697,7 @@ function PricePopover({
               <div className="text-xs text-gray-600 mb-1">Giá cao nhất</div>
               <input
                 type="number" inputMode="numeric" placeholder="Đến"
-                className="w-full h-10 rounded-md border px-3"
+                className="popover-input control-11-input w-full rounded-md border px-3"
                 value={typeof maxD === "number" ? maxD : ""}
                 onChange={(e) => changeMax(e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value))}
               />
@@ -714,9 +748,15 @@ function AreaPopover({
   const maxD = typeof maxArea === "number" ? maxArea : areaMax;
 
   return (
-    <div className="md:col-span-2 relative" ref={areaRefEl}>
-      <label className="block text-xs font-medium text-gray-600 mb-1">Diện tích (m²)</label>
-      <button type="button" onClick={() => setShow((v: boolean) => !v)} className="w-full h-11 rounded-md border px-3 text-left hover:bg-gray-50">
+    <div className="relative" ref={areaRefEl}>
+      <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+        Diện tích (m²)
+      </label>
+      <button
+        type="button"
+        onClick={() => setShow((v: boolean) => !v)}
+        className="control-11-btn w-full rounded-md border px-3 text-center hover:bg-gray-50"
+      >
         {summary}
       </button>
 
@@ -732,7 +772,7 @@ function AreaPopover({
               <div className="text-xs text-gray-600 mb-1">Từ</div>
               <input
                 type="number" inputMode="numeric" placeholder="0"
-                className="w-full h-10 rounded-md border px-3"
+                className="popover-input control-11-input w-full rounded-md border px-3"
                 value={typeof minArea === "number" ? minArea : ""}
                 onChange={(e) => onChange?.(e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber, maxArea)}
               />
@@ -741,7 +781,7 @@ function AreaPopover({
               <div className="text-xs text-gray-600 mb-1">Đến</div>
               <input
                 type="number" inputMode="numeric" placeholder="10000"
-                className="w-full h-10 rounded-md border px-3"
+                className="popover-input control-11-input w-full rounded-md border px-3"
                 value={typeof maxArea === "number" ? maxArea : ""}
                 onChange={(e) => onChange?.(minArea, e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber)}
               />
