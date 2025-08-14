@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { StorageManager } from "@utils/storage";
 import type { UserAccount } from "@utils/storage";
-import { getOrCreateDeviceId } from "@utils/device";
+import { getDeviceId } from "@utils/device"; // dùng tên chính tắc
 
 /* ===================== Types ===================== */
 type AuthContextType = {
@@ -42,7 +42,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /** Hoàn tất flow đăng nhập: ghi nhớ thiết bị, lưu phiên, đồng bộ user */
   const finalizeLogin = useCallback((u: UserAccount): boolean => {
-    const deviceId = getOrCreateDeviceId();
+    const deviceId = getDeviceId();
 
     // Nếu user có phone -> ghi nhớ thiết bị cho phone
     const phoneKey = sanitizePhone(u.phone || "");
@@ -77,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Tạo admin mặc định nếu chưa có
       StorageManager.initializeAdmin();
 
-      const deviceId = getOrCreateDeviceId();
+      const deviceId = getDeviceId();
       const session = StorageManager.getActiveSession();
 
       if (session && session.deviceId === deviceId) {
@@ -163,7 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [user, isAuthenticated, isLoading, loginByPhone, loginByEmailOrPhone, logout, updateUser]
   );
 
-  // Nếu muốn giữ UX cũ: hiển thị spinner trong lúc dò phiên thiết bị
+  // Giữ UX cũ: hiển thị spinner trong lúc dò phiên thiết bị
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
