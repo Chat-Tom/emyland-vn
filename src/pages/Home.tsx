@@ -1,4 +1,3 @@
-// src/pages/Home.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -65,7 +64,6 @@ function normalizeForCard(p: any) {
   // Xác minh
   const verificationStatus =
     p.verificationStatus ?? (p.is_verified ? "verified" : undefined) ?? (p.verified ? "verified" : undefined);
-
   const is_verified: boolean | undefined = p.is_verified ?? p.verified ?? (verificationStatus === "verified");
 
   // Phòng ngủ/tắm
@@ -258,9 +256,7 @@ export default function Home() {
   }, [listingType]);
 
   // Lần đầu -> tổng toàn quốc
-  useEffect(() => {
-    loadTotals();
-  }, [loadTotals]);
+  useEffect(() => { loadTotals(); }, [loadTotals]);
 
   // Nếu tìm không ra, tự load “tin mới nhất”
   useEffect(() => {
@@ -270,21 +266,16 @@ export default function Home() {
   // TỰ CẬP NHẬT KHI LOCALSTORAGE THAY ĐỔI (đăng tin ở trang khác)
   useEffect(() => {
     const refreshAll = () => {
-      // tải lại theo bộ lọc hiện tại và cập nhật “tin mới nhất”
       loadFromSupabase(1);
       loadTotals();
       loadLatest();
     };
-    // sự kiện custom (trong cùng tab)
     const onCustom = () => refreshAll();
-    // sự kiện storage (khác tab)
     const onStorage = (e: StorageEvent) => {
       if (e.key === "emyland_properties_updated") refreshAll();
     };
-
     window.addEventListener("emyland:properties-changed", onCustom as EventListener);
     window.addEventListener("storage", onStorage);
-
     return () => {
       window.removeEventListener("emyland:properties-changed", onCustom as EventListener);
       window.removeEventListener("storage", onStorage);
@@ -314,7 +305,6 @@ export default function Home() {
     let pmax = overrides?.maxPrice ?? maxPrice;
     if (typeof pmin === "number" && typeof pmax === "number" && pmin > pmax) [pmin, pmax] = [pmax, pmin];
 
-    // cập nhật state trước
     if (overrides?.minArea !== undefined) setMinArea(a);
     if (overrides?.maxArea !== undefined) setMaxArea(b);
     if (overrides?.minPrice !== undefined) setMinPrice(pmin);
@@ -390,6 +380,24 @@ export default function Home() {
     return chips;
   }, [listingType, province, type, priceSummary, areaSummary]);
 
+  // ✅ Gom filters đưa cho Header, cast mềm để khỏi vướng type union cũ
+  const headerFilters = useMemo(
+    () =>
+      ({
+        listingType,
+        province,
+        type,
+        minPrice,
+        maxPrice,
+        minArea,
+        maxArea,
+        priceSummary,
+        areaSummary,
+        selectedChips,
+      } as any),
+    [listingType, province, type, minPrice, maxPrice, minArea, maxArea, priceSummary, areaSummary, selectedChips]
+  );
+
   // Handlers auto-apply cho popovers
   const handlePriceChange = (minUnit?: number, maxUnit?: number) => {
     const commitMin = minUnit === undefined ? undefined : fromDisplay(isRent, minUnit);
@@ -407,21 +415,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-white">
       {/* Header: truyền filters để hiển thị tag */}
-      {/* @ts-ignore in case Header props aren't typed yet */}
-      <Header
-        filters={{
-          listingType,
-          province,
-          type,
-          minPrice,
-          maxPrice,
-          minArea,
-          maxArea,
-          priceSummary,
-          areaSummary,
-          selectedChips,
-        }}
-      />
+      <Header filters={headerFilters} />
 
       {/* HERO: nền gradient + thanh tìm kiếm */}
       <section className="bg-gradient-to-r from-blue-600 via-purple-600 to-orange-500">
@@ -475,7 +469,7 @@ export default function Home() {
               </select>
             </div>
 
-            {/* Nút 'Mức giá' (auto-apply, không có nút Áp dụng/Đặt lại) */}
+            {/* Nút 'Mức giá' */}
             <PricePopover
               label={priceUnitLabel}
               summary={priceSummary}
@@ -493,7 +487,7 @@ export default function Home() {
               onChangeUnits={handlePriceChange}
             />
 
-            {/* Nút 'Diện tích' (auto-apply, không có nút Áp dụng/Đặt lại) */}
+            {/* Nút 'Diện tích' */}
             <AreaPopover
               summary={areaSummary}
               show={showArea}
@@ -624,11 +618,9 @@ function PricePopover({
   label, summary, show, setShow, isRent,
   minPrice, maxPrice,
   pricePresets, priceMaxDisplay, priceStep, marks, priceUnitShort, priceRefEl,
-  onChangeUnits, // (minInUnit?, maxInUnit?) => void
+  onChangeUnits,
 }: any) {
   const toD = (isRent: boolean, v?: number) => (!v && v !== 0 ? "" : isRent ? Math.round((v ?? 0) / 1_000_000) : Math.round((v ?? 0) / 1_000_000_000));
-
-  // hiển thị luôn theo state global (đã lưu), auto-apply ngay khi đổi
   const minD = (toD(isRent, minPrice) as number | "") || 0;
   const maxD = (toD(isRent, maxPrice) as number | "") || priceMaxDisplay;
 
@@ -664,10 +656,7 @@ function PricePopover({
                 type="number" inputMode="numeric" placeholder="Từ"
                 className="w-full h-10 rounded-md border px-3"
                 value={typeof minD === "number" ? minD : ""}
-                onChange={(e) => {
-                  const v = e.currentTarget.value;
-                  changeMin(v === "" ? undefined : Number(v));
-                }}
+                onChange={(e) => changeMin(e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value))}
               />
             </div>
             <div>
@@ -676,10 +665,7 @@ function PricePopover({
                 type="number" inputMode="numeric" placeholder="Đến"
                 className="w-full h-10 rounded-md border px-3"
                 value={typeof maxD === "number" ? maxD : ""}
-                onChange={(e) => {
-                  const v = e.currentTarget.value;
-                  changeMax(v === "" ? undefined : Number(v));
-                }}
+                onChange={(e) => changeMax(e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value))}
               />
             </div>
           </div>
@@ -695,16 +681,8 @@ function PricePopover({
             step={priceStep}
             leftValue={typeof minD === "number" ? minD : 0}
             rightValue={typeof maxD === "number" ? maxD : priceMaxDisplay}
-            onLeft={(v: number) => {
-              const right = typeof maxD === "number" ? maxD : priceMaxDisplay;
-              const next = Math.min(v, right);
-              changeMin(next);
-            }}
-            onRight={(v: number) => {
-              const left = typeof minD === "number" ? minD : 0;
-              const next = Math.max(v, left);
-              changeMax(next);
-            }}
+            onLeft={(v: number) => changeMin(Math.min(v, typeof maxD === "number" ? maxD : priceMaxDisplay))}
+            onRight={(v: number) => changeMax(Math.max(v, typeof minD === "number" ? minD : 0))}
             marks={marks}
             rightLabel={`${priceMaxDisplay} ${priceUnitShort}`}
           />
@@ -714,10 +692,7 @@ function PricePopover({
               <button
                 key={i}
                 type="button"
-                onClick={() => {
-                  if (p.min === 0 && p.max === 0) onChangeUnits?.(0, 0);
-                  else onChangeUnits?.(p.min, p.max);
-                }}
+                onClick={() => (p.min === 0 && p.max === 0 ? onChangeUnits?.(0, 0) : onChangeUnits?.(p.min, p.max))}
                 className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 text-left"
               >
                 {p.label}
@@ -759,10 +734,7 @@ function AreaPopover({
                 type="number" inputMode="numeric" placeholder="0"
                 className="w-full h-10 rounded-md border px-3"
                 value={typeof minArea === "number" ? minArea : ""}
-                onChange={(e) => {
-                  const v = e.currentTarget.value;
-                  onChange?.(v === "" ? undefined : e.currentTarget.valueAsNumber, maxArea);
-                }}
+                onChange={(e) => onChange?.(e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber, maxArea)}
               />
             </div>
             <div>
@@ -771,10 +743,7 @@ function AreaPopover({
                 type="number" inputMode="numeric" placeholder="10000"
                 className="w-full h-10 rounded-md border px-3"
                 value={typeof maxArea === "number" ? maxArea : ""}
-                onChange={(e) => {
-                  const v = e.currentTarget.value;
-                  onChange?.(minArea, v === "" ? undefined : e.currentTarget.valueAsNumber);
-                }}
+                onChange={(e) => onChange?.(minArea, e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber)}
               />
             </div>
           </div>

@@ -4,19 +4,25 @@
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "skipLibCheck": true,
+    "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "moduleResolution": "Bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
+
     "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
       "@utils/*": ["utils/*"]
     },
-    "types": ["vite/client"]
+    "types": ["vite/client", "node"]
   },
-  "include": ["src", "utils", "api"]
+  "include": ["src", "utils", "api"],
+  "exclude": ["dist", "node_modules", "public", "src/pages/api", "pages/api"]
 }

@@ -55,6 +55,47 @@ export type ActiveSession = {
   loggedInAt: string;
 };
 
+// ================== HELPERS (an toàn trình duyệt/SSR) ==
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function lsGet(key: string): string | null {
+  if (!isBrowser()) return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, value: string): void {
+  if (!isBrowser()) return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* no-op */
+  }
+}
+
+function lsRemove(key: string): void {
+  if (!isBrowser()) return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    /* no-op */
+  }
+}
+
+function safeParse<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 // ================== MANAGER ============================
 export class StorageManager {
   // data keys
@@ -69,16 +110,11 @@ export class StorageManager {
 
   // ============== Helpers (private) =====================
   private static loadUserDevices(): Record<string, string[]> {
-    try {
-      const raw = localStorage.getItem(this.USER_DEVICES_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
+    return safeParse<Record<string, string[]>>(lsGet(this.USER_DEVICES_KEY), {});
   }
 
   private static saveUserDevices(map: Record<string, string[]>) {
-    localStorage.setItem(this.USER_DEVICES_KEY, JSON.stringify(map));
+    lsSet(this.USER_DEVICES_KEY, JSON.stringify(map));
   }
 
   private static normalizePhone(s: string): string {
@@ -91,23 +127,15 @@ export class StorageManager {
 
   /** Phát tín hiệu khi danh sách TIN ĐĂNG thay đổi (SPA + đa tab) */
   private static notifyPropertiesChanged(): void {
-    try {
-      // đa tab
-      localStorage.setItem("emyland_properties_updated", String(Date.now()));
-    } catch {}
-    try {
-      // trong cùng tab (SPA)
-      window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
-    } catch {}
-  }
-
-  /** An toàn parse JSON với fallback */
-  private static safeParse<T>(raw: string | null, fallback: T): T {
-    if (!raw) return fallback;
-    try {
-      return JSON.parse(raw) as T;
-    } catch {
-      return fallback;
+    // đa tab (kích hoạt sự kiện storage)
+    lsSet("emyland_properties_updated", String(Date.now()));
+    // trong cùng tab (SPA)
+    if (isBrowser()) {
+      try {
+        window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
+      } catch {
+        /* no-op */
+      }
     }
   }
 
@@ -139,8 +167,8 @@ export class StorageManager {
 
   // ================== Users =============================
   static getAllUsers(): UserAccount[] {
-    const users = localStorage.getItem(this.USERS_KEY);
-    return users ? (this.safeParse<UserAccount[]>(users, []) as UserAccount[]) : [];
+    const raw = lsGet(this.USERS_KEY);
+    return safeParse<UserAccount[]>(raw, []);
   }
 
   // ❗ Merge để không làm mất avatarUrl hay field khác khi cập nhật từng phần
@@ -165,7 +193,7 @@ export class StorageManager {
       });
     }
 
-    localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
+    lsSet(this.USERS_KEY, JSON.stringify(users));
   }
 
   static updateUser(user: UserAccount): void {
@@ -174,10 +202,10 @@ export class StorageManager {
 
   static deleteUserByEmail(email: string): void {
     const users = this.getAllUsers().filter((u) => u.email !== email);
-    localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
+    lsSet(this.USERS_KEY, JSON.stringify(users));
 
     const properties = this.getAllProperties().filter((p) => p.userEmail !== email);
-    localStorage.setItem(this.PROPERTIES_KEY, JSON.stringify(properties));
+    lsSet(this.PROPERTIES_KEY, JSON.stringify(properties));
 
     this.notifyPropertiesChanged();
   }
@@ -216,7 +244,7 @@ export class StorageManager {
     };
 
     users[idx] = updated;
-    localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
+    lsSet(this.USERS_KEY, JSON.stringify(users));
 
     const cur = this.getCurrentUser();
     if (cur && cur.id === userId) this.setCurrentUser(updated);
@@ -244,13 +272,13 @@ export class StorageManager {
       });
     }
 
-    localStorage.setItem(this.PROPERTIES_KEY, JSON.stringify(list));
+    lsSet(this.PROPERTIES_KEY, JSON.stringify(list));
     this.notifyPropertiesChanged();
   }
 
   static getAllProperties(): PropertyListing[] {
-    const raw = localStorage.getItem(this.PROPERTIES_KEY);
-    const arr = this.safeParse<PropertyListing[]>(raw, []);
+    const raw = lsGet(this.PROPERTIES_KEY);
+    const arr = safeParse<PropertyListing[]>(raw, []);
     // Sắp theo mới → cũ để trang chủ/tổng quan nhìn trực quan
     return [...arr].sort((a, b) => {
       const ta = new Date(a.createdAt || a.updatedAt || 0).getTime();
@@ -280,31 +308,22 @@ export class StorageManager {
 
   static deleteProperty(id: string): void {
     const properties = this.getAllProperties().filter((p) => p.id !== id);
-    localStorage.setItem(this.PROPERTIES_KEY, JSON.stringify(properties));
+    lsSet(this.PROPERTIES_KEY, JSON.stringify(properties));
     this.notifyPropertiesChanged();
   }
 
   // ======= ẢNH PHÁP LÝ (sổ đỏ/HĐMB) — tiện ích tuỳ chọn =======
   /** Lưu danh sách ảnh pháp lý theo propertyId (base64/url) */
   static saveLegalImages(propertyId: string, images: string[]): void {
-    try {
-      localStorage.setItem(this.LEGAL_IMG_PREFIX + propertyId, JSON.stringify(images ?? []));
-    } catch {}
+    lsSet(this.LEGAL_IMG_PREFIX + propertyId, JSON.stringify(images ?? []));
   }
   /** Lấy danh sách ảnh pháp lý theo propertyId */
   static getLegalImages(propertyId: string): string[] {
-    try {
-      const raw = localStorage.getItem(this.LEGAL_IMG_PREFIX + propertyId);
-      return raw ? (JSON.parse(raw) as string[]) : [];
-    } catch {
-      return [];
-    }
+    return safeParse<string[]>(lsGet(this.LEGAL_IMG_PREFIX + propertyId), []);
   }
   /** Xoá ảnh pháp lý theo propertyId */
   static clearLegalImages(propertyId: string): void {
-    try {
-      localStorage.removeItem(this.LEGAL_IMG_PREFIX + propertyId);
-    } catch {}
+    lsRemove(this.LEGAL_IMG_PREFIX + propertyId);
   }
 
   // =================== AUTH (email) =====================
@@ -354,20 +373,15 @@ export class StorageManager {
   // ============== Session & Device binding =============
   /** Lưu phiên đăng nhập hiện tại cho auto-login */
   static setActiveSession(s: ActiveSession) {
-    localStorage.setItem(this.ACTIVE_SESSION_KEY, JSON.stringify(s));
+    lsSet(this.ACTIVE_SESSION_KEY, JSON.stringify(s));
   }
 
   static getActiveSession(): ActiveSession | null {
-    try {
-      const raw = localStorage.getItem(this.ACTIVE_SESSION_KEY);
-      return raw ? (JSON.parse(raw) as ActiveSession) : null;
-    } catch {
-      return null;
-    }
+    return safeParse<ActiveSession | null>(lsGet(this.ACTIVE_SESSION_KEY), null);
   }
 
   static clearActiveSession() {
-    localStorage.removeItem(this.ACTIVE_SESSION_KEY);
+    lsRemove(this.ACTIVE_SESSION_KEY);
   }
 
   /** Ghi nhớ rằng thiết bị này đã được user (phone) đăng nhập thành công */
@@ -388,39 +402,27 @@ export class StorageManager {
   // ============== Current User (compat) ================
   // ❗ Merge current user để không mất avatarUrl khi những nơi khác setCurrentUser(user) thiếu field
   static setCurrentUser(user: UserAccount): void {
-    try {
-      const curRaw = localStorage.getItem(this.CURRENT_USER_KEY);
-      const cur = curRaw ? (JSON.parse(curRaw) as UserAccount) : null;
-      const now = new Date().toISOString();
+    const cur = safeParse<UserAccount | null>(lsGet(this.CURRENT_USER_KEY), null);
+    const now = new Date().toISOString();
 
-      const merged: UserAccount = cur
-        ? {
-            ...cur,
-            ...user,
-            avatarUrl: user.avatarUrl ?? cur.avatarUrl,
-            updatedAt: now,
-          }
-        : { ...user, createdAt: user.createdAt ?? now, updatedAt: user.updatedAt ?? now };
+    const merged: UserAccount = cur
+      ? {
+          ...cur,
+          ...user,
+          avatarUrl: user.avatarUrl ?? cur.avatarUrl,
+          updatedAt: now,
+        }
+      : { ...user, createdAt: user.createdAt ?? now, updatedAt: user.updatedAt ?? now };
 
-      localStorage.setItem(this.CURRENT_USER_KEY, JSON.stringify(merged));
-    } catch {
-      localStorage.setItem(this.CURRENT_USER_KEY, JSON.stringify(user));
-    }
+    lsSet(this.CURRENT_USER_KEY, JSON.stringify(merged));
   }
 
   static getCurrentUser(): UserAccount | null {
-    try {
-      const userData = localStorage.getItem(this.CURRENT_USER_KEY);
-      if (!userData) return null;
-      const u = JSON.parse(userData) as UserAccount | null;
-      return u ?? null;
-    } catch {
-      return null;
-    }
+    return safeParse<UserAccount | null>(lsGet(this.CURRENT_USER_KEY), null);
   }
 
   static clearCurrentUser(): void {
-    localStorage.removeItem(this.CURRENT_USER_KEY);
+    lsRemove(this.CURRENT_USER_KEY);
   }
 
   // =================== Register ========================
@@ -453,11 +455,11 @@ export class StorageManager {
 
   // =================== Utilities =======================
   static clearAllData(): void {
-    localStorage.removeItem(this.USERS_KEY);
-    localStorage.removeItem(this.PROPERTIES_KEY);
-    localStorage.removeItem(this.CURRENT_USER_KEY);
-    localStorage.removeItem(this.ACTIVE_SESSION_KEY);
-    localStorage.removeItem(this.USER_DEVICES_KEY);
+    lsRemove(this.USERS_KEY);
+    lsRemove(this.PROPERTIES_KEY);
+    lsRemove(this.CURRENT_USER_KEY);
+    lsRemove(this.ACTIVE_SESSION_KEY);
+    lsRemove(this.USER_DEVICES_KEY);
   }
 
   static exportData(): string {
@@ -473,14 +475,11 @@ export class StorageManager {
   static importData(jsonData: string): boolean {
     try {
       const data = JSON.parse(jsonData);
-      if (data.users) localStorage.setItem(this.USERS_KEY, JSON.stringify(data.users));
-      if (data.properties) localStorage.setItem(this.PROPERTIES_KEY, JSON.stringify(data.properties));
-      if (data.currentUser)
-        localStorage.setItem(this.CURRENT_USER_KEY, JSON.stringify(data.currentUser));
-      if (data.activeSession)
-        localStorage.setItem(this.ACTIVE_SESSION_KEY, JSON.stringify(data.activeSession));
-      if (data.userDevices)
-        localStorage.setItem(this.USER_DEVICES_KEY, JSON.stringify(data.userDevices));
+      if (data.users) lsSet(this.USERS_KEY, JSON.stringify(data.users));
+      if (data.properties) lsSet(this.PROPERTIES_KEY, JSON.stringify(data.properties));
+      if (data.currentUser) lsSet(this.CURRENT_USER_KEY, JSON.stringify(data.currentUser));
+      if (data.activeSession) lsSet(this.ACTIVE_SESSION_KEY, JSON.stringify(data.activeSession));
+      if (data.userDevices) lsSet(this.USER_DEVICES_KEY, JSON.stringify(data.userDevices));
       return true;
     } catch (error) {
       console.error("Import failed:", error);

@@ -1,4 +1,3 @@
-// src/pages/PropertyDetail.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -223,7 +222,7 @@ export default function PropertyDetail() {
             />
           </div>
 
-        {/* Chỉ render thumbnail khi có >1 ảnh */}
+          {/* Chỉ render thumbnail khi có >1 ảnh */}
           {pics.length > 1 ? (
             <div className="flex lg:flex-col gap-3">
               {pics.slice(0, 6).map((src, i) => (
