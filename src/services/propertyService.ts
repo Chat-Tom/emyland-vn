@@ -116,8 +116,8 @@ function mapLocalToProperty(p: any): Property {
     phone: p?.contactInfo?.phone ?? p?.phone ?? "",
     is_verified: !!(p?.contactInfo?.ownerVerified ?? p?.is_verified),
     type: p?.type ?? mapPropertyTypeToCode(p?.propertyType),
-    // Tin đăng local hiện tại mặc định là BÁN (có thể mở rộng sau)
-    listingType: p?.listingType ?? "sell",
+    // Tin local hiện lưu theo StorageManager.saveProperty; có listingType nếu đăng từ form mới
+    listingType: p?.listingType ?? (typeof p?.rent_per_month === "number" ? "rent" : "sell"),
   };
 }
 
@@ -198,16 +198,66 @@ function mergeUniqueById(a: Property[], b: Property[]): Property[] {
   return Array.from(map.values());
 }
 
-/** Sắp xếp mới nhất trước */
-function sortNewest(items: Property[]): Property[] {
+/** ===== Ưu tiên Verified trước, sau đó mới đến tin mới nhất ===== */
+type VerifyState = "verified" | "pending" | "unverified";
+
+function deburrLower(s?: string) {
+  if (!s) return "";
+  try {
+    return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  } catch {
+    return String(s).toLowerCase().trim();
+  }
+}
+
+function getVerificationStatusLoose(p: any): VerifyState {
+  // Chuẩn fields thông dụng
+  if (p?.is_verified === true || p?.verified === true) return "verified";
+  if (typeof p?.is_verified === "boolean" && p.is_verified === false) return "pending";
+  if (p?.contactInfo?.ownerVerified === true) return "verified";
+  if (p?.contactInfo?.ownerVerified === false) return "pending";
+
+  if (p?.verificationStatus) {
+    const s = deburrLower(String(p.verificationStatus));
+    if (s.includes("verified") || s.includes("da xac nhan")) return "verified";
+    if (s.includes("pending") || s.includes("dang xac nhan")) return "pending";
+  }
+
+  const texts = [p?.verification_status, p?.owner_status, p?.status, p?.badge, p?.label]
+    .filter(Boolean)
+    .map(String);
+  for (const raw of texts) {
+    const s = deburrLower(raw);
+    if (s.includes("verified") || (s.includes("chinh chu") && s.includes("da"))) return "verified";
+    if (s.includes("pending") || s.includes("dang xac nhan")) return "pending";
+  }
+  return "unverified";
+}
+
+function verificationRank(s: VerifyState): number {
+  // verified > pending > unverified
+  if (s === "verified") return 2;
+  if (s === "pending") return 1;
+  return 0;
+}
+
+function sortVerifiedThenNewest(items: Property[]): Property[] {
   return items
     .slice()
-    .sort((x, y) => Date.parse(y.created_at || "") - Date.parse(x.created_at || ""));
+    .sort((a, b) => {
+      const ra = verificationRank(getVerificationStatusLoose(a as any));
+      const rb = verificationRank(getVerificationStatusLoose(b as any));
+      if (rb !== ra) return rb - ra; // ưu tiên rank cao hơn
+      // cùng rank → mới nhất trước
+      const ta = Date.parse(a.created_at || "");
+      const tb = Date.parse(b.created_at || "");
+      return tb - ta;
+    });
 }
 
 /* ======================= Service ======================= */
 export class PropertyService {
-  /** Query Supabase (KHÔNG còn lọc listingType phía server để tránh lỗi cột) */
+  /** Query Supabase (KHÔNG dùng server filter listingType để tránh lệch schema) */
   private static buildQuery(filters?: PropertyFilters) {
     let q = supabase.from("properties").select("*", { count: "exact" });
 
@@ -222,10 +272,9 @@ export class PropertyService {
     }
 
     if (ward && ward.trim()) q = q.ilike("ward", `%${ward.trim()}%`);
-    if (type && type !== "all") q = q.eq("type", type);
+    if (type && type !== "all") q = q.eq("type", type); // nếu DB không có cột này, bỏ dòng này
 
-    // ❗ Không dùng listingType ở server vì có DB chỉ có 'listing_type'
-    // Nếu vẫn muốn lọc theo giá, chọn cột dựa vào listingType
+    // Giá: chọn cột theo listingType để gte/lte
     const minP = toNum(minPrice);
     const maxP = toNum(maxPrice);
     const priceColumn = listingType === "rent" ? "rent_per_month" : "price";
@@ -241,7 +290,7 @@ export class PropertyService {
     return q.order("created_at", { ascending: false });
   }
 
-  /** Lấy list (không phân trang) + trộn local → đảm bảo trang chủ thấy “tin mới nhất” */
+  /** Lấy list (không phân trang) + trộn local → đảm bảo “tin mới nhất” nổi lên */
   static async getProperties(filters?: PropertyFilters): Promise<Property[]> {
     try {
       const query = this.buildQuery(filters);
@@ -259,25 +308,27 @@ export class PropertyService {
         price_per_m2: Number(item?.price_per_m2) || undefined,
         listingType: (item?.listing_type ?? item?.listingType) as "sell" | "rent" | undefined,
         is_verified:
-            typeof item?.is_verified === "boolean" ? item.is_verified : item?.is_verified === 1,
+          typeof item?.is_verified === "boolean" ? item.is_verified : item?.is_verified === 1,
         images: normalizeImages(item?.images),
       }));
 
-      // Bổ sung lọc listingType phía client (an toàn với mọi schema)
+      // Lọc listingType phía client nếu cần (an toàn với mọi schema DB)
       if (filters?.listingType) {
         const want = filters.listingType;
-        remote = remote.filter((x) => (x.listingType ?? (x.rent_per_month ? "rent" : "sell")) === want);
+        remote = remote.filter(
+          (x) => (x.listingType ?? (x.rent_per_month ? "rent" : "sell")) === want
+        );
       }
 
       const localAll = readLocal();
       const localFiltered = filterClient(localAll, filters);
 
-      // Hợp nhất + sắp xếp + giới hạn 50
-      return sortNewest(mergeUniqueById(remote, localFiltered)).slice(0, 50);
+      // Hợp nhất + **ƯU TIÊN VERIFIED → MỚI NHẤT**
+      return sortVerifiedThenNewest(mergeUniqueById(remote, localFiltered)).slice(0, 50);
     } catch (err) {
       console.error("Get properties error:", err);
-      // Fallback: chỉ local
-      return sortNewest(filterClient(readLocal(), filters)).slice(0, 50);
+      // Fallback: chỉ local (vẫn áp dụng ưu tiên)
+      return sortVerifiedThenNewest(filterClient(readLocal(), filters)).slice(0, 50);
     }
   }
 
@@ -307,28 +358,30 @@ export class PropertyService {
         price_per_m2: Number(item?.price_per_m2) || undefined,
         listingType: (item?.listing_type ?? item?.listingType) as "sell" | "rent" | undefined,
         is_verified:
-            typeof item?.is_verified === "boolean" ? item.is_verified : item?.is_verified === 1,
+          typeof item?.is_verified === "boolean" ? item.is_verified : item?.is_verified === 1,
         images: normalizeImages(item?.images),
       }));
 
       // Lọc listingType phía client nếu cần
       if (filters?.listingType) {
         const want = filters.listingType;
-        remote = remote.filter((x) => (x.listingType ?? (x.rent_per_month ? "rent" : "sell")) === want);
+        remote = remote.filter(
+          (x) => (x.listingType ?? (x.rent_per_month ? "rent" : "sell")) === want
+        );
       }
 
       const localAll = readLocal();
       const localFiltered = filterClient(localAll, filters);
 
-      // Hợp nhất & sắp xếp
-      const merged = sortNewest(mergeUniqueById(remote, localFiltered));
+      // Hợp nhất & sắp xếp ƯU TIÊN VERIFIED
+      const merged = sortVerifiedThenNewest(mergeUniqueById(remote, localFiltered));
 
       // Tính total: tổng Supabase (count) + số local không trùng id Supabase
       const remoteIdSet = new Set(remote.map((x) => x.id));
       const extraLocal = localFiltered.filter((x) => !remoteIdSet.has(x.id)).length;
       const total = typeof count === "number" ? count + extraLocal : merged.length;
 
-      // Phân trang trên merged (đảm bảo local mới đăng vẫn nổi lên)
+      // Phân trang trên merged (đảm bảo verified vẫn ưu tiên)
       const start = (page - 1) * pageSize;
       const pageItems = merged.slice(start, start + pageSize);
       const hasMore = start + pageItems.length < total;
@@ -336,8 +389,8 @@ export class PropertyService {
       return { items: pageItems, total, page, pageSize, hasMore };
     } catch (err) {
       console.error("Get properties paged error:", err);
-      // Fallback: chỉ local
-      const all = sortNewest(filterClient(readLocal(), filters));
+      // Fallback: chỉ local (vẫn ưu tiên verified)
+      const all = sortVerifiedThenNewest(filterClient(readLocal(), filters));
       const start = (page - 1) * pageSize;
       const pageItems = all.slice(start, start + pageSize);
       return {

@@ -66,6 +66,11 @@ const Header: React.FC<HeaderProps> = ({
     navigate("/");
   }, [logout, navigate]);
 
+  const handleBrandClick = useCallback(() => {
+    // thông báo cho Home reset bộ lọc + cuộn lên đầu
+    window.dispatchEvent(new Event("emyland:resetHome"));
+  }, []);
+
   const menuItems = useMemo(
     () => [
       { label: "Tra cứu quy hoạch", path: "/planning-lookup" },
@@ -84,7 +89,7 @@ const Header: React.FC<HeaderProps> = ({
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 py-2">
           {/* Logo + Đăng tin */}
           <div className="flex items-center gap-4">
-            <Link to="/" className="flex flex-col items-center">
+            <Link to="/" onClick={handleBrandClick} className="flex flex-col items-center">
               <div className="flex items-center gap-2">
                 <img
                   src="https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754128379233_45efa0a3.png"
@@ -168,7 +173,6 @@ const Header: React.FC<HeaderProps> = ({
                 variant="outline"
                 className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white"
               >
-                {/* nhãn cá nhân hóa */}
                 Tài khoản
               </Button>
             )}

@@ -8,7 +8,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { User, Home, Edit, Trash2, Eye, Plus, Camera, Mail } from "lucide-react";
+import {
+  User,
+  Home,
+  Edit,
+  Trash2,
+  Eye,
+  Plus,
+  Camera,
+  Mail,
+  ShieldCheck,
+  Hourglass,
+} from "lucide-react";
 import { postDateLabel } from "@utils/date";
 
 import { StorageManager } from "../../utils/storage";
@@ -43,6 +54,39 @@ async function resizeToDataURL(file: File, maxSize = 256, quality = 0.85): Promi
     URL.revokeObjectURL(url);
   }
 }
+
+// ===== helpers =====
+type ListingType = "sell" | "rent";
+
+const listingTypeOf = (p: any): ListingType =>
+  (p?.listingType as ListingType) ??
+  (typeof p?.rent_per_month === "number" ? "rent" : "sell");
+
+const priceText = (p: any) => {
+  const lt = listingTypeOf(p);
+  if (lt === "rent") {
+    const v = Number(p?.rent_per_month) || 0;
+    return v ? `${Math.round(v / 1_000_000)} triệu/tháng` : "Thoả thuận";
+  }
+  const v = Number(p?.price) || 0;
+  if (!v) return "Thoả thuận";
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)} tỷ`;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(0)} triệu`;
+  return v.toLocaleString();
+};
+
+type Verify = "verified" | "pending";
+const verifyStatusOf = (p: any): Verify => {
+  // Ưu tiên verificationStatus
+  const vs = String(p?.verificationStatus || "").toLowerCase();
+  if (vs.includes("verified") || vs.includes("đã xác nhận")) return "verified";
+  if (vs.includes("pending") || vs.includes("đang xác nhận")) return "pending";
+
+  // Fallback theo ownerVerified
+  if (p?.contactInfo?.ownerVerified === true) return "verified";
+  // Mặc định: nếu chưa verified => pending
+  return "pending";
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -95,6 +139,17 @@ const Dashboard = () => {
     window.addEventListener("emyland:userUpdated", onUserUpdated as EventListener);
     return () => window.removeEventListener("emyland:userUpdated", onUserUpdated as EventListener);
   }, []);
+
+  // Tự refresh danh sách tin khi có sự kiện thay đổi hệ thống
+  useEffect(() => {
+    const refreshMine = () => {
+      if (!user) return;
+      const identifier = user.email || user.phone || "";
+      setProperties(StorageManager.getUserProperties(identifier));
+    };
+    window.addEventListener("emyland:properties-changed", refreshMine as EventListener);
+    return () => window.removeEventListener("emyland:properties-changed", refreshMine as EventListener);
+  }, [user]);
 
   const handleDeleteProperty = (propertyId: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) {
@@ -161,17 +216,10 @@ const Dashboard = () => {
     }
   };
 
-  const formatPrice = (price: number) => {
-    if (price >= 1_000_000_000) return `${(price / 1_000_000_000).toFixed(1)} tỷ`;
-    if (price >= 1_000_000) return `${(price / 1_000_000).toFixed(0)} triệu`;
-    return price.toLocaleString();
-  };
-
   // Dùng nhãn "hôm nay / hôm qua / dd/mm/yyyy"
   const renderPosted = (dateString: string) => {
     const label = postDateLabel(dateString);
     return label ? `Đăng: ${label}` : "";
-    // Nếu không có createdAt thì trả rỗng (ẩn phần ngày)
   };
 
   if (loading) {
@@ -227,67 +275,104 @@ const Dashboard = () => {
               </Card>
             ) : (
               <div className="grid gap-6">
-                {properties.map((property) => (
-                  <Card key={property.id} className="overflow-hidden">
-                    <CardContent className="p-6">
-                      <div className="flex gap-6">
-                        <div className="w-48 h-32 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
-                          {property.images && property.images.length > 0 ? (
-                            <img src={property.images[0]} alt={property.title} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-400">
-                              <Home className="h-8 w-8" />
+                {properties.map((property) => {
+                  const lt = listingTypeOf(property);
+                  const vStatus = verifyStatusOf(property);
+
+                  return (
+                    <Card key={property.id} className="overflow-hidden">
+                      <CardContent className="p-6">
+                        <div className="flex gap-6">
+                          <div className="w-48 h-32 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+                            {property.images && property.images.length > 0 ? (
+                              <img
+                                src={property.images[0]}
+                                alt={property.title}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                <Home className="h-8 w-8" />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex-1">
+                            <div className="flex justify-between items-start mb-2 gap-2">
+                              <div className="min-w-0">
+                                <h3 className="text-xl font-semibold text-gray-900 line-clamp-2">
+                                  {property.title}
+                                </h3>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <Badge variant="secondary">{property.propertyType}</Badge>
+                                  <Badge className={lt === "sell" ? "bg-blue-600" : "bg-emerald-600"}>
+                                    {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
+                                  </Badge>
+
+                                  {vStatus === "verified" ? (
+                                    <Badge className="bg-emerald-600 inline-flex items-center gap-1.5">
+                                      <ShieldCheck className="w-3.5 h-3.5" />
+                                      Đã xác nhận chính chủ
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="bg-amber-500 inline-flex items-center gap-1.5">
+                                      <Hourglass className="w-3.5 h-3.5" />
+                                      Đang xác nhận chính chủ
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          )}
-                        </div>
 
-                        <div className="flex-1">
-                          <div className="flex justify-between items-start mb-2">
-                            <h3 className="text-xl font-semibold text-gray-900 line-clamp-2">{property.title}</h3>
-                            <Badge variant="secondary">{property.propertyType}</Badge>
-                          </div>
+                            <p className="text-gray-600 mb-2 line-clamp-2">{property.description}</p>
 
-                          <p className="text-gray-600 mb-2 line-clamp-2">{property.description}</p>
+                            <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
+                              <span>Diện tích: {property.area}m²</span>
+                              <span>•</span>
+                              <span>{renderPosted(property.createdAt)}</span>
+                            </div>
 
-                          <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
-                            <span>Diện tích: {property.area}m²</span>
-                            <span>•</span>
-                            <span>{renderPosted(property.createdAt)}</span>
-                          </div>
+                            <div className="flex justify-between items-center">
+                              <div className="text-2xl font-bold text-red-600">
+                                {priceText(property)} {lt === "sell" ? "VND" : ""}
+                              </div>
 
-                          <div className="flex justify-between items-center">
-                            <div className="text-2xl font-bold text-red-600">{formatPrice(property.price)} VND</div>
-
-                            <div className="flex gap-2">
-                              <Button variant="outline" size="sm" className="flex items-center gap-1">
-                                <Eye className="h-4 w-4" />
-                                Xem
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="flex items-center gap-1"
-                                onClick={() => handleEditProperty(property)}
-                              >
-                                <Edit className="h-4 w-4" />
-                                Sửa
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="flex items-center gap-1 text-red-600 hover:text-red-700"
-                                onClick={() => handleDeleteProperty(property.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                                Xóa
-                              </Button>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="flex items-center gap-1"
+                                  onClick={() => navigate(`/property/${property.id}`)}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  Xem
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="flex items-center gap-1"
+                                  onClick={() => handleEditProperty(property)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                  Sửa
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="flex items-center gap-1 text-red-600 hover:text-red-700"
+                                  onClick={() => handleDeleteProperty(property.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Xóa
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </TabsContent>
@@ -327,9 +412,17 @@ const Dashboard = () => {
                       </span>
                     </button>
 
-                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onAvatarSelected} />
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={onAvatarSelected}
+                    />
 
-                    <div className="hidden md:block text-sm text-gray-500">Nhấp vào ảnh để đổi ảnh đại diện</div>
+                    <div className="hidden md:block text-sm text-gray-500">
+                      Nhấp vào ảnh để đổi ảnh đại diện
+                    </div>
                   </div>
 
                   {/* Thông tin dạng hàng ngang */}
@@ -368,7 +461,6 @@ const Dashboard = () => {
           onSave={handleSaveProperty}
         />
 
-        {/* ❌ Bỏ allowEmailEdit để không vi phạm type của UserEditModal */}
         <UserEditModal
           user={user}
           isOpen={isUserEditModalOpen}

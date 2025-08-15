@@ -29,6 +29,10 @@ export interface PropertyListing {
   price: number;
   area: number;
   propertyType: string;
+
+  // ✅ Thêm cờ BÁN/THUÊ (tùy chọn để tương thích dữ liệu cũ)
+  listingType?: "sell" | "rent";
+
   location: {
     province: string;
     district: string;

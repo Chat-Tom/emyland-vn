@@ -5,7 +5,9 @@ export type PropertyTypeValue =
   | "apartment"
   | "house"
   | "villa"
+  | "land"
   | "office"
+  | "social" // ✅ Nhà ở xã hội
   | "other";
 
 export type PropertyTypeOption = {
@@ -24,7 +26,13 @@ export const PROPERTY_TYPES: PropertyTypeOption[] = [
   { value: "apartment", label: "Căn hộ" },
   { value: "house", label: "Nhà đất riêng" },
   { value: "villa", label: "Biệt thự" },
+  { value: "land", label: "Đất nền" },              // ✅ khớp với thẻ hiển thị ngoài trang chủ
   { value: "office", label: "Văn phòng" },
+  {
+    value: "social",
+    label: "Nhà ở xã hội",                           // ✅ mới
+    hint: "Bao gồm cả bán/cho thuê NOXH",
+  },
   {
     value: "other",
     label: "Nhà đất khác",

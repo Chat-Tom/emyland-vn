@@ -18,10 +18,15 @@ import {
   UserX,
   Search,
   Images,
+  Pencil,
 } from "lucide-react";
 import LogsContent from "@/components/LogsContent";
+import { PROPERTY_TYPES } from "@/data/property-types";
+import { provinces, wardsByProvince } from "@/data/vietnam-locations";
 
-/** Lightbox xem ảnh pháp lý/HĐMB */
+type ListingType = "sell" | "rent";
+
+/* ======================= Lightbox ảnh pháp lý ======================= */
 function Lightbox({
   images,
   onClose,
@@ -60,6 +65,378 @@ function Lightbox({
   );
 }
 
+/* ======================= Helpers / dữ liệu chọn ======================= */
+const BIG6 = [
+  "Thành phố Hồ Chí Minh",
+  "Thành phố Hà Nội",
+  "Thành phố Đà Nẵng",
+  "Thành phố Hải Phòng",
+  "Thành phố Cần Thơ",
+  "Thành phố Huế",
+];
+const viSort = (a: string, b: string) => a.localeCompare(b, "vi");
+const wardWeight = (name: string) => (name.startsWith("Phường") ? 0 : name.startsWith("Xã") ? 1 : 2);
+
+/* ======================= Modal SỬA TIN (đầy đủ) ======================= */
+function EditPropertyModal({
+  property,
+  onClose,
+  onSaved,
+}: {
+  property: any; // dữ liệu local linh hoạt
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const ltInit: ListingType =
+    (property?.listingType as ListingType) ??
+    (typeof property?.rent_per_month === "number" ? "rent" : "sell");
+
+  // ---- Location mapping ----
+  const findProvinceIdByName = (name?: string): string => {
+    if (!name) return "";
+    const p = provinces.find((x) => x.provinceName.trim() === String(name).trim());
+    return p?.provinceId ?? "";
+  };
+  const sortedProvinces = useMemo(() => {
+    const list = provinces
+      .filter((p) => !/Tỉnh\s*\/\s*Thành\s*Phố/i.test(p.provinceName) && p.provinceName.trim() !== "")
+      .slice()
+      .sort((a, b) => {
+        const ia = BIG6.indexOf(a.provinceName);
+        const ib = BIG6.indexOf(b.provinceName);
+        if (ia !== -1 || ib !== -1) {
+          if (ia !== -1 && ib === -1) return -1;
+          if (ia === -1 && ib !== -1) return 1;
+          return ia - ib;
+        }
+        return a.provinceName.localeCompare(b.provinceName, "vi");
+      });
+    return list;
+  }, []);
+  const [provinceId, setProvinceId] = useState<string>(findProvinceIdByName(property?.location?.province));
+  const wardOptions = useMemo(() => {
+    if (!provinceId) return [];
+    const arr = wardsByProvince[provinceId] || [];
+    return arr.slice().sort((a, b) => {
+      const wa = wardWeight(a);
+      const wb = wardWeight(b);
+      if (wa !== wb) return wa - wb;
+      return a.localeCompare(b, "vi");
+    });
+  }, [provinceId]);
+
+  // ---- Main state ----
+  const [listingType, setListingType] = useState<ListingType>(ltInit);
+  const [title, setTitle] = useState<string>(property?.title ?? "");
+  const [description, setDescription] = useState<string>(property?.description ?? "");
+  const [propertyType, setPropertyType] = useState<string>(property?.propertyType ?? "");
+  const [area, setArea] = useState<string>(String(property?.area ?? ""));
+  const [priceTy, setPriceTy] = useState<string>(
+    listingType === "sell" && property?.price
+      ? String((Number(property.price) / 1_000_000_000).toFixed(2)).replace(/\.00$/, "")
+      : ""
+  );
+  const [rentMil, setRentMil] = useState<string>(
+    listingType === "rent" && property?.rent_per_month
+      ? String(Math.round(Number(property.rent_per_month) / 1_000_000))
+      : ""
+  );
+
+  // Địa chỉ + contact
+  const [ward, setWard] = useState<string>(property?.location?.ward ?? "");
+  const [address, setAddress] = useState<string>(property?.location?.address ?? "");
+  const [contactName, setContactName] = useState<string>(property?.contactInfo?.name ?? "");
+  const [contactPhone, setContactPhone] = useState<string>(property?.contactInfo?.phone ?? "");
+  const [contactEmail, setContactEmail] = useState<string>(property?.contactInfo?.email ?? "");
+  const [ownerVerified, setOwnerVerified] = useState<boolean>(
+    property?.contactInfo?.ownerVerified ?? (property?.verificationStatus === "verified") ?? false
+  );
+
+  // Ảnh BĐS
+  const [images, setImages] = useState<string[]>(Array.isArray(property?.images) ? property.images : []);
+  // Ảnh pháp lý
+  const [legalImages, setLegalImages] = useState<string[]>(StorageManager.getLegalImages(property.id) || []);
+
+  const filesToDataUrls = (files: FileList) =>
+    Promise.all(
+      Array.from(files).map(
+        (f) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ""));
+            reader.onerror = reject;
+            reader.readAsDataURL(f);
+          })
+      )
+    );
+
+  const addImages =
+    (field: "images" | "legal", limit: number) =>
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || !files.length) return;
+      const urls = await filesToDataUrls(files);
+      if (field === "images") {
+        setImages((prev) => [...prev, ...urls].slice(0, limit));
+      } else {
+        setLegalImages((prev) => [...prev, ...urls].slice(0, limit));
+      }
+      e.currentTarget.value = "";
+    };
+
+  const removeImage = (field: "images" | "legal", idx: number) => {
+    if (field === "images") {
+      setImages((prev) => prev.filter((_, i) => i !== idx));
+    } else {
+      setLegalImages((prev) => prev.filter((_, i) => i !== idx));
+    }
+  };
+
+  const onSave = () => {
+    const now = new Date().toISOString();
+    const provinceName =
+      sortedProvinces.find((p) => p.provinceId === provinceId)?.provinceName || property?.location?.province || "";
+
+    const updated: any = {
+      ...property,
+      title: title.trim(),
+      description: description.trim(),
+      propertyType,
+      area: Number(area) || 0,
+      listingType,
+      images: images.slice(),
+      location: {
+        province: provinceName,
+        district: property?.location?.district || "",
+        ward: ward,
+        address: address.trim(),
+      },
+      contactInfo: {
+        ...(property?.contactInfo || {}),
+        name: contactName.trim(),
+        phone: contactPhone.trim(),
+        email: contactEmail.trim(),
+        ownerVerified,
+      },
+      // ⬇️ Trạng thái xác minh hiển thị
+      verificationStatus: ownerVerified ? "verified" : "pending",
+      updatedAt: now,
+    };
+
+    if (listingType === "sell") {
+      const v = Number(String(priceTy).replace(",", "."));
+      updated.price = isFinite(v) && v > 0 ? Math.round(v * 1_000_000_000) : 0;
+      updated.price_per_m2 =
+        updated.area > 0 && updated.price ? Math.round(updated.price / updated.area) : undefined;
+      updated.rent_per_month = undefined;
+    } else {
+      const v = Number(String(rentMil).replace(",", "."));
+      updated.rent_per_month = isFinite(v) && v > 0 ? Math.round(v * 1_000_000) : 0;
+      updated.price = undefined;
+      updated.price_per_m2 = undefined;
+    }
+
+    StorageManager.saveProperty(updated);
+    StorageManager.saveLegalImages(property.id, legalImages);
+    try {
+      window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
+    } catch {}
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[998] bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-4xl w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-semibold text-lg">Sửa tin đăng</div>
+          <button className="text-xl leading-none" onClick={onClose}>×</button>
+        </div>
+
+        <div className="space-y-5 max-h-[80vh] overflow-auto pr-1">
+          {/* Hình thức */}
+          <div>
+            <div className="text-sm font-medium mb-1">Hình thức</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setListingType("sell")}
+                className={`px-3 py-2 rounded-lg border shadow-sm ${listingType === "sell" ? "bg-amber-400 text-black border-amber-400" : "bg-white hover:bg-amber-50"}`}
+              >
+                Nhà đất bán
+              </button>
+              <button
+                type="button"
+                onClick={() => setListingType("rent")}
+                className={`px-3 py-2 rounded-lg border shadow-sm ${listingType === "rent" ? "bg-amber-400 text-black border-amber-400" : "bg-white hover:bg-amber-50"}`}
+              >
+                Nhà đất cho thuê
+              </button>
+            </div>
+          </div>
+
+          {/* Cơ bản */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <div className="text-sm font-medium mb-1">Tiêu đề</div>
+              <input className="w-full rounded-md border px-3 py-2" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </div>
+            <div>
+              <div className="text-sm font-medium mb-1">Loại nhà đất</div>
+              <select className="w-full rounded-md border px-3 py-2" value={propertyType} onChange={(e) => setPropertyType(e.target.value)}>
+                <option value="">— Chọn loại —</option>
+                {PROPERTY_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div className="text-sm font-medium mb-1">Diện tích (m²)</div>
+              <input type="number" className="w-full rounded-md border px-3 py-2" value={area} onChange={(e) => setArea(e.target.value)} />
+            </div>
+
+            {listingType === "sell" ? (
+              <div>
+                <div className="text-sm font-medium mb-1">Giá bán (tỷ VND)</div>
+                <input type="number" step="0.01" className="w-full rounded-md border px-3 py-2" value={priceTy} onChange={(e) => setPriceTy(e.target.value)} />
+                <div className="text-xs text-gray-500 mt-1">Nhập theo tỷ VND.</div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-sm font-medium mb-1">Giá thuê (triệu/tháng)</div>
+                <input type="number" step="0.1" className="w-full rounded-md border px-3 py-2" value={rentMil} onChange={(e) => setRentMil(e.target.value)} />
+                <div className="text-xs text-gray-500 mt-1">Nhập theo triệu/tháng.</div>
+              </div>
+            )}
+          </div>
+
+          {/* Mô tả */}
+          <div>
+            <div className="text-sm font-medium mb-1">Mô tả</div>
+            <textarea rows={4} className="w-full rounded-md border px-3 py-2" value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+
+          {/* Địa chỉ */}
+          <div>
+            <div className="text-sm font-semibold mb-2">Địa chỉ</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="text-sm font-medium mb-1">Tỉnh/Thành</div>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={provinceId}
+                  onChange={(e) => { setProvinceId(e.target.value); setWard(""); }}
+                >
+                  <option value="">— Chọn —</option>
+                  {sortedProvinces.map((p) => (
+                    <option key={p.provinceId} value={p.provinceId}>
+                      {p.provinceName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className="text-sm font-medium mb-1">Phường/Xã</div>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={ward}
+                  onChange={(e) => setWard(e.target.value)}
+                  disabled={!provinceId}
+                >
+                  <option value="">— Chọn —</option>
+                  {wardOptions.map((w) => (
+                    <option key={w} value={w}>{w}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <div className="text-sm font-medium mb-1">Địa chỉ theo sổ đỏ/HĐMB</div>
+                <input className="w-full rounded-md border px-3 py-2" value={address} onChange={(e) => setAddress(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          {/* Liên hệ */}
+          <div>
+            <div className="text-sm font-semibold mb-2">Thông tin liên hệ</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <div className="text-sm font-medium mb-1">Họ tên</div>
+                <input className="w-full rounded-md border px-3 py-2" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+              </div>
+              <div>
+                <div className="text-sm font-medium mb-1">Số điện thoại</div>
+                <input className="w-full rounded-md border px-3 py-2" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+              </div>
+              <div>
+                <div className="text-sm font-medium mb-1">Email</div>
+                <input type="email" className="w-full rounded-md border px-3 py-2" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+              </div>
+            </div>
+            <label className="mt-3 flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={ownerVerified} onChange={(e) => setOwnerVerified(e.currentTarget.checked)} />
+              <span>Đánh dấu <strong>đã xác minh chính chủ</strong>.</span>
+            </label>
+          </div>
+
+          {/* Ảnh BĐS */}
+          <div>
+            <div className="text-sm font-semibold mb-2">Ảnh bất động sản</div>
+            <input type="file" accept="image/*" multiple onChange={addImages("images", 10)} />
+            {images.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+                {images.map((src, idx) => (
+                  <div key={idx} className="relative">
+                    <img src={src} alt={`img-${idx}`} className="h-28 w-full object-cover rounded-md border" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage("images", idx)}
+                      className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white"
+                    >
+                      X
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Ảnh pháp lý */}
+          <div>
+            <div className="text-sm font-semibold mb-2">Ảnh pháp lý (sổ đỏ / HĐMB)</div>
+            <input type="file" accept="image/*" multiple onChange={addImages("legal", 8)} />
+            {legalImages.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
+                {legalImages.map((src, idx) => (
+                  <div key={idx} className="relative">
+                    <img src={src} alt={`legal-${idx}`} className="h-24 w-full object-cover rounded-md border" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage("legal", idx)}
+                      className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white"
+                    >
+                      X
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Huỷ</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={onSave}>Lưu thay đổi</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================= Trang Dashboard ======================= */
 const SystemDashboard = () => {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -73,8 +450,10 @@ const SystemDashboard = () => {
   // Lightbox ảnh pháp lý
   const [legalImages, setLegalImages] = useState<string[] | null>(null);
 
+  // Modal sửa tin
+  const [editProp, setEditProp] = useState<any | null>(null);
+
   useEffect(() => {
-    // Kiểm tra quyền admin
     const currentUser = StorageManager.getCurrentUser();
     if (!currentUser || !currentUser.isLoggedIn) {
       navigate("/login", { replace: true });
@@ -85,12 +464,8 @@ const SystemDashboard = () => {
       return;
     }
 
-    // Lấy tất cả dữ liệu hệ thống
-    const allUsers = StorageManager.getAllUsers();
-    const allProperties = StorageManager.getAllProperties();
-
-    setUsers(allUsers);
-    setProperties(allProperties);
+    setUsers(StorageManager.getAllUsers());
+    setProperties(StorageManager.getAllProperties());
     setLoading(false);
   }, [navigate]);
 
@@ -99,10 +474,9 @@ const SystemDashboard = () => {
 
   const handleDeleteUser = (email: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) {
-      StorageManager.deleteUser(email); // giữ tương thích logic cũ
+      StorageManager.deleteUser(email);
       refreshUsers();
-      // StorageManager.deleteUserByEmail cũng đã xoá tin liên quan
-      refreshProps();
+      refreshProps(); // tin của user cũng bị xoá
     }
   };
 
@@ -115,14 +489,10 @@ const SystemDashboard = () => {
 
   const handleToggleAdmin = (u: UserAccount) => {
     const next = !u.isAdmin;
-    const msg = next
-      ? `Cấp quyền Quản trị cho ${u.fullName || u.email}?`
-      : `Gỡ quyền Quản trị của ${u.fullName || u.email}?`;
+    const msg = next ? `Cấp quyền Quản trị cho ${u.fullName || u.email}?` : `Gỡ quyền Quản trị của ${u.fullName || u.email}?`;
     if (!window.confirm(msg)) return;
-
     StorageManager.saveUser({ ...u, isAdmin: next });
 
-    // Nếu gỡ quyền chính mình → đăng xuất
     const cur = StorageManager.getCurrentUser();
     if (cur?.email === u.email && !next) {
       StorageManager.logout();
@@ -141,10 +511,17 @@ const SystemDashboard = () => {
     }
   };
 
-  const formatPrice = (price: number) => {
-    if (price >= 1_000_000_000) return `${(price / 1_000_000_000).toFixed(1)} tỷ`;
-    if (price >= 1_000_000) return `${(price / 1_000_000).toFixed(0)} triệu`;
-    return price.toLocaleString();
+  const priceText = (p: any) => {
+    const lt: ListingType = p?.listingType ?? (typeof p?.rent_per_month === "number" ? "rent" : "sell");
+    if (lt === "rent") {
+      const v = Number(p?.rent_per_month) || 0;
+      return v ? `${Math.round(v / 1_000_000)} triệu/tháng` : "Thoả thuận";
+    }
+    const v = Number(p?.price) || 0;
+    if (!v) return "Thoả thuận";
+    if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)} tỷ`;
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(0)} triệu`;
+    return v.toLocaleString();
   };
 
   const todayCount = useMemo(() => {
@@ -178,18 +555,12 @@ const SystemDashboard = () => {
   }, [properties, propQuery]);
 
   const openLegalImages = (propId: string) => {
-    try {
-      const key = `emyland_legal_images:${propId}`;
-      const raw = localStorage.getItem(key);
-      const imgs = raw ? (JSON.parse(raw) as string[]) : [];
-      if (!imgs?.length) {
-        alert("Tin này chưa có ảnh pháp lý/HĐMB.");
-        return;
-      }
-      setLegalImages(imgs);
-    } catch {
-      alert("Không đọc được ảnh pháp lý.");
+    const imgs = StorageManager.getLegalImages(propId);
+    if (!imgs?.length) {
+      alert("Tin này chưa có ảnh pháp lý/HĐMB.");
+      return;
     }
+    setLegalImages(imgs);
   };
 
   if (loading) {
@@ -210,7 +581,7 @@ const SystemDashboard = () => {
           <p className="text-gray-600">Quản lý người dùng và tin đăng trong hệ thống</p>
         </div>
 
-        {/* Thống kê tổng quan (giữ logic cũ, bổ sung chỉ số hữu ích) */}
+        {/* Thống kê tổng quan */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
@@ -331,9 +702,7 @@ const SystemDashboard = () => {
                         <Button
                           variant={user.isAdmin ? "outline" : "default"}
                           size="sm"
-                          className={
-                            user.isAdmin ? "text-red-600 hover:text-red-700" : "bg-blue-600"
-                          }
+                          className={user.isAdmin ? "text-red-600 hover:text-red-700" : "bg-blue-600"}
                           onClick={() => handleToggleAdmin(user)}
                           title={user.isAdmin ? "Gỡ quyền Admin" : "Cấp quyền Admin"}
                         >
@@ -383,42 +752,45 @@ const SystemDashboard = () => {
             </div>
 
             <div className="grid gap-4">
-              {filteredProps.map((property) => {
-                const legalKey = `emyland_legal_images:${property.id}`;
-                const legalCount =
-                  (() => {
-                    try {
-                      const raw = localStorage.getItem(legalKey);
-                      const arr = raw ? (JSON.parse(raw) as string[]) : [];
-                      return arr.length;
-                    } catch {
-                      return 0;
-                    }
-                  })() || 0;
+              {filteredProps.map((property: any) => {
+                const legalCount = StorageManager.getLegalImages(property.id)?.length ?? 0;
+                const lt: ListingType =
+                  property?.listingType ?? (typeof property?.rent_per_month === "number" ? "rent" : "sell");
+                const isVerified =
+                  property?.verificationStatus === "verified" || property?.contactInfo?.ownerVerified;
 
                 return (
                   <Card key={property.id}>
                     <CardContent className="p-6">
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
                         <div className="space-y-2">
-                          <h3 className="text-lg font-semibold line-clamp-1">
-                            {property.title}
-                          </h3>
-                          <p className="text-gray-600 line-clamp-2">
-                            {property.description}
-                          </p>
-                          <div className="flex items-center gap-4 text-sm text-gray-500">
-                            <span>Giá: {formatPrice(property.price)} VND</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-lg font-semibold line-clamp-1">{property.title}</h3>
+                            <Badge className={lt === "sell" ? "bg-blue-600" : "bg-emerald-600"}>
+                              {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
+                            </Badge>
+                            {isVerified ? (
+                              <Badge className="bg-emerald-600">Đã xác nhận chính chủ</Badge>
+                            ) : (
+                              <Badge className="bg-amber-500">Đang xác nhận chính chủ</Badge>
+                            )}
+                          </div>
+
+                          <p className="text-gray-600 line-clamp-2">{property.description}</p>
+
+                          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                            <span>
+                              Giá: <span className="font-semibold text-gray-900">{priceText(property)}</span>
+                            </span>
                             <span>•</span>
-                            <span>Diện tích: {property.area}m²</span>
+                            <span>Diện tích: {property.area} m²</span>
                             <span>•</span>
                             <span>Đăng: {formatDate(property.createdAt)}</span>
                           </div>
+
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary">{property.propertyType}</Badge>
-                            <span className="text-sm text-gray-500">
-                              bởi {property.userEmail}
-                            </span>
+                            <span className="text-sm text-gray-500">bởi {property.userEmail}</span>
                             {legalCount > 0 && (
                               <Button
                                 variant="outline"
@@ -443,6 +815,16 @@ const SystemDashboard = () => {
                             <Eye className="h-4 w-4 mr-1" />
                             Xem
                           </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditProp(property)}
+                          >
+                            <Pencil className="h-4 w-4 mr-1" />
+                            Sửa
+                          </Button>
+
                           <Button
                             variant="outline"
                             size="sm"
@@ -461,7 +843,7 @@ const SystemDashboard = () => {
             </div>
           </TabsContent>
 
-          {/* LOGS (giữ như file cũ) */}
+          {/* LOGS */}
           <TabsContent value="logs" className="space-y-6">
             <LogsContent />
           </TabsContent>
@@ -470,6 +852,16 @@ const SystemDashboard = () => {
 
       {Array.isArray(legalImages) && (
         <Lightbox images={legalImages} onClose={() => setLegalImages(null)} />
+      )}
+
+      {editProp && (
+        <EditPropertyModal
+          property={editProp}
+          onClose={() => setEditProp(null)}
+          onSaved={() => {
+            refreshProps();
+          }}
+        />
       )}
     </AppLayout>
   );

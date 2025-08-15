@@ -1,3 +1,4 @@
+// src/pages/PropertyDetail.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -62,7 +63,7 @@ function verifyBadge(status?: Verify) {
   return null;
 }
 
-/* ---------- Normalize (giữ toàn bộ logic cũ) ---------- */
+/* ---------- Normalize (giữ toàn bộ logic cũ, thêm mapUrl) ---------- */
 function normalizeProperty(raw: any): Property {
   if (!raw) return { id: "", title: "Tin bất động sản" };
 
@@ -96,7 +97,9 @@ function normalizeProperty(raw: any): Property {
 
     images,
     description: raw.description ?? raw.desc ?? raw.content,
-    verificationStatus: raw.verificationStatus ?? (raw.isOwnerVerified ? "verified" : undefined),
+    verificationStatus:
+      (raw.verificationStatus as Verify | undefined) ??
+      (raw.isOwnerVerified ? "verified" : undefined),
 
     ownerName: raw.ownerName ?? raw.contactName ?? raw.sellerName,
     ownerPhone: raw.ownerPhone ?? raw.phone ?? raw.contactPhone ?? raw.sellerPhone,
@@ -113,24 +116,47 @@ function normalizeProperty(raw: any): Property {
 // ✅ THÊM: chuẩn hoá từ localStorage (tin do người dùng đăng trên site)
 function normalizeFromLocal(p: PropertyListing | null): Property | null {
   if (!p) return null;
+
+  // Lấy listingType đúng từ local (đã lưu khi đăng)
+  const listingType: ListingType =
+    (p as any).listingType ??
+    ((typeof (p as any).rent_per_month === "number" ? "rent" : "sell") as ListingType);
+
+  // Giá hiển thị theo listingType
+  const price =
+    listingType === "rent"
+      ? (p as any).rent_per_month
+      : typeof (p as any).price === "number"
+      ? (p as any).price
+      : undefined;
+
+  // Trạng thái xác minh:
+  // - Nếu đã có p.verificationStatus ⇒ dùng luôn
+  // - Nếu chưa có mà contactInfo.ownerVerified === true ⇒ "verified"
+  // - Ngược lại ⇒ "pending" (đúng yêu cầu “mặc định đang xác nhận”)
+  const verificationStatus: Verify =
+    ((p as any).verificationStatus as Verify) ??
+    (p.contactInfo?.ownerVerified ? "verified" : "pending");
+
   return {
     id: p.id,
     title: p.title || "Tin bất động sản",
-    price: typeof p.price === "number" ? p.price : undefined,
-    listingType: "sell",
+    price,
+    listingType,
     addressLine: p.location?.address,
     ward: p.location?.ward,
     district: p.location?.district,
     province: p.location?.province,
     location: [p.location?.address, p.location?.ward, p.location?.province].filter(Boolean).join(", "),
     area: Number(p.area || 0),
-    bedrooms: (p as any).bedrooms, // nếu có
-    bathrooms: (p as any).bathrooms, // nếu có
+    bedrooms: (p as any).bedrooms,
+    bathrooms: (p as any).bathrooms,
     images: Array.isArray(p.images) ? p.images : [],
     description: p.description,
-    verificationStatus: p.contactInfo?.ownerVerified ? "verified" : undefined,
+    verificationStatus,
     ownerName: p.contactInfo?.name,
     ownerPhone: p.contactInfo?.phone,
+    mapUrl: (p as any).mapUrl, // ⬅️ dùng link map lưu khi đăng tin
     type: p.propertyType,
     rating: 4.8,
   };
@@ -222,7 +248,7 @@ export default function PropertyDetail() {
             />
           </div>
 
-          {/* Chỉ render thumbnail khi có >1 ảnh */}
+        {/* Chỉ render thumbnail khi có >1 ảnh */}
           {pics.length > 1 ? (
             <div className="flex lg:flex-col gap-3">
               {pics.slice(0, 6).map((src, i) => (

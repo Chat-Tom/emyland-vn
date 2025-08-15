@@ -1,8 +1,10 @@
+// src/components/PropertyCard.tsx
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Star, Eye, ShieldCheck, Hourglass } from "lucide-react";
 import { Link } from "react-router-dom";
+import { renderPosted } from "@utils/date"; // ✅ alias tới /utils/date.ts
 
 export interface PropertyCardProps {
   property: {
@@ -17,24 +19,26 @@ export interface PropertyCardProps {
     area: number;
     bedrooms?: number;
     bathrooms?: number;
-    images?: any;               // array | JSON string | comma-separated | object{urls}
-    type?: string;              // apartment | house | land | villa | office
+    images?: any;
+    type?: string;              // apartment | house | villa | office | land | social
     verificationStatus?: "verified" | "pending" | "unverified" | string;
-    is_verified?: boolean;      // từ DB
+    is_verified?: boolean;
     rating?: number;
     listingType?: "sell" | "rent";
     isHot?: boolean;
-    // khả năng DB có các tên khác:
+    createdAt?: string | number | Date;
     [key: string]: any;
   };
 }
 
+/* ======== Chip loại nhà đất (đã thêm "social") ======== */
 const TYPE_MAP: Record<string, { label: string; color: string }> = {
-  apartment: { label: "Căn hộ",   color: "bg-blue-500" },
-  house:     { label: "Nhà phố",  color: "bg-green-500" },
-  villa:     { label: "Biệt thự", color: "bg-purple-500" },
-  land:      { label: "Đất nền",  color: "bg-orange-500" },
-  office:    { label: "Văn phòng",color: "bg-cyan-600" },
+  apartment: { label: "Căn hộ",        color: "bg-blue-500" },
+  house:     { label: "Nhà phố",       color: "bg-green-500" },
+  villa:     { label: "Biệt thự",      color: "bg-purple-500" },
+  land:      { label: "Nhà đất khác",  color: "bg-orange-500" },
+  office:    { label: "Văn phòng",     color: "bg-cyan-600" },
+  social:    { label: "Nhà ở xã hội",  color: "bg-sky-500" }, // ✅ chip riêng
 };
 
 const SVG_PLACEHOLDER = encodeURIComponent(
@@ -48,7 +52,7 @@ const SVG_PLACEHOLDER = encodeURIComponent(
 );
 const PLACEHOLDER = `data:image/svg+xml;charset=UTF-8,${SVG_PLACEHOLDER}`;
 
-// ===== helpers =====
+/* ===== helpers ảnh/địa chỉ/giá ===== */
 const firstImg = (pics?: any) => {
   try {
     if (Array.isArray(pics)) return pics.find(Boolean) ?? PLACEHOLDER;
@@ -92,7 +96,6 @@ function formatPrice(
   return `${mil.toLocaleString("vi-VN")} triệu`;
 }
 
-// Giá theo m²: CHỈ hiển thị cho BÁN
 function formatPricePerM2(
   listingType: "sell" | "rent" | undefined,
   area: number,
@@ -102,74 +105,100 @@ function formatPricePerM2(
   if (listingType !== "sell" || !area || area <= 0) return null;
   let val = price_per_m2 ?? (price ?? 0) / area;
   if (!val || val <= 0) return null;
-
-  if (val >= 1_000_000_000) {
-    const ty = val / 1_000_000_000;
-    return `${ty.toFixed(2)} tỷ/m²`;
-  }
-  const mil = val / 1_000_000;
-  return `${mil.toFixed(2)} triệu/m²`;
+  if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(2)} tỷ/m²`;
+  return `${(val / 1_000_000).toFixed(2)} triệu/m²`;
 }
 
-// ——— Suy luận trạng thái chính chủ từ nhiều biến thể field/chuỗi ———
+/* ===== Chuẩn hoá & suy luận loại BĐS để đồng bộ chip ===== */
 function deburrLower(s?: string) {
   if (!s) return "";
-  try {
-    return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-  } catch {
-    return s.toLowerCase().trim();
-  }
+  try { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
+  catch { return String(s).toLowerCase().trim(); }
 }
-function getVerificationStatus(p: any): "verified" | "pending" | "unverified" {
-  // boolean dạng khác
-  if (p?.is_verified || p?.isVerified || p?.verified === true || p?.owner_verified) return "verified";
 
-  // các field text phổ biến
+function pickFirst(...vals: any[]) {
+  for (const v of vals) if (v !== undefined && v !== null && `${v}`.trim() !== "") return v;
+  return undefined;
+}
+
+/** Trả về code: apartment/house/villa/office/land/social */
+function getTypeCode(p: any): string | undefined {
+  const raw = pickFirst(
+    p?.type,
+    p?.propertyType,
+    p?.category,
+    p?.kind,
+    p?.segment,
+    p?.group
+  );
+  const s = deburrLower(typeof raw === "string" ? raw : "");
+
+  // ưu tiên "Nhà ở xã hội"
+  if (s.includes("xa hoi") || s.includes("social")) return "social";
+
+  if (s.includes("can ho") || s.includes("chung cu")) return "apartment";
+  if (
+    s.includes("nha dat rieng") || s.includes("nha rieng") || s.includes("nha pho") ||
+    (s.startsWith("nha") && !s.includes("biet thu"))
+  ) return "house";
+  if (s.includes("biet thu") || s.includes("villa")) return "villa";
+  if (s.includes("van phong") || s.includes("office")) return "office";
+
+  // nhóm còn lại xem là "land"
+  if (
+    s.includes("dat") || s.includes("dat nen") || s.includes("mat bang") ||
+    s.includes("kho") || s.includes("xuong") || s.includes("khach san") ||
+    s.includes("nha tro") || s.includes("phong tro") || s.includes("nha vuon")
+  ) return "land";
+
+  // nếu DB đã set chuẩn mã code thì trả lại luôn
+  if (["apartment","house","villa","office","land","social"].includes(String(p?.type))) {
+    return p.type;
+  }
+
+  return undefined;
+}
+
+/* ===== Suy luận trạng thái xác minh ===== */
+function getVerificationStatus(p: any): "verified" | "pending" | "unverified" {
+  if (p?.verificationStatus) {
+    const s = deburrLower(String(p.verificationStatus));
+    if (s.includes("verified") || s.includes("da xac nhan")) return "verified";
+    if (s.includes("pending") || s.includes("dang xac nhan")) return "pending";
+  }
+  if (p?.is_verified === true || p?.isVerified === true || p?.verified === true || p?.owner_verified === true)
+    return "verified";
+  if (p?.is_verified === false || p?.verified === false) return "pending";
+  if (p?.contactInfo?.ownerVerified === true) return "verified";
+  if (p?.contactInfo?.ownerVerified === false) return "pending";
+
   const candidates = [
-    p?.verificationStatus,
-    p?.verification_status,
-    p?.owner_status,
-    p?.ownerStatus,
-    p?.status,
-    p?.badge,
-    p?.label,
-  ]
-    .filter(Boolean)
-    .map((x: any) => String(x));
+    p?.verification_status, p?.owner_status, p?.ownerStatus,
+    p?.status, p?.badge, p?.label, p?.statusBadge, p?.statusLabel,
+  ].filter(Boolean).map(String);
 
   for (const raw of candidates) {
     const s = deburrLower(raw);
-    if (!s) continue;
-    if (
-      s.includes("verified") ||
-      s.includes("da xac nhan") ||
-      (s.includes("xác nhận") && s.includes("đã"))
-    ) {
-      return "verified";
-    }
-    if (
-      s.includes("pending") ||
-      s.includes("dang xac nhan") ||
-      (s.includes("xác nhận") && (s.includes("dang") || s.includes("đang")))
-    ) {
-      return "pending";
-    }
+    const hasOwner = s.includes("chinh chu");
+    if (s.includes("verified") || (hasOwner && s.includes("da"))) return "verified";
+    if (s.includes("pending") || s.includes("dang xac nhan") || (hasOwner && s.includes("dang"))) return "pending";
   }
   return "unverified";
 }
 
+/* ===== Badge nhỏ trong thân thẻ — MÀU TƯƠI HƠN ===== */
 function renderVerifyBadge(finalStatus: "verified" | "pending" | "unverified") {
   if (finalStatus === "verified")
     return (
-      <span className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+      <span className="inline-flex items-center gap-2 text-xs font-semibold text-white bg-green-500 border border-green-600 px-2.5 py-1 rounded-full">
+        <span className="w-1.5 h-1.5 rounded-full bg-white/90" />
         Đã xác nhận chính chủ
       </span>
     );
   if (finalStatus === "pending")
     return (
-      <span className="inline-flex items-center gap-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+      <span className="inline-flex items-center gap-2 text-xs font-semibold text-amber-900 bg-amber-300 border border-amber-400 px-2.5 py-1 rounded-full">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-800" />
         Đang xác nhận chính chủ
       </span>
     );
@@ -179,15 +208,20 @@ function renderVerifyBadge(finalStatus: "verified" | "pending" | "unverified") {
 export default function PropertyCard({ property }: PropertyCardProps) {
   const {
     id, title, price, rent_per_month, price_per_m2, location, ward, province, area,
-    bedrooms, bathrooms, images, type,
-    rating = 4.8, listingType, isHot,
+    bedrooms, bathrooms, images,
+    rating = 4.8, listingType, isHot, createdAt,
   } = property;
+
+  // ✅ đồng bộ chip loại nhà đất từ dữ liệu
+  const typeCode = getTypeCode(property);
+  const typeCfg = typeCode ? TYPE_MAP[typeCode] : undefined;
 
   const img = firstImg(images);
   const address = addressOf(ward, province, location);
   const priceText = formatPrice(listingType, price, rent_per_month);
   const priceM2Text = formatPricePerM2(listingType, area, price_per_m2, price);
   const finalStatus = getVerificationStatus(property);
+  const postedText = createdAt ? renderPosted(createdAt) : "";
 
   return (
     <Card className="group overflow-hidden border shadow-sm bg-white rounded-2xl hover:shadow-lg transition">
@@ -204,9 +238,9 @@ export default function PropertyCard({ property }: PropertyCardProps) {
 
         {/* Chips trái */}
         <div className="absolute top-2 left-2 flex gap-2">
-          {type && TYPE_MAP[type] && (
-            <Badge className={`${TYPE_MAP[type].color} text-white font-semibold px-2.5 py-1`}>
-              {TYPE_MAP[type].label}
+          {typeCfg && (
+            <Badge className={`${typeCfg.color} text-white font-semibold px-2.5 py-1`}>
+              {typeCfg.label}
             </Badge>
           )}
           {listingType && (
@@ -217,27 +251,27 @@ export default function PropertyCard({ property }: PropertyCardProps) {
           {isHot && <Badge className="bg-red-500 text-white font-semibold px-2.5 py-1">HOT</Badge>}
         </div>
 
-        {/* Overlay trạng thái chính chủ (điểm nhấn) */}
+        {/* Overlay trạng thái chính chủ — MÀU TƯƠI, NỔI BẬT */}
         <div className="absolute top-2 right-2">
           {finalStatus === "verified" && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold
-                             text-emerald-800 bg-emerald-50/95 backdrop-blur
-                             px-3 py-1 rounded-full border border-emerald-200 shadow-sm">
+                             text-white bg-green-500/95 backdrop-blur
+                             px-3 py-1 rounded-full border border-green-600 shadow-sm">
               <ShieldCheck className="w-3.5 h-3.5" />
               Đã xác nhận chính chủ
             </span>
           )}
           {finalStatus === "pending" && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold
-                             text-amber-800 bg-amber-50/95 backdrop-blur
-                             px-3 py-1 rounded-full border border-amber-200 shadow-sm">
+                             text-black bg-amber-400/95 backdrop-blur
+                             px-3 py-1 rounded-full border border-amber-500 shadow-sm">
               <Hourglass className="w-3.5 h-3.5" />
               Đang xác nhận chính chủ
             </span>
           )}
         </div>
 
-        {/* Giá chính + Giá/m² (chỉ khi Bán) */}
+        {/* Giá */}
         <div className="absolute bottom-2 left-2 space-y-1">
           <span className="inline-flex text-white text-sm font-bold px-3 py-1 rounded-full bg-black/60">
             {priceText}
@@ -253,7 +287,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
       <CardContent className="p-4 space-y-3">
         <h3 className="text-base sm:text-lg font-semibold text-gray-900 line-clamp-2">{title}</h3>
 
-        {/* badge nhỏ trong thân thẻ (phụ) */}
+        {/* badge nhỏ trong thân thẻ */}
         {renderVerifyBadge(finalStatus)}
 
         <div className="flex items-center text-sm text-gray-600 gap-1.5">
@@ -265,6 +299,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
           {area ?? "--"} m²
           {typeof bedrooms === "number" ? ` • ${bedrooms} PN` : ""}
           {typeof bathrooms === "number" ? ` • ${bathrooms} WC` : ""}
+          {postedText ? <span className="text-gray-500 font-normal"> • {postedText}</span> : null}
         </div>
 
         <div className="flex items-center gap-1 text-yellow-500">

@@ -6,20 +6,20 @@ import { Toaster } from "@/components/ui/toaster";
 import { useAuth, AuthProvider } from "@/contexts/AuthContext";
 import { AppProvider } from "@/contexts/AppContext";
 
-
 /* ========== Code-splitting pages ========== */
-const Home                = lazy(() => import("@/pages/Home"));                 // ĐÃ gộp Properties vào Home
-const PropertyDetail      = lazy(() => import("@/pages/PropertyDetail"));
-const PostProperty        = lazy(() => import("@/pages/PostProperty"));
-const Login               = lazy(() => import("@/pages/Login"));
-const Register            = lazy(() => import("@/pages/Register"));
-const Dashboard           = lazy(() => import("@/pages/Dashboard"));
-const SystemDashboard     = lazy(() => import("@/pages/SystemDashboard"));
-const PlanningLookup      = lazy(() => import("@/pages/PlanningLookup"));
-const ValuationCertificate= lazy(() => import("@/pages/ValuationCertificate"));
-const LogsDashboard       = lazy(() => import("@/pages/LogsDashboard"));
-const ForgotPassword      = lazy(() => import("@/pages/ForgotPassword"));
-const NotFound            = lazy(() => import("@/pages/NotFound"));
+const Home                 = lazy(() => import("@/pages/Home"));                 // ĐÃ gộp Properties vào Home
+const PropertyDetail       = lazy(() => import("@/pages/PropertyDetail"));
+const PostProperty         = lazy(() => import("@/pages/PostProperty"));
+const Login                = lazy(() => import("@/pages/Login"));
+const Register             = lazy(() => import("@/pages/Register"));
+const Dashboard            = lazy(() => import("@/pages/Dashboard"));
+const SystemDashboard      = lazy(() => import("@/pages/SystemDashboard"));
+const PlanningLookup       = lazy(() => import("@/pages/PlanningLookup"));
+const ValuationCertificate = lazy(() => import("@/pages/ValuationCertificate"));
+const LogsDashboard        = lazy(() => import("@/pages/LogsDashboard"));
+const ForgotPassword       = lazy(() => import("@/pages/ForgotPassword"));
+const NotFound             = lazy(() => import("@/pages/NotFound"));
+const SocialHousing        = lazy(() => import("@/pages/SocialHousing"));        // ✅ Trang Nhà ở xã hội
 
 /* ========== Scroll to top on route change ========== */
 function ScrollToTop() {
@@ -56,6 +56,11 @@ function AppInner() {
             <Route path="/" element={<Home />} />
             {/* Tương thích cũ: /properties -> / */}
             <Route path="/properties" element={<Navigate to="/" replace />} />
+
+            {/* ✅ Nhà ở xã hội (công khai) */}
+            <Route path="/social-housing" element={<SocialHousing />} />
+            {/* Alias ngắn */}
+            <Route path="/noxh" element={<Navigate to="/social-housing" replace />} />
 
             {/* Chi tiết BĐS */}
             <Route path="/property/:id" element={<PropertyDetail />} />

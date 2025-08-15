@@ -1,4 +1,4 @@
-// /utils/date.ts
+// src/utils/date.ts
 // Utilities for rendering "Đăng: hôm nay / hôm qua / dd/mm/yyyy" (local time)
 
 /** Compare two dates by year-month-day (local time, ignores time of day) */
