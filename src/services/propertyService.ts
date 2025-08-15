@@ -257,13 +257,13 @@ function sortVerifiedThenNewest(items: Property[]): Property[] {
 
 /* ======================= Service ======================= */
 export class PropertyService {
-  /** Query Supabase (KHÔNG dùng server filter listingType để tránh lệch schema) */
+  /** Query Supabase — KHÔNG filter server theo `type` để tránh lỗi cột không tồn tại */
   private static buildQuery(filters?: PropertyFilters) {
     let q = supabase.from("properties").select("*", { count: "exact" });
 
     if (!filters) return q.order("created_at", { ascending: false });
 
-    const { province, ward, minPrice, maxPrice, minArea, maxArea, type, listingType } = filters;
+    const { province, ward, minPrice, maxPrice, minArea, maxArea, listingType } = filters;
 
     // Province/City: OR theo cả province và location cho linh hoạt
     if (province && province.trim()) {
@@ -272,7 +272,6 @@ export class PropertyService {
     }
 
     if (ward && ward.trim()) q = q.ilike("ward", `%${ward.trim()}%`);
-    if (type && type !== "all") q = q.eq("type", type); // nếu DB không có cột này, bỏ dòng này
 
     // Giá: chọn cột theo listingType để gte/lte
     const minP = toNum(minPrice);
@@ -312,12 +311,15 @@ export class PropertyService {
         images: normalizeImages(item?.images),
       }));
 
-      // Lọc listingType phía client nếu cần (an toàn với mọi schema DB)
+      // Lọc client-side cho remote (listingType + type)
       if (filters?.listingType) {
         const want = filters.listingType;
         remote = remote.filter(
           (x) => (x.listingType ?? (x.rent_per_month ? "rent" : "sell")) === want
         );
+      }
+      if (filters?.type && filters.type !== "all") {
+        remote = remote.filter((x) => (x.type ?? "") === filters.type);
       }
 
       const localAll = readLocal();
@@ -362,12 +364,15 @@ export class PropertyService {
         images: normalizeImages(item?.images),
       }));
 
-      // Lọc listingType phía client nếu cần
+      // Lọc client-side cho remote (listingType + type)
       if (filters?.listingType) {
         const want = filters.listingType;
         remote = remote.filter(
           (x) => (x.listingType ?? (x.rent_per_month ? "rent" : "sell")) === want
         );
+      }
+      if (filters?.type && filters.type !== "all") {
+        remote = remote.filter((x) => (x.type ?? "") === filters.type);
       }
 
       const localAll = readLocal();

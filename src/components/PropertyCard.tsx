@@ -38,7 +38,7 @@ const TYPE_MAP: Record<string, { label: string; color: string }> = {
   villa:     { label: "Biệt thự",      color: "bg-purple-500" },
   land:      { label: "Nhà đất khác",  color: "bg-orange-500" },
   office:    { label: "Văn phòng",     color: "bg-cyan-600" },
-  social:    { label: "Nhà ở xã hội",  color: "bg-sky-500" }, // ✅ chip riêng
+  social:    { label: "Nhà ở xã hội",  color: "bg-sky-500" },
 };
 
 const SVG_PLACEHOLDER = encodeURIComponent(
@@ -51,6 +51,10 @@ const SVG_PLACEHOLDER = encodeURIComponent(
    </svg>`
 );
 const PLACEHOLDER = `data:image/svg+xml;charset=UTF-8,${SVG_PLACEHOLDER}`;
+
+/** Badge logo thương hiệu gắn góc phải trên ảnh */
+const BRAND_BADGE_URL =
+  "https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754128379233_45efa0a3.png";
 
 /* ===== helpers ảnh/địa chỉ/giá ===== */
 const firstImg = (pics?: any) => {
@@ -197,8 +201,8 @@ function renderVerifyBadge(finalStatus: "verified" | "pending" | "unverified") {
     );
   if (finalStatus === "pending")
     return (
-      <span className="inline-flex items-center gap-2 text-xs font-semibold text-amber-900 bg-amber-300 border border-amber-400 px-2.5 py-1 rounded-full">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-800" />
+      <span className="inline-flex items-center gap-2 text-xs font-semibold text-white bg-yellow-400 border border-yellow-500 px-2.5 py-1 rounded-full">
+        <span className="w-1.5 h-1.5 rounded-full bg-white/90" />
         Đang xác nhận chính chủ
       </span>
     );
@@ -251,8 +255,14 @@ export default function PropertyCard({ property }: PropertyCardProps) {
           {isHot && <Badge className="bg-red-500 text-white font-semibold px-2.5 py-1">HOT</Badge>}
         </div>
 
-        {/* Overlay trạng thái chính chủ — MÀU TƯƠI, NỔI BẬT */}
-        <div className="absolute top-2 right-2">
+        {/* ✅ Góc phải: logo thương hiệu + trạng thái chính chủ */}
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-2">
+          <img
+            src={BRAND_BADGE_URL}
+            alt="EmyLand"
+            className="h-7 w-7 rounded-full bg-white/95 ring-2 ring-white shadow-md"
+            loading="lazy"
+          />
           {finalStatus === "verified" && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold
                              text-white bg-green-500/95 backdrop-blur
@@ -263,21 +273,21 @@ export default function PropertyCard({ property }: PropertyCardProps) {
           )}
           {finalStatus === "pending" && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold
-                             text-black bg-amber-400/95 backdrop-blur
-                             px-3 py-1 rounded-full border border-amber-500 shadow-sm">
+                             text-white bg-yellow-400/95 backdrop-blur
+                             px-3 py-1 rounded-full border border-yellow-500 shadow-sm">
               <Hourglass className="w-3.5 h-3.5" />
               Đang xác nhận chính chủ
             </span>
           )}
         </div>
 
-        {/* Giá */}
+        {/* Giá — ✅ đổi sang xanh tươi đồng bộ nút “Đăng tin miễn phí” */}
         <div className="absolute bottom-2 left-2 space-y-1">
-          <span className="inline-flex text-white text-sm font-bold px-3 py-1 rounded-full bg-black/60">
+          <span className="inline-flex text-white text-sm font-bold px-3 py-1 rounded-full bg-gradient-to-r from-green-500 to-green-600 shadow">
             {priceText}
           </span>
           {priceM2Text && (
-            <span className="inline-flex text-white text-xs font-medium px-3 py-0.5 rounded-full bg-black/50">
+            <span className="inline-flex text-white text-xs font-semibold px-3 py-0.5 rounded-full bg-green-600/90 shadow-sm">
               {priceM2Text}
             </span>
           )}

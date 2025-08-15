@@ -1,5 +1,6 @@
 // src/pages/Home.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import PropertyCard from "@/components/PropertyCard";
@@ -21,7 +22,28 @@ const toDisplay = (isRent: boolean, v?: number) =>
   !v && v !== 0 ? "" : isRent ? Math.round((v ?? 0) / 1_000_000) : Math.round((v ?? 0) / 1_000_000_000);
 const fromDisplay = (isRent: boolean, n: number) => (isRent ? n * 1_000_000 : n * 1_000_000_000);
 
-/** Chuẩn hoá 1 record DB về shape PropertyCard cần và GIỮ nguyên field gốc */
+/** Favicon (hình yêu thích) – dùng cùng ảnh logo/brand của thẻ tin */
+const FAVICON_URL =
+  "https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754128379233_45efa0a3.png";
+function setFavicon(url: string) {
+  try {
+    const rels = ["icon", "shortcut icon", "apple-touch-icon"];
+    rels.forEach((rel) => {
+      let link = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = rel as any;
+        document.head.appendChild(link);
+      }
+      link.href = url;
+      if (!link.type) link.type = "image/png";
+    });
+  } catch {
+    // noop
+  }
+}
+
+/** Chuẩn hoá 1 record về shape PropertyCard và GIỮ nguyên field gốc */
 function normalizeForCard(p: any) {
   const id = String(p.id ?? p._id ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`));
   const title = p.title ?? p.name ?? p.headline ?? "Tin đăng bất động sản";
@@ -69,7 +91,7 @@ function normalizeForCard(p: any) {
     p.createdAt ?? p.created_at ?? p.postedAt ?? p.updatedAt ?? p.date ?? p.created;
 
   return {
-    ...p, // giữ nguyên tất cả field gốc phòng khi suy luận trạng thái/loại
+    ...p,
     id,
     title,
     price,
@@ -92,7 +114,7 @@ function normalizeForCard(p: any) {
   };
 }
 
-/* ——— Đoán loại để hiển thị ở COUNTER BAR ——— */
+/* ——— Đoán/chuẩn hoá text ——— */
 function deburrLower(s?: string) {
   if (!s) return "";
   try { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
@@ -102,7 +124,6 @@ function guessTypeFromResults(list: any[]): string | undefined {
   const counts: Record<string, number> = {};
   for (const p of list ?? []) {
     let t: any = p?.type ?? p?.category ?? p?.propertyType ?? p?.kind;
-    // có thể nhận text Việt: "đất nền", "căn hộ"...
     const raw = deburrLower(String(t || p?.badge || p?.label || ""));
     let key: string | undefined;
     if (raw === "land" || raw.includes("dat")) key = "land";
@@ -116,8 +137,27 @@ function guessTypeFromResults(list: any[]): string | undefined {
   for (const k in counts) if (counts[k] > bestN) { best = k; bestN = counts[k]; }
   return best;
 }
+/* ——— Nhận diện “Nhà ở xã hội” ——— */
+function isSocialRecord(p: any) {
+  const hay = deburrLower(
+    [p?.type, p?.category, p?.propertyType, p?.kind, p?.badge, p?.label, p?.title].filter(Boolean).join(" ")
+  );
+  return hay.includes("xa hoi") || hay.includes("social");
+}
+/* ——— Nhận diện theo type chung ——— */
+function isTypeRecord(p: any, want: string) {
+  const raw = deburrLower([p?.type, p?.category, p?.propertyType, p?.kind, p?.badge, p?.label, p?.title].filter(Boolean).join(" "));
+  if (want === "apartment") return raw.includes("apartment") || raw.includes("can ho");
+  if (want === "house")     return raw.includes("house") || raw.includes("nha");
+  if (want === "villa")     return raw.includes("villa") || raw.includes("biet thu");
+  if (want === "office")    return raw.includes("office") || raw.includes("van phong");
+  if (want === "land")      return raw.includes("land") || raw.includes("dat");
+  return true;
+}
 
 export default function Home() {
+  const location = useLocation();
+
   // Search state
   const [listingType, setListingType] = useState<ListingType>("sell");
   const [province, setProvince] = useState<string>("");
@@ -213,39 +253,6 @@ export default function Home() {
     }, 350);
   };
 
-  // Load theo bộ lọc & trang
-  const loadFromSupabase = useCallback(async (nextPage = page, overrides?: Partial<{
-    minPrice: number | undefined; maxPrice: number | undefined;
-    minArea: number | undefined; maxArea: number | undefined;
-    province: string; type: string;
-  }>) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { items, total: t } = await PropertyService.getPropertiesPaged(
-        {
-          listingType,
-          province: ((overrides?.province ?? province) || undefined),
-          type: ((overrides?.type ?? type) || undefined),
-          minPrice: overrides?.minPrice ?? minPrice,
-          maxPrice: overrides?.maxPrice ?? maxPrice,
-          minArea: overrides?.minArea ?? minArea,
-          maxArea: overrides?.maxArea ?? maxArea,
-        },
-        { page: nextPage, pageSize }
-      );
-      setProperties(items);
-      setTotal(t);
-    } catch (e: any) {
-      setError(e?.message ?? "Đã có lỗi khi tải dữ liệu");
-      setProperties([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listingType, province, type, minPrice, maxPrice, minArea, maxArea, page, pageSize]);
-
   // Tổng toàn bộ
   const loadTotals = useCallback(async () => {
     try {
@@ -268,6 +275,50 @@ export default function Home() {
     }
   }, []);
 
+  // Load theo bộ lọc & trang — luôn bỏ 'type' khỏi query để tránh lỗi Supabase
+  const loadFromSupabase = useCallback(async (nextPage = page, overrides?: Partial<{
+    minPrice: number | undefined; maxPrice: number | undefined;
+    minArea: number | undefined; maxArea: number | undefined;
+    province: string; type: string;
+  }>) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const filters = {
+        listingType,
+        province: ((overrides?.province ?? province) || undefined),
+        // 👉 Không gửi 'type' lên server
+        minPrice: overrides?.minPrice ?? minPrice,
+        maxPrice: overrides?.maxPrice ?? maxPrice,
+        minArea: overrides?.minArea ?? minArea,
+        maxArea: overrides?.maxArea ?? maxArea,
+      } as any;
+
+      const res = await PropertyService.getPropertiesPaged(filters, { page: nextPage, pageSize });
+      let items = res.items as DBProperty[];
+      let t = res.total as number;
+
+      // Lọc client-side theo type/social (server không có cột 'type')
+      const wantType = overrides?.type ?? (socialMode ? SOCIAL_TYPE_VALUE : type);
+      if (wantType) {
+        items = items.filter((p) =>
+          wantType === SOCIAL_TYPE_VALUE ? isSocialRecord(p) : isTypeRecord(p, wantType)
+        );
+        t = items.length; // không có total chính xác từ DB cho case này
+      }
+
+      setProperties(items);
+      setTotal(t);
+    } catch (e: any) {
+      setError(e?.message ?? "Đã có lỗi khi tải dữ liệu");
+      setProperties([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingType, province, type, minPrice, maxPrice, minArea, maxArea, page, pageSize, socialMode]);
+
   // Khi đổi tab bán/thuê HOẶC bật/tắt Nhà ở xã hội -> reset & tải
   useEffect(() => {
     setPage(1);
@@ -284,6 +335,18 @@ export default function Home() {
     loadTotals();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, socialMode]);
+
+  // Đọc query ?tab=sell|rent|social để chọn sẵn tab khi mở Home
+  useEffect(() => {
+    const q = new URLSearchParams(location.search || "");
+    const tab = (q.get("tab") || "").toLowerCase();
+    if (tab === "sell") { setSocialMode(false); setListingType("sell"); }
+    else if (tab === "rent") { setSocialMode(false); setListingType("rent"); }
+    else if (tab === "social") { setSocialMode(true); }
+  }, [location.search]);
+
+  // Gắn favicon (hình yêu thích) khi vào Home
+  useEffect(() => { setFavicon(FAVICON_URL); }, []);
 
   // Lần đầu
   useEffect(() => { loadTotals(); }, [loadTotals]);
@@ -421,13 +484,14 @@ export default function Home() {
   const marks = [0, 25, 50, 75, 100];
 
   /* ===== Chips cho Header ===== */
+  const SOCIAL = SOCIAL_TYPE_VALUE;
   const typeTextMap: Record<string, string> = {
     apartment: "Căn hộ",
     house: "Nhà đất riêng",
     villa: "Biệt thự",
     office: "Văn phòng",
     land: "Nhà đất khác",
-    [SOCIAL_TYPE_VALUE]: "Nhà ở xã hội",
+    [SOCIAL]: "Nhà ở xã hội",
   };
   const selectedChips = useMemo(() => {
     const chips: string[] = [];
@@ -440,16 +504,14 @@ export default function Home() {
     return chips;
   }, [listingType, province, type, priceSummary, areaSummary, socialMode]);
 
-  // ✅ Label bên phải: ưu tiên social/type; nếu trống thì suy luận từ results
   const rightLabel = useMemo(() => {
-    if (socialMode) return "Nhà ở xã hội";
+    if (socialMode) return "Thông tin nhà đất khác";
     if (type && typeTextMap[type]) return typeTextMap[type];
     const guessed = guessTypeFromResults(properties as any[]);
     if (guessed && typeTextMap[guessed]) return typeTextMap[guessed];
-    return "Toàn quốc";
+    return "Thông tin nhà đất khác";
   }, [socialMode, type, properties]);
 
-  // ✅ Filters cho Header (tương thích)
   const headerFilters = useMemo(
     () =>
       ({
@@ -467,7 +529,6 @@ export default function Home() {
     [listingType, province, type, minPrice, maxPrice, minArea, maxArea, priceSummary, areaSummary, selectedChips, socialMode]
   );
 
-  // Auto-apply handlers
   const handlePriceChange = (minUnit?: number, maxUnit?: number) => {
     const commitMin = minUnit === undefined ? undefined : fromDisplay(isRent, minUnit);
     const commitMax = maxUnit === undefined ? undefined : fromDisplay(isRent, maxUnit);
@@ -481,30 +542,46 @@ export default function Home() {
     scheduleApply({ minArea: min, maxArea: max });
   };
 
+  // ✅ Class cho 3 nút danh mục:
+  //   - Chưa chọn: vàng tươi
+  //   - Đang chọn: xanh tươi (gradient như nút "Đăng tin miễn phí")
+  const tabClass = (active: boolean) =>
+    `w-full whitespace-nowrap text-[13px] sm:text-sm md:text-2xl
+     leading-none px-2 sm:px-3 md:px-4 py-2 md:py-3 rounded-lg
+     font-medium tracking-normal transition-colors
+     ${
+       active
+         ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow"
+         : "bg-yellow-400 text-white hover:bg-yellow-500"
+     }`;
+
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-white font-sans antialiased">
       <Header filters={headerFilters} />
 
       {/* HERO */}
       <section className="bg-gradient-to-r from-blue-600 via-purple-600 to-orange-500">
         <div className="container mx-auto px-4 py-6 sm:py-10">
-          {/* Tabs: chỉ 1 nút sáng */}
-          <div className="mb-3 flex gap-2">
+          {/* Tabs */}
+          <div className="mb-3 grid grid-cols-3 gap-2 sm:gap-3">
             <button
               onClick={() => { setSocialMode(false); setListingType("sell"); }}
-              className={`px-4 py-2 rounded-lg font-semibold ${!socialMode && listingType === "sell" ? "bg-white text-black" : "bg-white/20 text-white"}`}
+              className={tabClass(!socialMode && listingType === "sell")}
+              aria-pressed={!socialMode && listingType === "sell"}
             >
               Nhà đất bán
             </button>
             <button
               onClick={() => { setSocialMode(false); setListingType("rent"); }}
-              className={`px-4 py-2 rounded-lg font-semibold ${!socialMode && listingType === "rent" ? "bg-white text-black" : "bg-white/20 text-white"}`}
+              className={tabClass(!socialMode && listingType === "rent")}
+              aria-pressed={!socialMode && listingType === "rent"}
             >
               Nhà đất cho thuê
             </button>
             <button
               onClick={() => { setSocialMode(true); }}
-              className={`px-4 py-2 rounded-lg font-semibold ${socialMode ? "bg-white text-black" : "bg-white/20 text-white"}`}
+              className={tabClass(socialMode === true)}
+              aria-pressed={socialMode === true}
             >
               Nhà ở xã hội
             </button>
@@ -517,16 +594,16 @@ export default function Home() {
               searchbar
               bg-white rounded-xl shadow-xl p-3 sm:p-4
               grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto]
-              items-end gap-3
+              items-end gap-3 font-sans
             "
           >
             {/* Khu vực */}
             <div>
-              <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+              <label className="h-5 flex items-center justify-center text-center text-xs md:text-sm font-medium text-gray-700 mb-1 tracking-normal">
                 Khu vực
               </label>
               <select
-                className="search-select control-11 w-full rounded-md border px-3 text-sm appearance-none text-center hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="search-select control-11 w-full rounded-md border px-3 text-sm md:text-xl text-gray-900 font-medium tracking-normal appearance-none text-center hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
                 value={province || ""}
                 onChange={(e) => setProvince(e.target.value || "")}
               >
@@ -540,20 +617,20 @@ export default function Home() {
 
             {/* Loại nhà đất */}
             <div>
-              <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+              <label className="h-5 flex items-center justify-center text-center text-xs md:text-sm font-medium text-gray-700 mb-1 tracking-normal">
                 Loại nhà đất
               </label>
               {socialMode ? (
                 <button
                   type="button"
-                  className="control-11-btn w-full rounded-md border px-3 text-center bg-gray-50 cursor-not-allowed"
+                  className="control-11-btn w-full rounded-md border px-3 text-center bg-gray-50 cursor-not-allowed font-medium tracking-normal text-gray-900 text-sm md:text-xl"
                   title="Đang lọc Nhà ở xã hội"
                 >
                   Nhà ở xã hội
                 </button>
               ) : (
                 <select
-                  className="search-select control-11 w-full rounded-md border px-3 text-sm appearance-none text-center hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  className="search-select control-11 w-full rounded-md border px-3 text-sm md:text-xl text-gray-900 font-medium tracking-normal appearance-none text-center hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
                   value={type}
                   onChange={(e) => setType(e.target.value)}
                 >
@@ -604,7 +681,7 @@ export default function Home() {
             <div className="flex md:justify-end">
               <button
                 type="submit"
-                className="control-11-btn w-full md:w-auto px-6 rounded-lg font-semibold bg-red-500 hover:bg-red-600 text-white shadow"
+                className="control-11-btn w-full md:w-auto px-6 rounded-lg font-medium tracking-normal bg-red-500 hover:bg-red-600 text-white shadow text-sm md:text-xl"
               >
                 Tìm kiếm
               </button>
@@ -631,18 +708,23 @@ export default function Home() {
         .range-2 input.slider-max::-moz-range-thumb{background:#ef4444;}
         .range-2 .mark{width:6px;height:6px;border-radius:9999px;background:#9ca3af;transform:translateX(-50%);top:22px;position:absolute;}
         .range-2 .mark-label{position:absolute;top:30px;transform:translateX(-50%);font-size:11px;color:#6b7280;}
+        @media (min-width: 768px) {
+          .searchbar .control-11{height:56px;line-height:56px;}
+          .searchbar .control-11-btn{height:56px;}
+          .popover-input.control-11-input{height:48px;line-height:48px;}
+        }
       `}</style>
 
       {/* COUNTER BAR */}
       <div className="container mx-auto px-4">
-        <div className="mt-4 mb-2 rounded-lg border bg-white px-4 py-3 text-sm text-gray-700 flex items-center justify-between">
+        <div className="mt-4 mb-2 rounded-lg border bg-white px-4 py-3 text-sm md:text-base text-gray-700 flex items-center justify-between font-sans">
           <div>
-            <span className="font-semibold text-gray-900">{total.toLocaleString("vi-VN")}</span> tin phù hợp
+            <span className="font-medium text-gray-900">{total.toLocaleString("vi-VN")}</span> tin phù hợp
             <span className="mx-2 text-gray-400">•</span>
-            {rightLabel} <span className="font-semibold text-gray-900">{totalAll.toLocaleString("vi-VN")}</span> tin
+            {rightLabel} <span className="font-medium text-gray-900">{totalAll.toLocaleString("vi-VN")}</span> tin
           </div>
           <button
-            className="hidden sm:inline-flex text-xs px-3 py-1 rounded border hover:bg-gray-50"
+            className="hidden sm:inline-flex text-xs md:text-sm px-3 py-1 rounded border hover:bg-gray-50 font-medium"
             onClick={() => {
               setProvince("");
               if (!socialMode) setType("");
@@ -658,7 +740,7 @@ export default function Home() {
       </div>
 
       {/* RESULTS */}
-      <main className="flex-1 bg-gray-50">
+      <main className="flex-1 bg-gray-50 font-sans">
         <div className="container mx-auto px-4 pb-10">
           {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>}
 
@@ -737,20 +819,20 @@ function PricePopover({...props}: any) {
 
   return (
     <div className="relative" ref={priceRefEl}>
-      <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+      <label className="h-5 flex items-center justify-center text-center text-xs md:text-sm font-medium text-gray-700 mb-1 tracking-normal">
         {label}
       </label>
       <button
         type="button"
         onClick={() => setShow((v: boolean) => !v)}
-        className="control-11-btn w-full rounded-md border px-3 text-center hover:bg-gray-50"
+        className="control-11-btn w-full rounded-md border px-3 text-center hover:bg-gray-50 font-medium tracking-normal text-sm md:text-xl"
       >
         {summary}
       </button>
       {show && (
-        <div className="absolute z-50 mt-2 w-[520px] max-w-[95vw] rounded-xl border bg-white shadow-xl p-4 right-0">
+        <div className="absolute z-50 mt-2 w-[520px] max-w-[95vw] rounded-xl border bg-white shadow-xl p-4 right-0 font-sans">
           <div className="flex items-center justify-between mb-3">
-            <div className="font-semibold">Mức giá</div>
+            <div className="font-medium">Mức giá</div>
             <button className="text-xl leading-none" type="button" onClick={() => setShow(false)}>×</button>
           </div>
 
@@ -759,7 +841,7 @@ function PricePopover({...props}: any) {
               <div className="text-xs text-gray-600 mb-1">Giá thấp nhất</div>
               <input
                 type="number" inputMode="numeric" placeholder="Từ"
-                className="popover-input control-11-input w-full rounded-md border px-3"
+                className="popover-input control-11-input w-full rounded-md border px-3 font-medium"
                 value={typeof minD === "number" ? minD : ""}
                 onChange={(e) => changeMin(e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value))}
               />
@@ -768,7 +850,7 @@ function PricePopover({...props}: any) {
               <div className="text-xs text-gray-600 mb-1">Giá cao nhất</div>
               <input
                 type="number" inputMode="numeric" placeholder="Đến"
-                className="popover-input control-11-input w-full rounded-md border px-3"
+                className="popover-input control-11-input w-full rounded-md border px-3 font-medium"
                 value={typeof maxD === "number" ? maxD : ""}
                 onChange={(e) => changeMax(e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value))}
               />
@@ -794,7 +876,7 @@ function PricePopover({...props}: any) {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             {pricePresets.map((p: any, i: number) => (
-              <button key={i} type="button" onClick={() => (p.min === 0 && p.max === 0 ? onChangeUnits?.(0, 0) : onChangeUnits?.(p.min, p.max))} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 text-left">
+              <button key={i} type="button" onClick={() => (p.min === 0 && p.max === 0 ? onChangeUnits?.(0, 0) : onChangeUnits?.(p.min, p.max))} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 text-left font-medium">
                 {p.label}
               </button>
             ))}
@@ -813,29 +895,29 @@ function AreaPopover({...props}: any) {
 
   return (
     <div className="relative" ref={areaRefEl}>
-      <label className="h-5 flex items-center justify-center text-center text-xs font-medium text-gray-700 mb-1">
+      <label className="h-5 flex items-center justify-center text-center text-xs md:text-sm font-medium text-gray-700 mb-1 tracking-normal">
         Diện tích (m²)
       </label>
-      <button type="button" onClick={() => setShow((v: boolean) => !v)} className="control-11-btn w-full rounded-md border px-3 text-center hover:bg-gray-50">
+      <button type="button" onClick={() => setShow((v: boolean) => !v)} className="control-11-btn w-full rounded-md border px-3 text-center hover:bg-gray-50 font-medium tracking-normal text-sm md:text-xl">
         {summary}
       </button>
 
       {show && (
-        <div className="absolute z-50 mt-2 w-[520px] max-w-[95vw] rounded-xl border bg-white shadow-xl p-4 right-0">
+        <div className="absolute z-50 mt-2 w-[520px] max-w-[95vw] rounded-xl border bg-white shadow-xl p-4 right-0 font-sans">
           <div className="flex items-center justify-between mb-3">
-            <div className="font-semibold">Diện tích</div>
+            <div className="font-medium">Diện tích</div>
             <button className="text-xl leading-none" type="button" onClick={() => setShow(false)}>×</button>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <div className="text-xs text-gray-600 mb-1">Từ</div>
-              <input type="number" inputMode="numeric" placeholder="0" className="popover-input control-11-input w-full rounded-md border px-3"
+              <input type="number" inputMode="numeric" placeholder="0" className="popover-input control-11-input w-full rounded-md border px-3 font-medium"
                 value={typeof minArea === "number" ? minArea : ""} onChange={(e) => onChange?.(e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber, maxArea)} />
             </div>
             <div>
               <div className="text-xs text-gray-600 mb-1">Đến</div>
-              <input type="number" inputMode="numeric" placeholder="10000" className="popover-input control-11-input w-full rounded-md border px-3"
+              <input type="number" inputMode="numeric" placeholder="10000" className="popover-input control-11-input w-full rounded-md border px-3 font-medium"
                 value={typeof maxArea === "number" ? maxArea : ""} onChange={(e) => onChange?.(minArea, e.currentTarget.value === "" ? undefined : e.currentTarget.valueAsNumber)} />
             </div>
           </div>
@@ -856,7 +938,7 @@ function AreaPopover({...props}: any) {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             {areaPresets.map((p: any, i: number) => (
-              <button key={i} type="button" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 text-left" onClick={() => onChange?.(p.min, p.max)}>
+              <button key={i} type="button" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 text-left font-medium" onClick={() => onChange?.(p.min, p.max)}>
                 {p.label}
               </button>
             ))}
@@ -872,12 +954,36 @@ function DualSlider({ min, max, step, leftValue, rightValue, onLeft, onRight, ma
   return (
     <div className="mt-3 range-2 relative h-12">
       <div className="absolute top-3 left-0 right-0 h-2 rounded-full track-base" />
-      <div className="absolute top-3 h-2 rounded-full track-fill" style={{ left: `${(leftValue / max) * 100}%`, right: `${(1 - rightValue / max) * 100}%` }} />
-      {marks.map((m: number) => <div key={m} style={{ left: `${m}%` }} className="mark" />)}
+      <div
+        className="absolute top-3 h-2 rounded-full track-fill"
+        style={{
+          left: `${(leftValue / max) * 100}%`,
+          right: `${(1 - rightValue / max) * 100}%`,
+        }}
+      />
+      {marks.map((m: number) => (
+        <div key={m} style={{ left: `${m}%` }} className="mark" />
+      ))}
       <div className="absolute left-0 mark-label">0</div>
       <div className="absolute right-0 mark-label">{rightLabel}</div>
-      <input type="range" min={min} max={max} step={step} value={leftValue} onChange={(e) => onLeft(Number(e.currentTarget.value))} className="top-2 w-full bg-transparent slider-min" />
-      <input type="range" min={min} max={max} step={step} value={rightValue} onChange={(e) => onRight(Number(e.currentTarget.value))} className="top-2 w-full bg-transparent slider-max" />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={leftValue}
+        onChange={(e) => onLeft(Number(e.currentTarget.value))}
+        className="top-2 w-full bg-transparent slider-min"
+      />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={rightValue}
+        onChange={(e) => onRight(Number(e.currentTarget.value))}
+        className="top-2 w-full bg-transparent slider-max"
+      />
     </div>
   );
 }

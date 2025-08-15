@@ -1,7 +1,7 @@
 // src/components/Header.tsx
 import React, { useCallback, useMemo, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { User, LogOut, LayoutDashboard, ChevronDown } from "lucide-react";
+import { User, LogOut, LayoutDashboard, ChevronDown, Menu } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -10,6 +10,14 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "./ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetTrigger,
+} from "./ui/sheet";
 import { useAuth } from "../contexts/AuthContext";
 
 type LegacyFilter = { label: string; key: string };
@@ -53,7 +61,8 @@ const Header: React.FC<HeaderProps> = ({
       }
     };
     window.addEventListener("emyland:userUpdated", onUpdated as any);
-    return () => window.removeEventListener("emyland:userUpdated", onUpdated as any);
+    return () =>
+      window.removeEventListener("emyland:userUpdated", onUpdated as any);
   }, []);
 
   const handlePostProperty = useCallback(() => {
@@ -71,6 +80,7 @@ const Header: React.FC<HeaderProps> = ({
     window.dispatchEvent(new Event("emyland:resetHome"));
   }, []);
 
+  // dùng chung cho desktop + mobile sheet
   const menuItems = useMemo(
     () => [
       { label: "Tra cứu quy hoạch", path: "/planning-lookup" },
@@ -80,16 +90,23 @@ const Header: React.FC<HeaderProps> = ({
   );
 
   const accountDisplay =
-    currentUser?.fullName || currentUser?.phone || currentUser?.email || "Tài khoản";
+    currentUser?.fullName ||
+    currentUser?.phone ||
+    currentUser?.email ||
+    "Tài khoản";
   const avatarSrc = currentUser?.avatarUrl || DEFAULT_AVATAR;
 
   return (
     <header className={`bg-white shadow-lg sticky top-0 z-50 ${className}`}>
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 py-2">
-          {/* Logo + Đăng tin */}
+          {/* Logo + Đăng tin + Menu (mobile) */}
           <div className="flex items-center gap-4">
-            <Link to="/" onClick={handleBrandClick} className="flex flex-col items-center">
+            <Link
+              to="/"
+              onClick={handleBrandClick}
+              className="flex flex-col items-center"
+            >
               <div className="flex items-center gap-2">
                 <img
                   src="https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754128379233_45efa0a3.png"
@@ -100,21 +117,95 @@ const Header: React.FC<HeaderProps> = ({
                   EmyLand
                 </span>
               </div>
-              <span className="text-xs text-orange-500 font-semibold -mt-1">
-                100% chính chủ - Không trung gian
+
+              {/* Tagline: luôn 1 dòng, font-sans đồng nhất */}
+              <span
+                className="
+                  font-sans font-medium tracking-normal leading-none
+                  text-[11px] sm:text-xs text-orange-500 -mt-1
+                  whitespace-nowrap
+                "
+              >
+                100% chính chủ - không trung gian
               </span>
             </Link>
 
+            {/* Đăng tin miễn phí */}
             <Button
               onClick={handlePostProperty}
               className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 animate-bounce flex items-center gap-2"
             >
-              <span className="hidden sm:inline">Đăng tin miễn phí</span>
-              <span className="sm:hidden">Đăng tin</span>
+              <span>Đăng tin miễn phí</span>
             </Button>
+
+            {/* Menu chỉ hiển thị trên mobile */}
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 md:hidden"
+                  aria-label="Mở menu"
+                  title="Menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+
+              {/* Nền vàng nhạt + z-index cao để không bị hero đè, có đệm trong để nút không dính mép */}
+              <SheetContent
+                side="right"
+                aria-label="Menu điều hướng"
+                aria-describedby="mobile-menu-desc"
+                className="w-[320px] sm:w-[360px] bg-amber-50 z-[1000] border-l shadow-2xl px-3 py-3"
+              >
+                <SheetHeader>
+                  {/* Ẩn tiêu đề/miêu tả để gọn UI nhưng đáp ứng a11y → xoá cảnh báo Radix */}
+                  <SheetTitle className="sr-only">Menu</SheetTitle>
+                  <SheetDescription id="mobile-menu-desc" className="sr-only">
+                    Menu điều hướng chính trên thiết bị di động
+                  </SheetDescription>
+                </SheetHeader>
+
+                {/* Thứ tự: Tài khoản → Tra cứu quy hoạch → Thẩm định giá - Chứng thư */}
+                <nav className="mt-1 flex flex-col gap-2">
+                  {/* Tài khoản */}
+                  <Button
+                    variant="ghost"
+                    aria-label="Đi tới tài khoản"
+                    className="justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
+                    onClick={() =>
+                      navigate(currentUser ? "/dashboard" : "/login")
+                    }
+                  >
+                    Tài khoản
+                  </Button>
+
+                  {/* Tra cứu quy hoạch */}
+                  <Button
+                    variant="ghost"
+                    className="justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
+                    asChild
+                  >
+                    <Link to="/planning-lookup">Tra cứu quy hoạch</Link>
+                  </Button>
+
+                  {/* Thẩm định giá - Chứng thư */}
+                  <Button
+                    variant="ghost"
+                    className="justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
+                    asChild
+                  >
+                    <Link to="/valuation-certificate">
+                      Thẩm định giá - Chứng thư
+                    </Link>
+                  </Button>
+                </nav>
+              </SheetContent>
+            </Sheet>
           </div>
 
-          {/* Menu */}
+          {/* Menu desktop cũ (giữ nguyên logic) */}
           <nav className="hidden md:flex items-center space-x-6">
             {menuItems.map((item) => (
               <Link
