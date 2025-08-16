@@ -78,7 +78,7 @@ function lsSet(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    /* no-op */
+    /* quota exceeded, private mode, ... -> bỏ qua để không crash app */
   }
 }
 
@@ -98,6 +98,15 @@ function safeParse<T>(raw: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function safeTime(t?: string): number {
+  const n = t ? Date.parse(t) : NaN;
+  return Number.isFinite(n) ? n : 0;
 }
 
 // ================== MANAGER ============================
@@ -134,7 +143,7 @@ export class StorageManager {
     // đa tab (kích hoạt sự kiện storage)
     lsSet("emyland_properties_updated", String(Date.now()));
     // trong cùng tab (SPA)
-    if (isBrowser()) {
+    if (isBrowser() && typeof window.dispatchEvent === "function") {
       try {
         window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
       } catch {
@@ -149,7 +158,7 @@ export class StorageManager {
     const existingAdmin = this.getUserByEmail(adminEmail);
 
     if (!existingAdmin) {
-      const now = new Date().toISOString();
+      const now = nowIso();
       const adminUser: UserAccount = {
         id: this.generateId(),
         email: adminEmail,
@@ -179,19 +188,21 @@ export class StorageManager {
   static saveUser(user: UserAccount): void {
     const users = this.getAllUsers();
     const idx = users.findIndex((u) => u.id === user.id || u.email === user.email);
-    const now = new Date().toISOString();
+    const now = nowIso();
 
     if (idx >= 0) {
       const prev = users[idx];
       users[idx] = {
         ...prev,
         ...user,
+        phone: this.normalizePhone(user.phone || prev.phone),
         avatarUrl: user.avatarUrl ?? prev.avatarUrl,
         updatedAt: now,
       };
     } else {
       users.push({
         ...user,
+        phone: this.normalizePhone(user.phone),
         createdAt: user.createdAt ?? now,
         updatedAt: user.updatedAt ?? now,
       });
@@ -208,6 +219,7 @@ export class StorageManager {
     const users = this.getAllUsers().filter((u) => u.email !== email);
     lsSet(this.USERS_KEY, JSON.stringify(users));
 
+    // xoá luôn các tin của user
     const properties = this.getAllProperties().filter((p) => p.userEmail !== email);
     lsSet(this.PROPERTIES_KEY, JSON.stringify(properties));
 
@@ -244,7 +256,7 @@ export class StorageManager {
     const updated: UserAccount = {
       ...users[idx],
       avatarUrl,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso(),
     };
 
     users[idx] = updated;
@@ -260,17 +272,22 @@ export class StorageManager {
   static saveProperty(property: PropertyListing): void {
     const list = this.getAllProperties();
     const idx = list.findIndex((p) => p.id === property.id);
-    const now = new Date().toISOString();
+    const now = nowIso();
+
+    // tránh trùng ảnh khi update
+    const dedupImages = Array.from(new Set(property.images || []));
 
     if (idx >= 0) {
       list[idx] = {
         ...list[idx],
         ...property,
+        images: dedupImages,
         updatedAt: property.updatedAt ?? now,
       };
     } else {
       list.push({
         ...property,
+        images: dedupImages,
         createdAt: property.createdAt ?? now,
         updatedAt: property.updatedAt ?? now,
       });
@@ -285,8 +302,8 @@ export class StorageManager {
     const arr = safeParse<PropertyListing[]>(raw, []);
     // Sắp theo mới → cũ để trang chủ/tổng quan nhìn trực quan
     return [...arr].sort((a, b) => {
-      const ta = new Date(a.createdAt || a.updatedAt || 0).getTime();
-      const tb = new Date(b.createdAt || b.updatedAt || 0).getTime();
+      const ta = Math.max(safeTime(a.createdAt), safeTime(a.updatedAt));
+      const tb = Math.max(safeTime(b.createdAt), safeTime(b.updatedAt));
       return tb - ta;
     });
   }
@@ -336,7 +353,7 @@ export class StorageManager {
     if (user && user.password === password) {
       user.isLoggedIn = true;
       user.rememberMe = true;
-      user.lastLoginAt = new Date().toISOString();
+      user.lastLoginAt = nowIso();
       this.saveUser(user);
       this.setCurrentUser(user); // giữ tương thích
       return user;
@@ -358,7 +375,7 @@ export class StorageManager {
     if (!user) return null;
     user.isLoggedIn = true;
     user.rememberMe = true;
-    user.lastLoginAt = new Date().toISOString();
+    user.lastLoginAt = nowIso();
     this.saveUser(user);
     this.setCurrentUser(user); // giữ tương thích
     return user;
@@ -407,7 +424,7 @@ export class StorageManager {
   // ❗ Merge current user để không mất avatarUrl khi những nơi khác setCurrentUser(user) thiếu field
   static setCurrentUser(user: UserAccount): void {
     const cur = safeParse<UserAccount | null>(lsGet(this.CURRENT_USER_KEY), null);
-    const now = new Date().toISOString();
+    const now = nowIso();
 
     const merged: UserAccount = cur
       ? {
@@ -439,7 +456,7 @@ export class StorageManager {
     }
 
     const id = (userData as any).id ?? this.generateId();
-    const now = new Date().toISOString();
+    const now = nowIso();
 
     const newUser: UserAccount = {
       ...userData,
