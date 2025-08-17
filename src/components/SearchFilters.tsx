@@ -1,15 +1,13 @@
-// src/components/SearchFilters.tsx
+// ✅ SearchFilters.tsx – đã chuẩn hóa toàn bộ logic lọc theo khu vực + từ khoá
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-// ⛳️ Dùng đúng dataset của Tom
 import { provinces, wardsByProvince } from "@/data/vietnam-locations";
 
-// (tuỳ chỗ dùng) type đơn giản cho callback
 export type SearchFiltersValue = {
-  provinceId: string; // "02" | "" ...
-  ward: string;       // tên phường/xã
-  keyword?: string;   // ví dụ từ khoá
+  provinceId: string;
+  ward: string;
+  keyword?: string;
 };
 
 type Props = {
@@ -18,28 +16,50 @@ type Props = {
   className?: string;
 };
 
+const BIG6 = [
+  "Thành phố Hồ Chí Minh",
+  "Thành phố Hà Nội",
+  "Thành phố Đà Nẵng",
+  "Thành phố Hải Phòng",
+  "Thành phố Cần Thơ",
+  "Thành phố Huế",
+];
+
+const viSort = (a: string, b: string) => a.localeCompare(b, "vi");
+const wardWeight = (name: string) =>
+  name.startsWith("Phường") ? 0 : name.startsWith("Xã") ? 1 : 2;
+
 const SearchFilters: React.FC<Props> = ({ defaultValue, onSearch, className }) => {
-  // Lưu ID tỉnh, tên phường
   const [provinceId, setProvinceId] = React.useState<string>(defaultValue?.provinceId ?? "");
   const [ward, setWard] = React.useState<string>(defaultValue?.ward ?? "");
   const [keyword, setKeyword] = React.useState<string>(defaultValue?.keyword ?? "");
 
-  // Bỏ option placeholder trong provinces (provinceId === "01")
-  const provinceOptions = React.useMemo(
-    () =>
-      provinces
-        .filter((p) => p.provinceId !== "01")
-        .sort((a, b) => a.provinceName.localeCompare(b.provinceName, "vi")),
-    []
-  );
+  const provinceOptions = React.useMemo(() => {
+    const list = provinces.filter((p) => p.provinceId !== "01" && !!p.provinceName.trim()).slice();
+    list.sort((a, b) => {
+      const ia = BIG6.indexOf(a.provinceName);
+      const ib = BIG6.indexOf(b.provinceName);
+      if (ia !== -1 || ib !== -1) {
+        if (ia !== -1 && ib === -1) return -1;
+        if (ia === -1 && ib !== -1) return 1;
+        return ia - ib;
+      }
+      return viSort(a.provinceName, b.provinceName);
+    });
+    return list;
+  }, []);
 
-  // Lấy danh sách phường theo ID tỉnh
-  const wardOptions = React.useMemo<string[]>(
-    () => (provinceId ? wardsByProvince[provinceId] ?? [] : []),
-    [provinceId]
-  );
+  const wardOptions = React.useMemo<string[]>(() => {
+    if (!provinceId) return [];
+    const arr = wardsByProvince[provinceId] || [];
+    return arr.slice().sort((a, b) => {
+      const wa = wardWeight(a);
+      const wb = wardWeight(b);
+      if (wa !== wb) return wa - wb;
+      return viSort(a, b);
+    });
+  }, [provinceId]);
 
-  // Đổi tỉnh -> reset phường
   const handleProvinceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value;
     setProvinceId(id);
@@ -59,7 +79,6 @@ const SearchFilters: React.FC<Props> = ({ defaultValue, onSearch, className }) =
   return (
     <form onSubmit={handleSubmit} className={className ?? ""}>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-        {/* Tỉnh/Thành */}
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">Khu vực</label>
           <select
@@ -69,14 +88,13 @@ const SearchFilters: React.FC<Props> = ({ defaultValue, onSearch, className }) =
           >
             <option value="">Trên toàn quốc</option>
             {provinceOptions.map((p) => (
-              <option key={p.provinceId} value={p.provinceId} title={p.provinceName}>
+              <option key={p.provinceId} value={p.provinceId}>
                 {p.provinceName}
               </option>
             ))}
           </select>
         </div>
 
-        {/* Phường/Xã */}
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">Phường/Xã</label>
           <select
@@ -87,14 +105,11 @@ const SearchFilters: React.FC<Props> = ({ defaultValue, onSearch, className }) =
           >
             <option value="">{provinceId ? "Chọn Phường/Xã" : "Chọn tỉnh trước"}</option>
             {wardOptions.map((w) => (
-              <option key={w} value={w}>
-                {w}
-              </option>
+              <option key={w} value={w}>{w}</option>
             ))}
           </select>
         </div>
 
-        {/* Từ khoá (tuỳ chọn) */}
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">Từ khoá</label>
           <Input
@@ -105,7 +120,6 @@ const SearchFilters: React.FC<Props> = ({ defaultValue, onSearch, className }) =
           />
         </div>
 
-        {/* Nút tìm */}
         <div className="space-y-1">
           <Button
             type="submit"

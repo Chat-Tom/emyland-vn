@@ -2,15 +2,18 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-// Alias đúng dự án
-import { StorageManager } from "@utils/storage";
+// 🔧 storage ở GỐC dự án (ngoài /src) → đi ra 2 cấp
+import { StorageManager } from "../../utils/storage";
+
+// 🔧 data nằm TRONG /src → dùng alias "@/..." (alias @ trỏ tới src)
 import { PROPERTY_TYPES } from "@/data/property-types";
 import { provinces, wardsByProvince } from "@/data/vietnam-locations";
+
+// lib/supabase cũng ở /src
 import { supabase } from "@/lib/supabase";
 
 type ListingType = "sell" | "rent";
 
-// 6 thành phố lớn ưu tiên đầu
 const BIG6_ORDER = [
   "Thành phố Hồ Chí Minh",
   "Thành phố Hà Nội",
@@ -20,7 +23,6 @@ const BIG6_ORDER = [
   "Thành phố Huế",
 ];
 
-// Bucket public để upload ảnh tạm phục vụ AI editor
 const AI_TMP_BUCKET =
   (import.meta as any)?.env?.VITE_SUPABASE_BUCKET_PUBLIC || "public";
 
@@ -37,10 +39,7 @@ function wardWeight(name: string) {
   if (name.startsWith("Xã")) return 1;
   return 2;
 }
-
-// dataURL -> Blob
 function dataURLtoBlob(dataUrl: string): Blob {
-  // data:[<mediatype>][;base64],<data>
   const [header, data] = dataUrl.split(",");
   const isBase64 = /;base64$/i.test(header);
   const mime = (header.match(/^data:(.*?)(;|$)/i)?.[1] || "image/jpeg").trim();
@@ -51,7 +50,6 @@ function dataURLtoBlob(dataUrl: string): Blob {
     for (let i = 0; i < len; i++) u8[i] = binStr.charCodeAt(i);
     return new Blob([u8], { type: mime || "image/jpeg" });
   }
-  // URI encoded
   const u8 = new Uint8Array(unescape(data).split("").map((c) => c.charCodeAt(0)));
   return new Blob([u8], { type: mime || "image/jpeg" });
 }
@@ -65,18 +63,21 @@ type FormState = {
   listingType: ListingType;
 
   propertyType: string;
-  area: string;        // m²
-  priceTy: string;     // BÁN: nhập theo TỶ VND
-  rentMil: string;     // THUÊ: nhập theo TRIỆU / tháng
+  area: string;
+  priceTy: string;    // Bán: tỷ VND
+  rentMil: string;    // Thuê: triệu/tháng
   title: string;
   description: string;
 
-  images: string[];     // ảnh BĐS (dataURL hoặc http)
-  legalImages: string[];// ảnh pháp lý (dataURL)
+  bedrooms: string;   // hiển thị N
+  bathrooms: string;  // hiển thị WC
+
+  images: string[];
+  legalImages: string[];
 
   contactName: string;
   contactPhone: string;
-  contactEmail: string;
+  // contactEmail: string; // ẨN khỏi UI theo yêu cầu
 
   agreeOwnerPhone: boolean;
   agreeLegalTruth: boolean;
@@ -96,11 +97,16 @@ const initialForm: FormState = {
   rentMil: "",
   title: "",
   description: "",
+
+  bedrooms: "",
+  bathrooms: "",
+
   images: [],
   legalImages: [],
   contactName: "",
   contactPhone: "",
-  contactEmail: "",
+  // contactEmail: "",
+
   agreeOwnerPhone: true,
   agreeLegalTruth: true,
 };
@@ -110,7 +116,6 @@ const PostProperty: React.FC = () => {
   const [form, setForm] = useState<FormState>(initialForm);
   const [aiBusy, setAiBusy] = useState(false);
 
-  // Prefill từ user hiện tại
   useEffect(() => {
     const cur = StorageManager.getCurrentUser();
     if (!cur || !cur.isLoggedIn) {
@@ -121,11 +126,10 @@ const PostProperty: React.FC = () => {
       ...f,
       contactName: cur.fullName || "",
       contactPhone: cur.phone || "",
-      contactEmail: cur.email || "",
+      // contactEmail: cur.email || "",
     }));
   }, [navigate]);
 
-  // Sắp xếp tỉnh: BIG6 trước, còn lại A->Z, bỏ dòng "Tỉnh / Thành Phố"
   const sortedProvinces = useMemo(() => {
     return provinces
       .filter(
@@ -148,7 +152,6 @@ const PostProperty: React.FC = () => {
       });
   }, []);
 
-  // Phường/Xã theo tỉnh: "Phường" trước, "Xã" sau, A->Z
   const wardOptions = useMemo(() => {
     if (!form.provinceId) return [];
     const arr = wardsByProvince[form.provinceId] || [];
@@ -160,7 +163,6 @@ const PostProperty: React.FC = () => {
     });
   }, [form.provinceId]);
 
-  // Giá tính ra VND theo hình thức
   const sellPriceVND = useMemo(() => {
     if (form.listingType !== "sell") return 0;
     const ty = Number(String(form.priceTy).replace(",", "."));
@@ -179,10 +181,9 @@ const PostProperty: React.FC = () => {
     if (form.listingType !== "sell") return 0;
     const area = Number(form.area);
     if (!area || !sellPriceVND) return 0;
-    return +(sellPriceVND / 1_000_000 / area).toFixed(2); // triệu/m²
+    return +(sellPriceVND / 1_000_000 / area).toFixed(2);
   }, [sellPriceVND, form.area, form.listingType]);
 
-  // Helpers
   const onChange =
     (key: keyof FormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -216,7 +217,7 @@ const PostProperty: React.FC = () => {
         const merged = [...f[field], ...urls].slice(0, limit);
         return { ...f, [field]: merged };
       });
-      e.target.value = ""; // reset input
+      e.target.value = "";
     };
 
   const removeImage =
@@ -242,6 +243,8 @@ const PostProperty: React.FC = () => {
 
     if (!form.title.trim()) return "Vui lòng nhập Tiêu đề.";
     if (!form.description.trim()) return "Vui lòng nhập Mô tả.";
+    if (!form.contactPhone.trim())
+      return "Vui lòng nhập Số điện thoại liên hệ. Bạn có thể thay số khác với số gợi ý.";
     if (form.images.length === 0) return "Vui lòng chọn ít nhất 1 ảnh bất động sản.";
     if (form.legalImages.length === 0)
       return "Vui lòng tải ảnh pháp lý (sổ đỏ/HĐMB) — chụp phần có tên chính chủ.";
@@ -268,7 +271,6 @@ const PostProperty: React.FC = () => {
     const provinceName =
       sortedProvinces.find((p) => p.provinceId === form.provinceId)?.provinceName || "";
 
-    // Chuẩn hoá đối tượng lưu local
     const property: any = {
       id,
       title: form.title.trim(),
@@ -284,16 +286,16 @@ const PostProperty: React.FC = () => {
       mapUrl: form.mapUrl || undefined,
       contactInfo: {
         name: form.contactName.trim(),
-        phone: form.contactPhone.trim(), // ✅ chính chủ
-        email: form.contactEmail.trim(),
-        ownerVerified: false, // ⬅️ MẶC ĐỊNH CHƯA XÁC MINH
+        phone: form.contactPhone.trim(),
+        // email: form.contactEmail?.trim() || undefined,
+        ownerVerified: false,
       },
-      verificationStatus: "pending", // ⬅️ Hiển thị "Đang xác nhận chính chủ"
+      verificationStatus: "pending",
       images: form.images,
-      userEmail: current.email, // Dashboard lọc theo email
+      userEmail: current.email,
       createdAt: now,
       updatedAt: now,
-      listingType: form.listingType, // ✅ rất quan trọng để Home lọc đúng
+      listingType: form.listingType,
     };
 
     if (form.listingType === "sell") {
@@ -301,24 +303,26 @@ const PostProperty: React.FC = () => {
       property.price_per_m2 =
         property.area > 0 && sellPriceVND ? Math.round(sellPriceVND / property.area) : undefined;
     } else {
-      property.rent_per_month = rentPerMonthVND; // ✅ cho thuê
+      property.rent_per_month = rentPerMonthVND;
     }
 
-    // Lưu tin + ảnh pháp lý
+    const bd = Number(form.bedrooms);
+    const bt = Number(form.bathrooms);
+    if (isFinite(bd) && bd > 0) property.bedrooms = bd;
+    if (isFinite(bt) && bt > 0) property.bathrooms = bt;
+
     StorageManager.saveProperty(property);
     StorageManager.saveLegalImages(id, form.legalImages);
 
-    // Phát tín hiệu để Home/đếm số tin tự refresh
     try {
       window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
       localStorage.setItem("emyland_properties_updated", String(Date.now()));
     } catch {}
 
     alert("Đăng tin thành công! Tin của bạn đang ở trạng thái 'Đang xác nhận chính chủ'.");
-    navigate("/dashboard"); // Dashboard sẽ nhận sự kiện và hiển thị tin mới
+    navigate("/dashboard");
   };
 
-  // ====== AI: mở Copilot với prompt làm sẵn từ các trường ======
   const openCopilotForDescription = () => {
     const title = form.title || "Tiêu đề";
     const area = form.area || "0";
@@ -327,52 +331,44 @@ const PostProperty: React.FC = () => {
     const provinceName =
       sortedProvinces.find((p) => p.provinceId === form.provinceId)?.provinceName || "Tỉnh/Thành";
     const listingText = form.listingType === "rent" ? "cho thuê" : "bán";
-
+    const nText =
+      (form.bedrooms ? `${form.bedrooms}N` : "") +
+      (form.bathrooms ? `${form.bedrooms ? " • " : ""}${form.bathrooms}WC` : "");
     const seed = `
 Bạn là chuyên gia viết bài đăng bất động sản.
 Hãy viết giúp tôi một đoạn mô tả ngắn gọn (120–180 từ), súc tích, hấp dẫn, đúng sự thật – không phóng đại, không gây hiểu nhầm.
 - Tiêu đề: ${title}
 - Loại: ${typeLabel} • ${listingText}
-- Diện tích: ${area} m²
+- Diện tích: ${area} m²${nText ? ` • Phòng: ${nText}` : ""}
 - Khu vực gần đúng: ${provinceName}
 - Yêu cầu: trình bày tự nhiên, có bullet ngắn gọn nếu hợp lý, có lời kêu gọi hành động nhẹ nhàng.
 Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ, không chèn số điện thoại.`;
-
     const url = `https://copilot.microsoft.com/?q=${encodeURIComponent(seed)}`;
     window.open(url, "_blank");
   };
 
-  // ====== AI: sửa ảnh – ưu tiên Photopea (miễn phí, không cần đăng nhập),
-  // nhận trực tiếp data:URL; nếu quá lớn sẽ upload tạm lên Supabase để lấy public URL.
   const openAiImageEditor = async () => {
     if (!form.images.length) {
       alert("Bạn hãy chọn ít nhất 1 ảnh bất động sản trước đã nhé.");
       return;
     }
     setAiBusy(true);
-
-    // mở cửa sổ sớm để tránh chặn popup
     const win = window.open("about:blank", "_blank");
 
     try {
       const src = form.images[0];
 
-      // HTTP/HTTPS -> mở Photopea bằng iurl
       if (isValidUrl(src)) {
         const pp = `https://www.photopea.com/#iurl=${encodeURIComponent(src)}`;
         if (win) win.location.href = pp; else window.open(pp, "_blank");
         return;
       }
-
-      // data:URL nhỏ -> truyền trực tiếp qua "files"
       if (src.startsWith("data:") && src.length < 1_600_000) {
         const cfg = { files: [src] };
         const pp = `https://www.photopea.com/#${encodeURIComponent(JSON.stringify(cfg))}`;
         if (win) win.location.href = pp; else window.open(pp, "_blank");
         return;
       }
-
-      // data:URL lớn -> upload lên Supabase public rồi mở Photopea
       if (src.startsWith("data:")) {
         const blob = dataURLtoBlob(src);
         const key = `ai-prep/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
@@ -387,8 +383,6 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
         if (win) win.location.href = pp; else window.open(pp, "_blank");
         return;
       }
-
-      // fallback Pixlr nếu có lỗi bất ngờ
       const fallback = "https://pixlr.com/vn/editor/";
       if (win) win.location.href = fallback; else window.open(fallback, "_blank");
     } catch (e) {
@@ -548,6 +542,32 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
               />
             </div>
 
+            {/* Số phòng */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Số phòng ngủ (hiển thị “N”)</label>
+              <input
+                type="number"
+                min={0}
+                step="1"
+                value={form.bedrooms}
+                onChange={onChange("bedrooms")}
+                placeholder="VD: 3  → hiển thị 3N"
+                className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Số phòng vệ sinh (hiển thị “WC”)</label>
+              <input
+                type="number"
+                min={0}
+                step="1"
+                value={form.bathrooms}
+                onChange={onChange("bathrooms")}
+                placeholder="VD: 2  → hiển thị 2WC"
+                className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
             {/* Giá bán / Giá thuê */}
             {form.listingType === "sell" ? (
               <div>
@@ -590,7 +610,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
               <input
                 value={form.title}
                 onChange={onChange("title")}
-                placeholder="VD: Căn góc, 2PN, mặt đường"
+                placeholder="VD: Căn góc, 3N 2WC, mặt đường"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -605,7 +625,6 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 placeholder="Mô tả chi tiết bất động sản, tiện ích xung quanh..."
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              {/* Nút AI mô tả – góc phải dưới, nhấp nháy */}
               <div className="absolute -bottom-3 right-0 translate-y-full mt-2 flex items-center gap-2">
                 <em className="text-xs text-gray-500 hidden sm:block">
                   AI giúp bạn mô tả nhà đất súc tích, cuốn hút người đọc…
@@ -614,7 +633,6 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                   type="button"
                   onClick={openCopilotForDescription}
                   className="px-3 py-2 rounded-lg bg-amber-400 text-black font-semibold shadow hover:bg-amber-500 transition animate-pulse"
-                  title="Mở Copilot với gợi ý từ nội dung bạn đã nhập"
                 >
                   ✨ AI mô tả
                 </button>
@@ -690,8 +708,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 className="mt-1"
               />
               <span>
-                Tôi cam kết số <strong>điện thoại</strong> cung cấp là <strong>chính chủ</strong> của
-                bất động sản này và đồng ý để EmyLand xác minh nhằm xác nhận tin đăng nhà đất chính chủ
+                Tôi cam kết số điện thoại cung cấp liên hệ là <strong>số chính chủ</strong> của chủ nhà đất đăng tin
+                và đồng ý để EmyLand xác minh với mục đích <strong>“xác nhận tin đăng”</strong> nhà đất chính chủ
                 (hoặc ủy quyền chính chủ công chứng).
               </span>
             </label>
@@ -742,7 +760,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
         {/* Thông tin liên hệ */}
         <section className="space-y-4 mt-10">
           <h2 className="text-xl font-bold">Thông tin liên hệ</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* ✅ Hai ô cùng hàng, rộng bằng nhau; ghi chú dưới ô điện thoại */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Họ tên *</label>
               <input
@@ -753,29 +772,36 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Số điện thoại *</label>
+              <label className="block text-sm font-medium mb-1">Số điện thoại liên hệ *</label>
               <input
                 value={form.contactPhone}
                 onChange={onChange("contactPhone")}
                 placeholder="VD: 09xxxxxxxx"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Email *</label>
-              <input
-                type="email"
-                value={form.contactEmail}
-                onChange={onChange("contactEmail")}
-                placeholder="VD: email@domain.com"
-                className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <p className="mt-1 text-xs italic text-gray-500">
+                (Bạn có thể thay số điện thoại khác với số gợi ý)
+              </p>
             </div>
           </div>
         </section>
 
-        {/* Submit */}
-        <div className="mt-8 flex justify-end">
+        {/* Hàng nút hành động */}
+        <div className="mt-8 grid grid-cols-3 gap-4">
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="rounded-xl border px-6 py-3 font-semibold shadow-sm hover:bg-gray-50"
+          >
+            Quay về trang chủ
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard")}
+            className="rounded-xl border px-6 py-3 font-semibold shadow-sm hover:bg-gray-50"
+          >
+            Hủy
+          </button>
           <button
             onClick={onSubmit}
             className="rounded-xl bg-amber-400 px-6 py-3 font-semibold shadow-sm transition hover:bg-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500"

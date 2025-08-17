@@ -20,6 +20,12 @@ import {
 } from "./ui/sheet";
 import { useAuth } from "../contexts/AuthContext";
 
+// ✅ dùng StorageManager & device để auto-login nếu thiết bị đã nhớ
+// (đường dẫn alias '/utils/*' đã dùng xuyên dự án; nếu dự án của Tom khác alias,
+// đổi sang '../utils/...' tương ứng)
+import { StorageManager } from "/utils/storage";
+import { getOrCreateDeviceId } from "/utils/device";
+
 type LegacyFilter = { label: string; key: string };
 type HeaderProps = {
   user?: any;
@@ -65,10 +71,59 @@ const Header: React.FC<HeaderProps> = ({
       window.removeEventListener("emyland:userUpdated", onUpdated as any);
   }, []);
 
+  /**
+   * ✅ Thử auto-login nếu thiết bị đã được nhớ (đúng yêu cầu:
+   *  - Lần sau trên cùng thiết bị: tự đăng nhập
+   *  - Thiết bị mới: không tự đăng nhập, điều hướng qua đăng ký/đăng nhập)
+   */
+  const attemptFastLogin = useCallback(() => {
+    try {
+      const session = StorageManager.getActiveSession();
+      if (!session) return false;
+
+      const deviceId = getOrCreateDeviceId();
+      if (
+        session.deviceId === deviceId &&
+        StorageManager.isDeviceRecognized(session.phone, deviceId)
+      ) {
+        const u =
+          StorageManager.getUserById(session.userId) ??
+          StorageManager.getUserByPhone(session.phone);
+        if (u) {
+          u.isLoggedIn = true;
+          StorageManager.saveUser(u);
+          StorageManager.setCurrentUser(u);
+          setCurrentUser(u);
+          // phát sự kiện để các nơi khác (nếu có) đồng bộ
+          window.dispatchEvent(new Event("emyland:userUpdated"));
+          return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  /**
+   * ✅ Nút "Đăng tin miễn phí"
+   * - Nếu đã đăng nhập: đi thẳng trang đăng tin
+   * - Nếu chưa: thử auto-login theo thiết bị; nếu vẫn chưa → điều hướng sang Đăng ký,
+   *   kèm next=/post-property (sau khi đăng ký/đăng nhập xong sẽ quay về trang đăng tin)
+   */
+  const POST_PATH = "/post-property";
   const handlePostProperty = useCallback(() => {
-    if (currentUser && currentUser.isLoggedIn) navigate("/post-property");
-    else navigate("/register");
-  }, [navigate, currentUser]);
+    if (currentUser && currentUser.isLoggedIn) {
+      navigate(POST_PATH);
+      return;
+    }
+    if (attemptFastLogin()) {
+      navigate(POST_PATH);
+      return;
+    }
+    // yêu cầu UX: lần đầu tiếp cận → đưa sang Đăng ký trước
+    navigate(`/register?next=${encodeURIComponent(POST_PATH)}`);
+  }, [navigate, currentUser, attemptFastLogin]);
 
   const handleLogout = useCallback(() => {
     if (logout) logout();
@@ -175,7 +230,11 @@ const Header: React.FC<HeaderProps> = ({
                     aria-label="Đi tới tài khoản"
                     className="justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
                     onClick={() =>
-                      navigate(currentUser ? "/dashboard" : "/login")
+                      navigate(
+                        currentUser
+                          ? "/dashboard"
+                          : "/login?next=" + encodeURIComponent("/dashboard")
+                      )
                     }
                   >
                     Tài khoản
@@ -260,7 +319,11 @@ const Header: React.FC<HeaderProps> = ({
               </DropdownMenu>
             ) : (
               <Button
-                onClick={() => navigate("/login")}
+                onClick={() =>
+                  navigate(
+                    "/login?next=" + encodeURIComponent("/dashboard")
+                  )
+                }
                 variant="outline"
                 className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white"
               >

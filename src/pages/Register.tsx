@@ -1,6 +1,6 @@
 // src/pages/Register.tsx
-import React, { useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useCallback, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,14 @@ import { useAuth } from "@/contexts/AuthContext";
 const Register: React.FC = () => {
   const navigate = useNavigate();
   const { loginByPhone } = useAuth();
+  const [sp] = useSearchParams();
+
+  // ✅ Hỗ trợ điều hướng trở lại trang mong muốn sau đăng ký
+  const DEFAULT_NEXT = "/post-property";
+  const nextPath = useMemo(() => {
+    const n = sp.get("next");
+    return n && n.startsWith("/") ? n : DEFAULT_NEXT;
+  }, [sp]);
 
   const [form, setForm] = useState({
     phone: "",
@@ -28,10 +36,12 @@ const Register: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const sanitizePhone = (v: string) => v.replace(/\D/g, "");
+
   const isValidVNPhone = useCallback(
     (v: string) => /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v)),
     []
   );
+
   const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
   // <<< CHUẨN HÓA SĐT: luôn giữ 0 đầu, tối đa 10 số (kể cả nhập +84...)
@@ -55,6 +65,7 @@ const Register: React.FC = () => {
 
   const validate = () => {
     const e: Record<string, string> = {};
+
     if (!form.phone) e.phone = "Số điện thoại là bắt buộc";
     else if (!isValidVNPhone(form.phone))
       e.phone = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
@@ -65,6 +76,8 @@ const Register: React.FC = () => {
     if (!form.fullName) e.fullName = "Họ và tên là bắt buộc";
 
     if (!form.password) e.password = "Mật khẩu là bắt buộc";
+    else if (form.password.length < 6) e.password = "Mật khẩu tối thiểu 6 ký tự";
+
     if (!form.confirmPassword) e.confirmPassword = "Xác nhận mật khẩu là bắt buộc";
     else if (form.password !== form.confirmPassword) e.confirmPassword = "Mật khẩu không khớp";
 
@@ -82,22 +95,31 @@ const Register: React.FC = () => {
 
     try {
       const phoneKey = sanitizePhone(form.phone); // đã chuẩn 0xxxxxxxxx
+      const emailNorm = form.email.trim();
+      const emailLower = emailNorm.toLowerCase();
 
-      // Chặn trùng trước khi gọi register
-      if (StorageManager.getUserByPhone(phoneKey)) {
+      // 🔒 Chặn trùng trước khi gọi register (email không phân biệt hoa/thường)
+      const dupByPhone = !!StorageManager.getUserByPhone(phoneKey);
+      const dupByEmail =
+        !!StorageManager.getUserByEmail(emailNorm) ||
+        StorageManager.getAllUsers().some(
+          (u) => (u.email || "").toLowerCase() === emailLower
+        );
+
+      if (dupByPhone) {
         setErrors({ general: "Số điện thoại đã được đăng ký" });
         return;
       }
-      if (StorageManager.getUserByEmail(form.email)) {
+      if (dupByEmail) {
         setErrors({ general: "Email đã được đăng ký" });
         return;
       }
 
-      // Tạo payload đúng kiểu (không đưa các trường do register tự set)
+      // Payload đúng kiểu (các trường thời gian StorageManager cũng tự set)
       const payload = {
         id: StorageManager.generateId(),
         phone: phoneKey,
-        email: form.email.trim(),
+        email: emailNorm, // giữ nguyên định dạng nhập; đã kiểm tra trùng không phân biệt hoa/thường
         fullName: form.fullName.trim(),
         password: form.password,
         createdAt: new Date().toISOString(),
@@ -108,11 +130,13 @@ const Register: React.FC = () => {
       // Tạo user mới (register sẽ set currentUser & isLoggedIn)
       const newUser = StorageManager.register(payload as any);
       if (!newUser) {
-        setErrors({ general: "Đăng ký thất bại (trùng thông tin hoặc dữ liệu không hợp lệ)." });
+        setErrors({
+          general: "Đăng ký thất bại (trùng thông tin hoặc dữ liệu không hợp lệ).",
+        });
         return;
       }
 
-      // Ghi nhớ thiết bị + tạo session auto-login
+      // ✅ Ghi nhớ thiết bị + tạo session auto-login các lần sau
       const deviceId = getOrCreateDeviceId();
       StorageManager.markDeviceForUser(phoneKey, deviceId);
       StorageManager.setActiveSession({
@@ -122,14 +146,17 @@ const Register: React.FC = () => {
         loggedInAt: new Date().toISOString(),
       });
 
-      // Đồng bộ AuthContext (sau đó điều hướng)
+      // Đồng bộ AuthContext (đăng nhập ngay)
       const ok = await loginByPhone(phoneKey, form.password);
       if (!ok) {
-        setErrors({ general: "Không thể đăng nhập sau khi đăng ký. Vui lòng thử lại." });
+        setErrors({
+          general: "Không thể đăng nhập sau khi đăng ký. Vui lòng thử lại.",
+        });
         return;
       }
 
-      navigate(newUser.isAdmin ? "/system-dashboard" : "/post-property", { replace: true });
+      // Điều hướng: Admin → SystemDashboard; User → next (mặc định /post-property)
+      navigate(newUser.isAdmin ? "/system-dashboard" : nextPath, { replace: true });
     } catch {
       setErrors({ general: "Có lỗi xảy ra. Vui lòng thử lại." });
     } finally {
@@ -148,9 +175,7 @@ const Register: React.FC = () => {
             </span>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">Đăng ký tài khoản</CardTitle>
-          <p className="text-gray-600 mt-2">
-            Tạo tài khoản để đăng tin bất động sản miễn phí
-          </p>
+          <p className="text-gray-600 mt-2">Tạo tài khoản để đăng tin bất động sản miễn phí</p>
         </CardHeader>
 
         <CardContent>
@@ -321,7 +346,7 @@ const Register: React.FC = () => {
                 Đã có tài khoản?{" "}
                 <button
                   type="button"
-                  onClick={() => navigate("/login")}
+                  onClick={() => navigate(`/login?next=${encodeURIComponent(nextPath)}`)}
                   className="relative group inline-flex items-center px-2 py-1 rounded-md font-medium text-blue-600 hover:text-blue-700 transition-colors"
                 >
                   <span

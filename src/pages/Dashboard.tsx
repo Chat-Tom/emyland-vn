@@ -22,8 +22,8 @@ import {
 } from "lucide-react";
 import { postDateLabel } from "@utils/date";
 
-import { StorageManager } from "../../utils/storage";
-import type { UserAccount, PropertyListing } from "../../utils/storage";
+import { StorageManager } from "@utils/storage";
+import type { UserAccount, PropertyListing } from "@utils/storage";
 
 const AVATAR_FALLBACK =
   "https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754146152775_21c04ef8.png";
@@ -87,6 +87,51 @@ const verifyStatusOf = (p: any): Verify => {
   // Mặc định: nếu chưa verified => pending
   return "pending";
 };
+
+// Việt hoá loại BĐS (chỉ hiển thị, không đổi dữ liệu gốc)
+const TYPE_LABELS: Record<string, string> = {
+  apartment: "Căn hộ",
+  house: "Nhà phố",
+  villa: "Biệt thự",
+  office: "Văn phòng",
+  land: "Nhà đất",
+  social: "Nhà ở xã hội",
+};
+
+// Ép & suy luận số phòng (để đảm bảo luôn có “N/WC” nếu có trong text)
+const toPosInt = (v: any): number | undefined => {
+  if (typeof v === "number" && v > 0) return Math.round(v);
+  if (typeof v === "string") {
+    const m = v.match(/\d+/);
+    if (m) {
+      const n = Number(m[0]);
+      if (n > 0) return n;
+    }
+  }
+  return undefined;
+};
+const deburrLower = (s?: string) => {
+  if (!s) return "";
+  try { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
+  catch { return String(s).toLowerCase().trim(); }
+};
+function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
+  let bedrooms = toPosInt(p?.bedrooms ?? p?.bedroom ?? p?.numBedrooms ?? p?.rooms?.bedrooms ?? p?.bedroom_count);
+  let bathrooms = toPosInt(p?.bathrooms ?? p?.bathroom ?? p?.numBathrooms ?? p?.rooms?.bathrooms ?? p?.bathroom_count ?? p?.wc);
+
+  if (!bedrooms || !bathrooms) {
+    const hay = deburrLower([p?.title, p?.description, p?.summary].filter(Boolean).join(" "));
+    if (!bedrooms) {
+      const m = hay.match(/(\d+)\s*(pn|phong\s*ngu|\bn\b)/i);
+      if (m) bedrooms = Number(m[1]);
+    }
+    if (!bathrooms) {
+      const m = hay.match(/(\d+)\s*(wc|ve\s*sinh|vs)\b/i);
+      if (m) bathrooms = Number(m[1]);
+    }
+  }
+  return { bedrooms, bathrooms };
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -258,10 +303,15 @@ const Dashboard = () => {
           <TabsContent value="properties" className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-semibold">Tin đăng của tôi ({properties.length})</h2>
-              <Button onClick={() => navigate("/post-property")} className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                Đăng tin mới
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => navigate("/")}>
+                  Quay về trang chủ
+                </Button>
+                <Button onClick={() => navigate("/post-property")} className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  Đăng tin mới
+                </Button>
+              </div>
             </div>
 
             {properties.length === 0 ? (
@@ -278,6 +328,12 @@ const Dashboard = () => {
                 {properties.map((property) => {
                   const lt = listingTypeOf(property);
                   const vStatus = verifyStatusOf(property);
+                  const typeLabel =
+                    TYPE_LABELS[String(property.propertyType || "").toLowerCase()] ||
+                    property.propertyType ||
+                    "Nhà đất";
+
+                  const { bedrooms, bathrooms } = inferRooms(property);
 
                   return (
                     <Card key={property.id} className="overflow-hidden">
@@ -304,7 +360,7 @@ const Dashboard = () => {
                                   {property.title}
                                 </h3>
                                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                                  <Badge variant="secondary">{property.propertyType}</Badge>
+                                  <Badge variant="secondary">{typeLabel}</Badge>
                                   <Badge className={lt === "sell" ? "bg-blue-600" : "bg-emerald-600"}>
                                     {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
                                   </Badge>
@@ -326,10 +382,12 @@ const Dashboard = () => {
 
                             <p className="text-gray-600 mb-2 line-clamp-2">{property.description}</p>
 
+                            {/* Thông tin ngắn: Diện tích • N • WC • Đăng: … */}
                             <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
-                              <span>Diện tích: {property.area}m²</span>
-                              <span>•</span>
-                              <span>{renderPosted(property.createdAt)}</span>
+                              <span>Diện tích: {property.area ?? "--"}m²</span>
+                              {typeof bedrooms === "number" && <span>• {bedrooms}N</span>}
+                              {typeof bathrooms === "number" && <span>• {bathrooms}WC</span>}
+                              <span>• {renderPosted(property.createdAt)}</span>
                             </div>
 
                             <div className="flex justify-between items-center">

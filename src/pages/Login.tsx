@@ -1,12 +1,13 @@
 // src/pages/Login.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff, Building2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { StorageManager } from "@utils/storage";
+import { getOrCreateDeviceId } from "@utils/device";
 
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
@@ -17,12 +18,19 @@ function isEmail(v: string) {
 function sanitizePhone(v: string) {
   return v.replace(/\D/g, "");
 }
+function normalizeVNPhone(input: string) {
+  const digits = sanitizePhone(input);
+  let normalized = digits.startsWith("84") ? "0" + digits.slice(2) : digits;
+  if (normalized.length > 0 && normalized[0] !== "0") normalized = "0" + normalized;
+  return normalized.slice(0, 10);
+}
 function isValidVNPhone(v: string) {
   return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 }
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
+  const [sp] = useSearchParams();
   const { loginByEmailOrPhone, isAuthenticated, user } = useAuth();
 
   const [identifier, setIdentifier] = useState(""); // email hoặc phone
@@ -30,6 +38,13 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
+
+  // ✅ Hỗ trợ điều hướng về trang mong muốn sau đăng nhập
+  const DEFAULT_NEXT = "/post-property";
+  const nextPath = useMemo(() => {
+    const n = sp.get("next");
+    return n && n.startsWith("/") ? n : DEFAULT_NEXT;
+  }, [sp]);
 
   // Seed admin (idempotent)
   useEffect(() => {
@@ -41,12 +56,16 @@ const Login: React.FC = () => {
     }
   }, []);
 
-  // Nếu đã đăng nhập, điều hướng theo quyền
+  // Nếu đã đăng nhập, điều hướng: ưu tiên next; nếu không có next thì mặc định theo quyền cũ
   useEffect(() => {
     if (isAuthenticated) {
-      navigate(user?.isAdmin ? "/system-dashboard" : "/post-property", { replace: true });
+      if (nextPath) {
+        navigate(nextPath, { replace: true });
+      } else {
+        navigate(user?.isAdmin ? "/system-dashboard" : "/post-property", { replace: true });
+      }
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user, navigate, nextPath]);
 
   const mode: "email" | "phone" = useMemo(
     () => (isEmail(identifier) ? "email" : "phone"),
@@ -76,10 +95,38 @@ const Login: React.FC = () => {
     setErrors((p) => ({ ...p, general: "" }));
 
     try {
-      const ok = await loginByEmailOrPhone(identifier.trim(), password);
+      // Chuẩn hoá identifier để đăng nhập chuẩn xác
+      const idTrim = identifier.trim();
+      const loginId = isEmail(idTrim) ? idTrim : normalizeVNPhone(idTrim);
+
+      const ok = await loginByEmailOrPhone(loginId, password);
       if (!ok) {
         setErrors({ general: "Thông tin đăng nhập không đúng" });
         return;
+      }
+
+      // ✅ Nhớ thiết bị + tạo ActiveSession cho auto-login lần sau
+      const deviceId = getOrCreateDeviceId();
+
+      // Tìm user để lưu phone chính xác (kể cả đăng nhập bằng email)
+      let u =
+        (isEmail(loginId) && StorageManager.getUserByEmail(loginId)) ||
+        StorageManager.getUserByPhone(sanitizePhone(loginId));
+
+      // Fallback tìm email không phân biệt hoa/thường
+      if (!u && isEmail(loginId)) {
+        const lower = loginId.toLowerCase();
+        u = StorageManager.getAllUsers().find((x) => (x.email || "").toLowerCase() === lower) || null;
+      }
+
+      if (u) {
+        StorageManager.markDeviceForUser(u.phone, deviceId);
+        StorageManager.setActiveSession({
+          userId: u.id,
+          phone: u.phone,
+          deviceId,
+          loggedInAt: new Date().toISOString(),
+        });
       }
 
       // Phát tín hiệu để chỗ khác sync UI (nếu có lắng nghe)
@@ -89,8 +136,7 @@ const Login: React.FC = () => {
         /* no-op */
       }
 
-      // Không điều hướng ngay ở đây — để effect dựa trên isAuthenticated + user xử lý,
-      // tránh race-condition khi state Context chưa kịp cập nhật.
+      // Không điều hướng ngay tại đây — effect dựa trên isAuthenticated sẽ xử lý để tránh race-condition
     } catch {
       setErrors({ general: "Có lỗi xảy ra. Vui lòng thử lại." });
     } finally {
@@ -196,6 +242,23 @@ const Login: React.FC = () => {
                   {errors.password}
                 </p>
               )}
+
+              {/* ✅ Quên mật khẩu: gợi ý nhận link về đúng email đã đăng ký */}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      isEmail(identifier)
+                        ? `/forgot-password?email=${encodeURIComponent(identifier.trim())}`
+                        : "/forgot-password"
+                    )
+                  }
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Quên mật khẩu?
+                </button>
+              </div>
             </div>
 
             {/* Submit */}
@@ -217,7 +280,7 @@ const Login: React.FC = () => {
               Chưa có tài khoản?{" "}
               <button
                 type="button"
-                onClick={() => navigate("/register")}
+                onClick={() => navigate(`/register?next=${encodeURIComponent(nextPath)}`)}
                 className="relative group inline-flex items-center px-2 py-1 rounded-md font-medium text-blue-600 hover:text-blue-700 transition-colors"
               >
                 <span

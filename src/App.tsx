@@ -1,13 +1,13 @@
 // src/App.tsx
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useState, useCallback } from "react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { useAuth, AuthProvider } from "@/contexts/AuthContext";
 import { AppProvider } from "@/contexts/AppContext";
 
 /* ========== Code-splitting pages ========== */
-const Home                 = lazy(() => import("@/pages/Home"));                 // ĐÃ gộp Properties vào Home
+const Home                 = lazy(() => import("@/pages/Home"));
 const PropertyDetail       = lazy(() => import("@/pages/PropertyDetail"));
 const PostProperty         = lazy(() => import("@/pages/PostProperty"));
 const Login                = lazy(() => import("@/pages/Login"));
@@ -18,8 +18,13 @@ const PlanningLookup       = lazy(() => import("@/pages/PlanningLookup"));
 const ValuationCertificate = lazy(() => import("@/pages/ValuationCertificate"));
 const LogsDashboard        = lazy(() => import("@/pages/LogsDashboard"));
 const ForgotPassword       = lazy(() => import("@/pages/ForgotPassword"));
+const ResetPassword        = lazy(() => import("@/pages/reset-password")); // ✅ tên biến hợp lệ
 const NotFound             = lazy(() => import("@/pages/NotFound"));
-const SocialHousing        = lazy(() => import("@/pages/SocialHousing"));        // ✅ Trang Nhà ở xã hội
+const SocialHousing        = lazy(() => import("@/pages/SocialHousing"));
+/* ========= Helpers cho auto-login theo thiết bị (giữ ở đây để không đụng các page) ========= */
+// Dùng alias '/utils/*' như trong dự án; nếu khác, đổi path tương ứng.
+import { StorageManager } from "/utils/storage";
+import { getOrCreateDeviceId } from "/utils/device";
 
 /* ========== Scroll to top on route change ========== */
 function ScrollToTop() {
@@ -30,18 +35,61 @@ function ScrollToTop() {
   return null;
 }
 
-/* ========== Protected route (giữ nguyên cơ chế cũ) ========== */
+/* ========== Protected route (nâng cấp: auto-login + redirect với next) ========== */
 function ProtectedRoute({ children }: { children: JSX.Element }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
-  if (isLoading) {
+  // thử auto-login 1 lần nếu chưa đăng nhập nhưng có session + đúng thiết bị
+  const [trying, setTrying] = useState(true);
+
+  const attemptFastLogin = useCallback(() => {
+    try {
+      const s = StorageManager.getActiveSession();
+      if (!s) return false;
+      const deviceId = getOrCreateDeviceId();
+      if (s.deviceId !== deviceId) return false;
+      if (!StorageManager.isDeviceRecognized(s.phone, deviceId)) return false;
+
+      const u =
+        StorageManager.getUserById(s.userId) ??
+        StorageManager.getUserByPhone(s.phone);
+      if (!u) return false;
+
+      u.isLoggedIn = true;
+      StorageManager.saveUser(u);
+      StorageManager.setCurrentUser(u);
+      // phát sự kiện để AuthContext/khác (nếu có) sync lại
+      window.dispatchEvent(new Event("emyland:userUpdated"));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    // chỉ thử khi chưa đăng nhập
+    if (!isAuthenticated) {
+      attemptFastLogin();
+    }
+    // dù thành công hay không, kết thúc "trying" để render tiếp
+    setTrying(false);
+  }, [isAuthenticated, attemptFastLogin]);
+
+  // Loading từ context hoặc đang thử auto-login
+  if (isLoading || trying) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center text-gray-600">
         Đang kiểm tra phiên đăng nhập…
       </div>
     );
   }
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  if (!isAuthenticated) {
+    const next = location.pathname + (location.search || "");
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
+
   return children;
 }
 
@@ -79,6 +127,7 @@ function AppInner() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} /> {/* ✅ mới */}
 
             {/* Dashboard người dùng (yêu cầu đăng nhập) */}
             <Route
