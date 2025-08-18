@@ -1,11 +1,16 @@
-/* Google Fonts – font mềm mại */
+/* =========================================================
+   GLOBAL STYLES (Tailwind + shadcn/ui) – EmyLand
+   Bản đã rà soát & bổ sung, giữ nguyên logic cũ
+   ========================================================= */
+
+/* Google Fonts – font mềm mại (ưu tiên tải nhanh) */
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Quicksand:wght@400;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ===== THEME TOKENS (giữ nguyên logic cũ) ===== */
+/* ===== THEME TOKENS ===== */
 :root {
   --background: hsl(0, 0%, 100%);
   --foreground: hsl(222.2, 84%, 4.9%);
@@ -30,6 +35,9 @@
 
   /* Z-index dùng chung cho popper/portals (Radix/shadcn) */
   --z-dropdown: 1000;
+
+  /* Gợi ý cho UA chọn bảng màu phù hợp (giúp form control hệ thống) */
+  color-scheme: light;
 }
 
 .dark {
@@ -53,19 +61,33 @@
   --destructive-foreground: hsl(0, 0%, 98%);
   --ring: hsl(240, 4.9%, 83.9%);
   --radius: 0.5rem;
+
+  color-scheme: dark;
 }
 
 /* ===== BASE ===== */
 @layer base {
   * { @apply border-border; }
+
+  html, body, #root { height: 100%; }
+
   body {
     @apply antialiased bg-background text-foreground;
     font-family: 'Poppins', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   /* Placeholder “chữ mờ chìm” (đồng bộ toàn app) */
   input::placeholder,
   textarea::placeholder { color: #9ca3af; opacity: 1; } /* gray-400 */
+
+  /* Tối ưu focus cho accessibility */
+  :focus-visible {
+    outline: 2px solid hsl(207, 90%, 54%);
+    outline-offset: 2px;
+  }
 }
 
 /* ===== UTILITIES (bao gồm phần cũ + bổ sung) ===== */
@@ -124,6 +146,11 @@
   /* Ảnh – hiệu ứng hover nổi bật (dùng cho PropertyCard) */
   .img-zoom { transition: transform .5s ease-out, filter .5s ease-out; }
   .img-zoom:hover { transform: scale(1.1); filter: brightness(1.05); }
+
+  /* Ẩn spinner input number trên Chrome (đẹp UI hơn) */
+  .no-number-spin::-webkit-outer-spin-button,
+  .no-number-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .no-number-spin { -moz-appearance: textfield; }
 }
 
 /* ===== FIX: Select / Dropdown Radix nổi dưới lớp blur ===== */
