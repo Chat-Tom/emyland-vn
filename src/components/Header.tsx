@@ -122,8 +122,8 @@ const Header: React.FC<HeaderProps> = ({
   }, [navigate, currentUser, attemptFastLogin]);
 
   /**
-   * ✅ Nút "Tin mới" (đăng nhanh – tự xoá sau 30 ngày)
-   *  - Giữ y hệt logic điều hướng như trên, chỉ thêm tham số gợi ý cho form.
+   * ✅ Nút "Tin mới" (đăng nhanh – tự xoá sau 30 ngày) — GIỮ LẠI cho tương thích cũ
+   *  (không dùng ở UI nữa; để sẵn nếu sau này bật lại chế độ đăng nhanh)
    */
   const DAILY_QS = "?mode=daily&expiresDays=30";
   const handlePostDaily = useCallback(() => {
@@ -138,6 +138,11 @@ const Header: React.FC<HeaderProps> = ({
     }
     navigate(`/register?next=${encodeURIComponent(dest)}`);
   }, [navigate, currentUser, attemptFastLogin]);
+
+  /** >>> Added: "Tin mới" (TIN TỨC) — mở thẳng trang news, không yêu cầu đăng nhập */
+  const handleOpenNews = useCallback(() => {
+    navigate("/news");
+  }, [navigate]);
 
   const handleLogout = useCallback(() => {
     if (logout) logout();
@@ -210,12 +215,12 @@ const Header: React.FC<HeaderProps> = ({
                 <span>Đăng tin miễn phí</span>
               </Button>
 
-              {/* >>> Added: Tin mới (desktop) */}
+              {/* >>> Tin mới (desktop) — mở trang tin tức */}
               <Button
-                onClick={handlePostDaily}
+                onClick={handleOpenNews}
                 variant="outline"
                 className="border-amber-400 text-amber-700 hover:bg-amber-100 px-3 py-2 rounded-lg"
-                title="Đăng tin mới, mặc định hết hạn sau 30 ngày"
+                title="Tin tức mới"
               >
                 Tin mới
               </Button>
@@ -225,12 +230,12 @@ const Header: React.FC<HeaderProps> = ({
             <Sheet>
               <SheetTrigger asChild>
                 <div className="flex items-center gap-2 md:hidden">
-                  {/* >>> Added: Tin mới mobile (nhỏ, cạnh Menu) */}
+                  {/* >>> Tin mới mobile (nhỏ, cạnh Menu) */}
                   <Button
-                    onClick={handlePostDaily}
+                    onClick={handleOpenNews}
                     variant="outline"
                     className="h-9 px-3 rounded-lg border-amber-400 text-amber-700 hover:bg-amber-100"
-                    title="Đăng tin mới (tự xoá sau 30 ngày)"
+                    title="Tin tức mới"
                   >
                     Tin mới
                   </Button>
@@ -280,7 +285,7 @@ const Header: React.FC<HeaderProps> = ({
                     Tài khoản
                   </Button>
 
-                  {/* >>> Added: Khối cá nhân hoá trên MOBILE */}
+                  {/* >>> Khối cá nhân hoá trên MOBILE */}
                   {currentUser ? (
                     <div className="rounded-xl border border-amber-200/70 bg-white/70 px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -369,7 +374,7 @@ const Header: React.FC<HeaderProps> = ({
                   </Button>
                 </nav>
 
-                {/* >>> Added: ẩn nút “Tài khoản” mặc định khi đã đăng nhập (không sửa dòng cũ) */}
+                {/* >>> ẩn nút “Tài khoản” mặc định khi đã đăng nhập (không sửa dòng cũ) */}
                 <style>{`
                   [data-logged-in="true"] .btn-account-basic{ display:none; }
                 `}</style>
@@ -377,7 +382,7 @@ const Header: React.FC<HeaderProps> = ({
             </Sheet>
           </div>
 
-          {/* >>> Added: Nút Đăng tin miễn phí riêng cho MOBILE (full-width) */}
+          {/* >>> Nút Đăng tin miễn phí riêng cho MOBILE (full-width, có nhấp nháy) */}
           <div className="w-full md:hidden">
             <Button
               onClick={handlePostProperty}
@@ -459,7 +464,7 @@ const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* >>> Added: ép hàng đầu justify-between & full width ở mobile để nút Menu không bị chèn */}
+      {/* >>> Ép hàng đầu justify-between & full width ở mobile để nút Menu không bị chèn */}
       <style>{`
         @media (max-width: 767.98px){
           header .container > div > div.flex.items-start { align-items: stretch; }
