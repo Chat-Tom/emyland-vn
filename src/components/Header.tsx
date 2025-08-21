@@ -272,12 +272,12 @@ const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Menu desktop cũ (giữ nguyên logic) */}
-          <nav className="hidden md:flex items-center space-x-6">
+          <nav className="hidden md:flex items-center space-x-6 flex-nowrap">
             {menuItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className="text-gray-700 hover:text-blue-600 font-medium transition-colors duration-200"
+                className="whitespace-nowrap text-gray-700 hover:text-blue-600 font-medium transition-colors duration-200"
               >
                 {item.label}
               </Link>
