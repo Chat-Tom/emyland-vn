@@ -186,12 +186,16 @@ const Header: React.FC<HeaderProps> = ({
             </Link>
 
             {/* Đăng tin miễn phí */}
-            <Button
-              onClick={handlePostProperty}
-              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 animate-bounce flex items-center gap-2"
-            >
-              <span>Đăng tin miễn phí</span>
-            </Button>
+            {/* >>> Added wrapper: ẩn nút cạnh logo ở mobile, chỉ hiện desktop */}
+            <div className="hidden md:block">
+              <Button
+                onClick={handlePostProperty}
+                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2"
+              >
+                <span>Đăng tin miễn phí</span>
+              </Button>
+            </div>
+            {/* <<< Added wrapper */}
 
             {/* Menu chỉ hiển thị trên mobile */}
             <Sheet>
@@ -338,6 +342,17 @@ const Header: React.FC<HeaderProps> = ({
             </Sheet>
           </div>
 
+          {/* >>> Added: Nút Đăng tin miễn phí riêng cho MOBILE (full-width, đúng bố cục cũ) */}
+          <div className="w-full md:hidden">
+            <Button
+              onClick={handlePostProperty}
+              className="w-full h-12 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all"
+            >
+              Đăng tin miễn phí
+            </Button>
+          </div>
+          {/* <<< Added MOBILE button */}
+
           {/* Menu desktop cũ (giữ nguyên logic) */}
           <nav className="hidden md:flex items-center space-x-6">
             {menuItems.map((item) => (
@@ -407,6 +422,18 @@ const Header: React.FC<HeaderProps> = ({
           </nav>
         </div>
       </div>
+
+      {/* >>> Added: ép hàng đầu justify-between & full width ở mobile để nút Menu không bị chèn */}
+      <style>{`
+        @media (max-width: 767.98px){
+          header .container > div > div.flex.items-start { align-items: stretch; }
+          header .container > div > div.flex.items-center.gap-4{
+            width:100%;
+            justify-content:space-between;
+          }
+        }
+      `}</style>
+      {/* <<< Added */}
     </header>
   );
 };
