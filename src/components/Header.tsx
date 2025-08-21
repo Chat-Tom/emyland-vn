@@ -107,9 +107,6 @@ const Header: React.FC<HeaderProps> = ({
 
   /**
    * ✅ Nút "Đăng tin miễn phí"
-   * - Nếu đã đăng nhập: đi thẳng trang đăng tin
-   * - Nếu chưa: thử auto-login theo thiết bị; nếu vẫn chưa → điều hướng sang Đăng ký,
-   *   kèm next=/post-property (sau khi đăng ký/đăng nhập xong sẽ quay về trang đăng tin)
    */
   const POST_PATH = "/post-property";
   const handlePostProperty = useCallback(() => {
@@ -121,8 +118,25 @@ const Header: React.FC<HeaderProps> = ({
       navigate(POST_PATH);
       return;
     }
-    // yêu cầu UX: lần đầu tiếp cận → đưa sang Đăng ký trước
     navigate(`/register?next=${encodeURIComponent(POST_PATH)}`);
+  }, [navigate, currentUser, attemptFastLogin]);
+
+  /**
+   * ✅ Nút "Tin mới" (đăng nhanh – tự xoá sau 30 ngày)
+   *  - Giữ y hệt logic điều hướng như trên, chỉ thêm tham số gợi ý cho form.
+   */
+  const DAILY_QS = "?mode=daily&expiresDays=30";
+  const handlePostDaily = useCallback(() => {
+    const dest = `${POST_PATH}${DAILY_QS}`;
+    if (currentUser && currentUser.isLoggedIn) {
+      navigate(dest);
+      return;
+    }
+    if (attemptFastLogin()) {
+      navigate(dest);
+      return;
+    }
+    navigate(`/register?next=${encodeURIComponent(dest)}`);
   }, [navigate, currentUser, attemptFastLogin]);
 
   const handleLogout = useCallback(() => {
@@ -185,30 +199,51 @@ const Header: React.FC<HeaderProps> = ({
               </span>
             </Link>
 
-            {/* Đăng tin miễn phí */}
-            {/* >>> Added wrapper: ẩn nút cạnh logo ở mobile, chỉ hiện desktop */}
-            <div className="hidden md:block">
+            {/* Đăng tin miễn phí (DESKTOP) + Tin mới (DESKTOP) */}
+            {/* đổi block → flex để đặt thêm nút Tin mới */}
+            <div className="hidden md:flex items-center gap-2">
               <Button
                 onClick={handlePostProperty}
-                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2"
+                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 animate-bounce"
+                title="Đăng tin miễn phí"
               >
                 <span>Đăng tin miễn phí</span>
               </Button>
-            </div>
-            {/* <<< Added wrapper */}
 
-            {/* Menu chỉ hiển thị trên mobile */}
+              {/* >>> Added: Tin mới (desktop) */}
+              <Button
+                onClick={handlePostDaily}
+                variant="outline"
+                className="border-amber-400 text-amber-700 hover:bg-amber-100 px-3 py-2 rounded-lg"
+                title="Đăng tin mới, mặc định hết hạn sau 30 ngày"
+              >
+                Tin mới
+              </Button>
+            </div>
+
+            {/* Menu + Tin mới (MOBILE) */}
             <Sheet>
               <SheetTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0 md:hidden"
-                  aria-label="Mở menu"
-                  title="Menu"
-                >
-                  <Menu className="h-5 w-5" />
-                </Button>
+                <div className="flex items-center gap-2 md:hidden">
+                  {/* >>> Added: Tin mới mobile (nhỏ, cạnh Menu) */}
+                  <Button
+                    onClick={handlePostDaily}
+                    variant="outline"
+                    className="h-9 px-3 rounded-lg border-amber-400 text-amber-700 hover:bg-amber-100"
+                    title="Đăng tin mới (tự xoá sau 30 ngày)"
+                  >
+                    Tin mới
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0 md:hidden"
+                    aria-label="Mở menu"
+                    title="Menu"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </div>
               </SheetTrigger>
 
               {/* Nền vàng nhạt + z-index cao để không bị hero đè, có đệm trong để nút không dính mép */}
@@ -342,11 +377,12 @@ const Header: React.FC<HeaderProps> = ({
             </Sheet>
           </div>
 
-          {/* >>> Added: Nút Đăng tin miễn phí riêng cho MOBILE (full-width, đúng bố cục cũ) */}
+          {/* >>> Added: Nút Đăng tin miễn phí riêng cho MOBILE (full-width) */}
           <div className="w-full md:hidden">
             <Button
               onClick={handlePostProperty}
-              className="w-full h-12 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all"
+              className="w-full h-12 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all animate-bounce"
+              title="Đăng tin miễn phí"
             >
               Đăng tin miễn phí
             </Button>
