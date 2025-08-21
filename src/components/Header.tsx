@@ -152,15 +152,20 @@ const Header: React.FC<HeaderProps> = ({
   const avatarSrc = currentUser?.avatarUrl || DEFAULT_AVATAR;
 
   return (
-    <header className={`bg-white shadow-lg sticky top-0 z-50 ${className}`}>
+    // ⬇️ tăng z-index + safe-area để header không bao giờ bị che
+    <header
+      className={`bg-white shadow-lg sticky top-0 z-[120] ${className}`}
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 py-2">
           {/* Logo + Đăng tin + Menu (mobile) */}
-          <div className="flex items-center gap-4">
+          {/* ⬇️ thêm w-full + flex-wrap để các phần tự xuống dòng khi hẹp */}
+          <div className="flex w-full items-center gap-3 flex-wrap md:flex-nowrap">
             <Link
               to="/"
               onClick={handleBrandClick}
-              className="flex flex-col items-center"
+              className="flex flex-col items-center order-1"
             >
               <div className="flex items-center gap-2">
                 <img
@@ -186,9 +191,10 @@ const Header: React.FC<HeaderProps> = ({
             </Link>
 
             {/* Đăng tin miễn phí */}
+            {/* ⬇️ order-3 + basis-full để CTA xuống HÀNG 2 full-width trên mobile */}
             <Button
               onClick={handlePostProperty}
-              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 animate-bounce flex items-center gap-2"
+              className="order-3 basis-full md:order-3 md:basis-auto bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 animate-bounce flex items-center gap-2"
             >
               <span>Đăng tin miễn phí</span>
             </Button>
@@ -196,10 +202,11 @@ const Header: React.FC<HeaderProps> = ({
             {/* Menu chỉ hiển thị trên mobile */}
             <Sheet>
               <SheetTrigger asChild>
+                {/* ⬇️ order-2 + ml-auto để Menu đứng PHẢI cùng hàng Logo */}
                 <Button
                   variant="outline"
                   size="icon"
-                  className="shrink-0 md:hidden"
+                  className="shrink-0 md:hidden order-2 ml-auto"
                   aria-label="Mở menu"
                   title="Menu"
                 >
