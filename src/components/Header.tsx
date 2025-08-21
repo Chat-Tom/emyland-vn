@@ -152,20 +152,15 @@ const Header: React.FC<HeaderProps> = ({
   const avatarSrc = currentUser?.avatarUrl || DEFAULT_AVATAR;
 
   return (
-    // ⬇️ tăng z-index + safe-area để header không bao giờ bị che
-    <header
-      className={`bg-white shadow-lg sticky top-0 z-[120] ${className}`}
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
-    >
+    <header className={`bg-white shadow-lg sticky top-0 z-50 ${className}`}>
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 py-2">
           {/* Logo + Đăng tin + Menu (mobile) */}
-          {/* ⬇️ thêm w-full + flex-wrap để các phần tự xuống dòng khi hẹp */}
-          <div className="flex w-full items-center gap-3 flex-wrap md:flex-nowrap">
+          <div className="flex items-center gap-4">
             <Link
               to="/"
               onClick={handleBrandClick}
-              className="flex flex-col items-center order-1"
+              className="flex flex-col items-center"
             >
               <div className="flex items-center gap-2">
                 <img
@@ -191,10 +186,9 @@ const Header: React.FC<HeaderProps> = ({
             </Link>
 
             {/* Đăng tin miễn phí */}
-            {/* ⬇️ order-3 + basis-full để CTA xuống HÀNG 2 full-width trên mobile */}
             <Button
               onClick={handlePostProperty}
-              className="order-3 basis-full md:order-3 md:basis-auto bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 animate-bounce flex items-center gap-2"
+              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 animate-bounce flex items-center gap-2"
             >
               <span>Đăng tin miễn phí</span>
             </Button>
@@ -202,11 +196,10 @@ const Header: React.FC<HeaderProps> = ({
             {/* Menu chỉ hiển thị trên mobile */}
             <Sheet>
               <SheetTrigger asChild>
-                {/* ⬇️ order-2 + ml-auto để Menu đứng PHẢI cùng hàng Logo */}
                 <Button
                   variant="outline"
                   size="icon"
-                  className="shrink-0 md:hidden order-2 ml-auto"
+                  className="shrink-0 md:hidden"
                   aria-label="Mở menu"
                   title="Menu"
                 >
@@ -220,6 +213,7 @@ const Header: React.FC<HeaderProps> = ({
                 aria-label="Menu điều hướng"
                 aria-describedby="mobile-menu-desc"
                 className="w-[320px] sm:w-[360px] bg-amber-50 z-[1000] border-l shadow-2xl px-3 py-3"
+                data-logged-in={!!currentUser} // >>> Added: cho phép CSS ẩn/hiện
               >
                 <SheetHeader>
                   {/* Ẩn tiêu đề/miêu tả để gọn UI nhưng đáp ứng a11y → xoá cảnh báo Radix */}
@@ -231,11 +225,11 @@ const Header: React.FC<HeaderProps> = ({
 
                 {/* Thứ tự: Tài khoản → Tra cứu quy hoạch → Thẩm định giá - Chứng thư */}
                 <nav className="mt-1 flex flex-col gap-2">
-                  {/* Tài khoản */}
+                  {/* Tài khoản (giữ nguyên) */}
                   <Button
                     variant="ghost"
                     aria-label="Đi tới tài khoản"
-                    className="justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
+                    className="btn-account-basic justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
                     onClick={() =>
                       navigate(
                         currentUser
@@ -246,6 +240,74 @@ const Header: React.FC<HeaderProps> = ({
                   >
                     Tài khoản
                   </Button>
+
+                  {/* >>> Added: Khối cá nhân hoá trên MOBILE */}
+                  {currentUser ? (
+                    <div className="rounded-xl border border-amber-200/70 bg-white/70 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={avatarSrc}
+                          alt="Avatar"
+                          className="h-10 w-10 rounded-full object-cover"
+                        />
+                        <div className="min-w-0">
+                          <div className="font-semibold leading-tight truncate">
+                            {accountDisplay}
+                          </div>
+                          <div className="text-xs text-gray-600 truncate">
+                            {currentUser?.phone || currentUser?.email || ""}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <Button
+                          variant="secondary"
+                          className="rounded-lg bg-amber-100 hover:bg-amber-200"
+                          asChild
+                        >
+                          <Link to="/dashboard">
+                            <LayoutDashboard className="h-4 w-4 mr-1" />
+                            Dashboard
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="rounded-lg"
+                          onClick={handleLogout}
+                        >
+                          <LogOut className="h-4 w-4 mr-1" />
+                          Đăng xuất
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-amber-200/70 bg-white/70 px-4 py-3">
+                      <div className="text-sm text-gray-700 mb-2">
+                        Chào bạn! Hãy đăng nhập để quản lý tin dễ hơn.
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          asChild
+                          className="rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                        >
+                          <Link to={`/login?next=${encodeURIComponent("/dashboard")}`}>
+                            Đăng nhập
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          asChild
+                          className="rounded-lg"
+                        >
+                          <Link to={`/register?next=${encodeURIComponent("/dashboard")}`}>
+                            Đăng ký
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {/* <<< End Added */}
 
                   {/* Tra cứu quy hoạch */}
                   <Button
@@ -267,17 +329,22 @@ const Header: React.FC<HeaderProps> = ({
                     </Link>
                   </Button>
                 </nav>
+
+                {/* >>> Added: ẩn nút “Tài khoản” mặc định khi đã đăng nhập (không sửa dòng cũ) */}
+                <style>{`
+                  [data-logged-in="true"] .btn-account-basic{ display:none; }
+                `}</style>
               </SheetContent>
             </Sheet>
           </div>
 
           {/* Menu desktop cũ (giữ nguyên logic) */}
-          <nav className="hidden md:flex items-center space-x-6 flex-nowrap">
+          <nav className="hidden md:flex items-center space-x-6">
             {menuItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className="whitespace-nowrap text-gray-700 hover:text-blue-600 font-medium transition-colors duration-200"
+                className="text-gray-700 hover:text-blue-600 font-medium transition-colors duration-200"
               >
                 {item.label}
               </Link>
