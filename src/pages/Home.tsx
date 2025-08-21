@@ -361,7 +361,7 @@ export default function Home() {
       setProperties([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+           setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, province, type, minPrice, maxPrice, minArea, maxArea, page, pageSize, socialMode]);
@@ -544,12 +544,7 @@ export default function Home() {
        ? "bg-gradient-to-r from-green-600 to-green-700 text-white shadow hover:brightness-110"
        : "bg-yellow-500 text-white hover:bg-yellow-600 hover:shadow active:scale-[0.99]"}
      /* >>> Added: chống tràn chữ mobile */
-     leading-[1.2] min-h-[44px] text-[12px] tracking-tight
-     overflow-hidden text-ellipsis
-     max-[420px]:text-[3.2vw]
-     max-[380px]:text-[11px]
-     max-[360px]:text-[10.5px]
-     max-[380px]:px-1`;
+     leading-[1.2] min-h-[44px] text-[12px] tracking-tight`;
 
   return (
     <div className="min-h-screen flex flex-col bg-white font-sans antialiased">
@@ -572,7 +567,7 @@ export default function Home() {
       <section className="bg-gradient-to-r from-blue-600 via-purple-600 to-orange-500">
         <div className="container mx-auto px-4 py-6 sm:py-8">
           {/* Tabs */}
-          <div className="mb-3 grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="mb-3 grid grid-cols-[1fr_1.35fr_1fr] sm:grid-cols-[1fr_1.25fr_1fr] md:grid-cols-3 gap-2 sm:gap-3">
             <button
               onClick={() => { setSocialMode(false); setListingType("sell"); }}
               className={tabClass(!socialMode && listingType === "sell")}
@@ -1013,7 +1008,7 @@ function DualSlider({ min, max, step, leftValue, rightValue, onLeft, onRight, ma
         className="absolute top-3 h-2 rounded-full track-fill"
         style={{
           left: `${(leftValue / max) * 100}%`,
-          right: `${(1 - rightValue / max) * 100)%}`,
+          right: `${(1 - rightValue / max) * 100}%`, // ✅ fixed template string
         }}
       />
       {marks.map((m: number) => (
