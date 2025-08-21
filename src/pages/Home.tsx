@@ -41,6 +41,53 @@ function setFavicon(url: string) {
   } catch {}
 }
 
+/* >>> Added: helpers suy luận PN/WC tại Home để điền sẵn dữ liệu cho Card */
+function _deburrLower(s?: string) {
+  if (!s) return "";
+  try { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
+  catch { return String(s).toLowerCase(); }
+}
+function _toPosInt(v: any): number | undefined {
+  if (typeof v === "number" && v > 0) return Math.round(v);
+  if (typeof v === "string") {
+    const m = v.match(/\d+/);
+    const n = m ? Number(m[0]) : NaN;
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return undefined;
+}
+function _inferRoomsHome(p: any): { bedrooms?: number; bathrooms?: number } {
+  let bedrooms =
+    _toPosInt(p?.bedrooms) ??
+    _toPosInt(p?.bedroom_count) ??
+    _toPosInt(p?.bed) ??
+    _toPosInt(p?.rooms?.bedrooms) ??
+    _toPosInt(p?.details?.bedrooms);
+
+  let bathrooms =
+    _toPosInt(p?.bathrooms) ??
+    _toPosInt(p?.bathroom_count) ??
+    _toPosInt(p?.bath) ??
+    _toPosInt(p?.wc) ?? _toPosInt(p?.WC) ??
+    _toPosInt(p?.toilet) ?? _toPosInt(p?.toilets) ??
+    _toPosInt(p?.numBathrooms) ??
+    _toPosInt(p?.rooms?.bathrooms) ??
+    _toPosInt(p?.details?.bathrooms);
+
+  const hay = _deburrLower([p?.title, p?.description, p?.summary, p?.content, p?.note, p?.details].filter(Boolean).join(" "));
+  if (!bedrooms) {
+    const m = hay.match(/(\d+)\s*(pn|phong\s*ngu|\bn\b)/i);
+    if (m) bedrooms = Number(m[1]);
+  }
+  if (!bathrooms) {
+    const m1 = hay.match(/(\d+)\s*(wc|ve\s*sinh|vs)\b/i);
+    const m2 = !m1 && hay.match(/(\d+)\s*(phong\s*tam|phòng\s*tắm|toilet|nha\s*tam|bath(room)?s?)\b/i);
+    const mm = m1 || m2;
+    if (mm) bathrooms = Number(mm[1]);
+  }
+  return { bedrooms, bathrooms };
+}
+
 /** Chuẩn hoá cho PropertyCard */
 function normalizeForCard(p: any) {
   const id = String(p.id ?? p._id ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`));
@@ -88,6 +135,11 @@ function normalizeForCard(p: any) {
   const createdAt: string | number | Date | undefined =
     p.createdAt ?? p.created_at ?? p.postedAt ?? p.updatedAt ?? p.date ?? p.created;
 
+  /* >>> Added: điền sẵn PN/WC nếu thiếu bằng alias + mô tả */
+  const guessed = _inferRoomsHome(p);
+  const bedroomsFixed = bedrooms ?? guessed.bedrooms;
+  const bathroomsFixed = (bathrooms ?? guessed.bathrooms);
+
   return {
     ...p,
     id,
@@ -99,8 +151,8 @@ function normalizeForCard(p: any) {
     ward,
     province,
     area,
-    bedrooms,
-    bathrooms,
+    bedrooms: bedroomsFixed,          // >>> Added
+    bathrooms: bathroomsFixed,        // >>> Added
     images,
     type,
     verificationStatus,
@@ -490,7 +542,9 @@ export default function Home() {
      font-medium tracking-normal transition-all duration-200
      ${active
        ? "bg-gradient-to-r from-green-600 to-green-700 text-white shadow hover:brightness-110"
-       : "bg-yellow-500 text-white hover:bg-yellow-600 hover:shadow active:scale-[0.99]"}`;
+       : "bg-yellow-500 text-white hover:bg-yellow-600 hover:shadow active:scale-[0.99]"}
+     /* >>> Added: chống tràn chữ mobile */
+     leading-[1.2] min-h-[44px] text-[12px] tracking-tight`;
 
   return (
     <div className="min-h-screen flex flex-col bg-white font-sans antialiased">
