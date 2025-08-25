@@ -1,9 +1,18 @@
 {
+  "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
+
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)\\.(css|js|mjs|map|woff2?|ttf|eot|png|jpe?g|gif|webp|svg|ico)", "destination": "/$1.$2" },
+    { "source": "/favicon.ico", "destination": "/favicon.ico" },
+    { "source": "/robots.txt", "destination": "/robots.txt" },
+    { "source": "/sitemap.xml", "destination": "/sitemap.xml" },
+
     { "source": "/(.*)", "destination": "/index.html" }
   ],
+
   "headers": [
     {
       "source": "/(.*)\\.(css|js|mjs|map|woff2?|ttf|eot)",
