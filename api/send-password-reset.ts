@@ -1,11 +1,12 @@
-// Vercel Node Function (độc lập với mã cũ). Không phụ thuộc Next.
-// GỬI LINK ĐẶT LẠI MẬT KHẨU + LƯU HASH TOKEN VÀO SUPABASE
-
+// src/pages/api/send-password-reset.ts
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 
-// Shim env: chấp nhận EMAIL_* hoặc SMTP_*
+// >>> Added: đảm bảo chạy Node runtime (an toàn cho pages/api)
+export const config = { runtime: "nodejs" };
+
+// --- Shim EMAIL_* <-> SMTP_* (giữ nguyên)
 (() => {
   const map: [keyof NodeJS.ProcessEnv, keyof NodeJS.ProcessEnv][] = [
     ["SMTP_HOST", "EMAIL_HOST"],
@@ -27,9 +28,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase =
   process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false },
-      })
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
     : null;
 
 const mailer = nodemailer.createTransport({
@@ -39,33 +38,68 @@ const mailer = nodemailer.createTransport({
   auth: { user: process.env.SMTP_USER!, pass: process.env.SMTP_PASS! },
 });
 
-function frontendBase() {
-  return (
+// >>> Added: Base URL ưu tiên header -> ENV -> localhost
+function frontendBaseFromReq(req: any): string {
+  const hdr = req?.headers || {};
+  const proto =
+    (hdr["x-forwarded-proto"] as string) ||
+    (hdr["x-forwarded-protocol"] as string) ||
+    (hdr["x-forwarded-scheme"] as string) ||
+    "https";
+  const host =
+    (hdr["x-forwarded-host"] as string) ||
+    (hdr["x-vercel-deployment-url"] as string) || // Vercel đôi lúc set
+    (hdr["host"] as string) ||
+    "";
+
+  if (host) return `${proto}://${host}`;
+
+  // Fallback ENV nếu không có header
+  const envBase =
     process.env.FRONTEND_URL ||
     process.env.NEXT_PUBLIC_BASE_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     process.env.VITE_PUBLIC_URL ||
-    "http://localhost:5175"
-  ).replace(/\/$/, "");
+    "";
+  return (envBase || "http://localhost:5175").replace(/\/$/, "");
 }
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
   const { email } = (req.body || {}) as { email?: string };
   if (!email) return res.status(400).json({ error: "Thiếu email" });
+  const normalized = email.toLowerCase();
 
   try {
-    // 1) Tạo token thô + hash
+    // Nếu có Supabase: chỉ gửi khi user tồn tại (tránh FK error + tránh enumerate)
+    if (supabase) {
+      const { data: userRow, error: uErr } = await supabase
+        .from("users")
+        .select("email")
+        .eq("email", normalized)
+        .maybeSingle();
+      if (uErr) {
+        console.error("check user error:", uErr);
+        return res.status(500).json({ error: "Lỗi hệ thống" });
+      }
+      if (!userRow) {
+        // Không lộ thông tin, vẫn trả 200
+        return res.status(200).json({ message: "Đã gửi email khôi phục" });
+      }
+    }
+
+    // Token thô + hash
     const raw = crypto.randomBytes(32).toString("hex");
     const token_hash = crypto.createHash("sha256").update(raw).digest("hex");
     const ttlMin = parseInt(process.env.RESET_TOKEN_TTL_MINUTES || "60", 10);
     const expires_at = new Date(Date.now() + ttlMin * 60 * 1000).toISOString();
 
-    // 2) Lưu Supabase (nếu có Service Role)
+    // Lưu token
     if (supabase) {
-      await supabase.from("password_reset_tokens").delete().eq("email", email.toLowerCase());
+      await supabase.from("password_reset_tokens").delete().eq("email", normalized);
       const { error: insErr } = await supabase.from("password_reset_tokens").insert({
-        email: email.toLowerCase(),
+        email: normalized,
         token_hash,
         expires_at,
       });
@@ -75,14 +109,14 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // 3) Tạo link reset cho FE
-    const url = `${frontendBase()}/reset-password?token=${raw}&email=${encodeURIComponent(email.toLowerCase())}`;
+    // >>> Quan trọng: dùng domain thật từ request
+    const base = frontendBaseFromReq(req);
+    const url = `${base}/reset-password?token=${raw}&email=${encodeURIComponent(normalized)}`;
 
-    // 4) Gửi email
     const from = process.env.SMTP_FROM || `EmyLand <${process.env.SMTP_USER}>`;
     await mailer.sendMail({
       from,
-      to: email.toLowerCase(),
+      to: normalized,
       subject: "EmyLand – Đặt lại mật khẩu",
       html: `
         <div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.5">
