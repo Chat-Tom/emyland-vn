@@ -1,4 +1,6 @@
 // src/App.tsx
+import NewsPage from "@/pages/NewsPage";
+import NewsDetail from "@/pages/NewsDetail";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Suspense, lazy, useEffect, useState, useCallback } from "react";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -109,6 +111,13 @@ function AppInner() {
             <Route path="/social-housing" element={<SocialHousing />} />
             {/* Alias ngắn */}
             <Route path="/noxh" element={<Navigate to="/social-housing" replace />} />
+
+            {/* >>> Added: Tin mới (công khai) */}
+            <Route path="/news" element={<NewsPage />} />
+            <Route path="/news/:id" element={<NewsDetail />} />
+            {/* Alias tiếng Việt cho dễ nhớ */}
+            <Route path="/tin-moi" element={<Navigate to="/news" replace />} />
+            <Route path="/tin-tuc" element={<Navigate to="/news" replace />} />
 
             {/* Chi tiết BĐS */}
             <Route path="/property/:id" element={<PropertyDetail />} />

@@ -124,8 +124,18 @@ function formatPricePerM2(
   if (listingType !== "sell" || !area || area <= 0) return null;
   let val = price_per_m2 ?? (price ?? 0) / area;
   if (!val || val <= 0) return null;
-  if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(2)} tỷ/m²`;
-  return `${(val / 1_000_000).toFixed(2)} triệu/m²`;
+
+  // >>> Added: Chuẩn hoá hiển thị giá/m² thành số nguyên (kèm phân tách hàng nghìn)
+  const _roundedText =
+    val >= 1_000_000_000
+      ? `${Math.round(val / 1_000_000_000).toLocaleString("vi-VN")} tỷ/m²`
+      : `${Math.round(val / 1_000_000).toLocaleString("vi-VN")} triệu/m²`;
+
+  // Giữ nguyên 2 dòng cũ (không dùng nữa):
+  // if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(2)} tỷ/m²`;
+  // return `${(val / 1_000_000).toFixed(2)} triệu/m²`;
+
+  return _roundedText;
 }
 
 /* ===== Chuẩn hoá & suy luận loại BĐS / listingType ===== */
@@ -264,6 +274,23 @@ function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
   let bedrooms = bd;
   let bathrooms = bt;
 
+  // >>> Added: alias bổ sung & xử lý trường hợp 0/"" chặn mất fallback
+  if (bathrooms === undefined || bathrooms <= 0) {
+    const wcAliases = [
+      p?.WC, p?.wc, p?.toilets, p?.toilet, p?.toilet_count,
+      p?.baths, p?.bath, p?.details?.bathrooms, p?.rooms?.bathrooms
+    ];
+    for (const v of wcAliases) {
+      const n = toPosInt(v);
+      if (typeof n === "number") { bathrooms = n; break; }
+    }
+  }
+  // (tuỳ chọn) cho PN – đề phòng 0/""
+  if (bedrooms === undefined || bedrooms <= 0) {
+    const n = toPosInt(p?.rooms?.bedrooms ?? p?.details?.bedrooms);
+    if (typeof n === "number") bedrooms = n;
+  }
+
   const hay = deburrLower([p?.title, p?.description, p?.summary].filter(Boolean).join(" "));
   if (!bedrooms) {
     const m = hay.match(/(\d+)\s*(pn|phong\s*ngu|\bn\b)/i);
@@ -272,6 +299,11 @@ function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
   if (!bathrooms) {
     const m = hay.match(/(\d+)\s*(wc|ve\s*sinh|vs)\b/i);
     if (m) bathrooms = Number(m[1]);
+  }
+  // >>> Added: thêm một lần bắt nữa với “phòng tắm/toilet”
+  if (!bathrooms) {
+    const m2 = hay.match(/(\d+)\s*(phong\s*tam|phòng\s*tắm|toilet|rest\s*room|nha\s*tam)\b/i);
+    if (m2) bathrooms = Number(m2[1]);
   }
   return { bedrooms, bathrooms };
 }

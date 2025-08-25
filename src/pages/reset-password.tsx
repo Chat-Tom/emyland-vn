@@ -140,14 +140,14 @@ const ResetPassword: React.FC = () => {
               </label>
               <div className="relative">
                 <Input
-                    id="confirm-password"
-                    type={showPw2 ? "text" : "password"}
-                    autoComplete="new-password"
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    placeholder="Nhập lại mật khẩu"
-                    disabled={loading}
-                    className="pr-10"
+                  id="confirm-password"
+                  type={showPw2 ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  placeholder="Nhập lại mật khẩu"
+                  disabled={loading}
+                  className="pr-10"
                 />
                 <button
                   type="button"

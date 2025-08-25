@@ -19,10 +19,14 @@ import {
   Search,
   Images,
   Pencil,
+  Newspaper,              // >>> Added: icon cho tab Tin tức
 } from "lucide-react";
 import LogsContent from "@/components/LogsContent";
 import { PROPERTY_TYPES } from "@/data/property-types";
 import { provinces, wardsByProvince } from "@/data/vietnam-locations";
+
+/* >>> Added: Panel quản trị tin tức (Tin mới) */
+import NewsAdminPanel from "@/components/admin/NewsAdminPanel";
 
 type ListingType = "sell" | "rent";
 
@@ -77,6 +81,42 @@ const BIG6 = [
 const viSort = (a: string, b: string) => a.localeCompare(b, "vi");
 const wardWeight = (name: string) => (name.startsWith("Phường") ? 0 : name.startsWith("Xã") ? 1 : 2);
 
+/* >>> Added: Suy luận số phòng ngủ / WC từ field & mô tả */
+const toPosInt = (v: any): number | undefined => {
+  if (typeof v === "number" && v > 0) return Math.round(v);
+  if (typeof v === "string") {
+    const m = v.match(/\d+/);
+    if (m) {
+      const n = Number(m[0]);
+      if (n > 0) return n;
+    }
+  }
+  return undefined;
+};
+const inferRooms = (p: any): { bedrooms?: number; bathrooms?: number } => {
+  const bd = toPosInt(
+    p?.bedrooms ?? p?.bedroom ?? p?.numBedrooms ?? p?.rooms?.bedrooms ?? p?.bedroom_count
+  );
+  let bt = toPosInt(
+    p?.bathrooms ?? p?.bathroom ?? p?.numBathrooms ?? p?.rooms?.bathrooms ?? p?.bathroom_count ?? p?.wc
+  );
+  if (bt === undefined) {
+    bt = toPosInt(p?.WC ?? p?.toilet ?? p?.toilets ?? p?.toilet_count);
+  }
+  let bedrooms = bd;
+  let bathrooms = bt;
+
+  const hay = `${p?.title ?? ""} ${p?.description ?? ""} ${p?.summary ?? ""}`.toLowerCase();
+  if (!bedrooms) {
+    const m = hay.match(/(\d+)\s*(pn|phòng\s*ngủ|\bn\b)/i);
+    if (m) bedrooms = Number(m[1]);
+  }
+  if (!bathrooms) {
+    const m = hay.match(/(\d+)\s*(wc|vệ\s*sinh|vs)\b/i);
+    if (m) bathrooms = Number(m[1]);
+  }
+  return { bedrooms, bathrooms };
+};
 /* ======================= Modal SỬA TIN (đầy đủ) ======================= */
 function EditPropertyModal({
   property,
@@ -642,7 +682,8 @@ const SystemDashboard = () => {
         </div>
 
         <Tabs defaultValue="users" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          {/* >>> Changed (nhẹ): 3 → 4 cột để thêm tab Tin tức */}
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="users" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
               Quản lý người dùng
@@ -654,6 +695,11 @@ const SystemDashboard = () => {
             <TabsTrigger value="logs" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               Dashboard Logs
+            </TabsTrigger>
+            {/* >>> Added: Tab Tin tức (Tin mới) */}
+            <TabsTrigger value="news" className="flex items-center gap-2">
+              <Newspaper className="h-4 w-4" />
+              Tin tức (Tin mới)
             </TabsTrigger>
           </TabsList>
 
@@ -759,6 +805,9 @@ const SystemDashboard = () => {
                 const isVerified =
                   property?.verificationStatus === "verified" || property?.contactInfo?.ownerVerified;
 
+                /* >>> Added: suy luận N/WC cho dòng hiển thị */
+                const { bedrooms, bathrooms } = inferRooms(property);
+
                 return (
                   <Card key={property.id}>
                     <CardContent className="p-6">
@@ -784,6 +833,21 @@ const SystemDashboard = () => {
                             </span>
                             <span>•</span>
                             <span>Diện tích: {property.area} m²</span>
+
+                            {/* >>> Added: hiển thị N/WC nếu có */}
+                            {typeof bedrooms === "number" && (
+                              <>
+                                <span>•</span>
+                                <span>{bedrooms}N</span>
+                              </>
+                            )}
+                            {typeof bathrooms === "number" && (
+                              <>
+                                <span>•</span>
+                                <span>{bathrooms}WC</span>
+                              </>
+                            )}
+
                             <span>•</span>
                             <span>Đăng: {formatDate(property.createdAt)}</span>
                           </div>
@@ -846,6 +910,33 @@ const SystemDashboard = () => {
           {/* LOGS */}
           <TabsContent value="logs" className="space-y-6">
             <LogsContent />
+          </TabsContent>
+
+          {/* >>> Added: Tab Tin tức (Tin mới) – biên tập & quản lý bài */}
+          <TabsContent value="news" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold">Tin tức (Tin mới)</h2>
+              <Button
+                variant="outline"
+                onClick={() => window.open("/news", "_blank")}
+                title="Mở trang Tin mới (công khai)"
+              >
+                Xem trang Tin mới
+              </Button>
+            </div>
+
+            {/* >>> Added: bọc để áp CSS mobile cho nút AI viết bên trong NewsAdminPanel */}
+            <div className="news-editor">
+              <NewsAdminPanel />
+            </div>
+
+            {/* >>> Added: tinh chỉnh mobile cho hàng nút AI (không ảnh hưởng phần khác) */}
+            <style>{`
+              @media (max-width: 480px){
+                .news-editor .ai-row { gap: .5rem; }
+                .news-editor .ai-row > button { height: 34px; padding: 0 10px; }
+              }
+            `}</style>
           </TabsContent>
         </Tabs>
       </div>
