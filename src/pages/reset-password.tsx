@@ -62,6 +62,10 @@ const ResetPassword: React.FC = () => {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccess("Đổi mật khẩu thành công! Đang chuyển sang trang đăng nhập...");
+        // (THÊM) cập nhật thông báo + chuyển nhanh sang trang Đăng tin
+        setSuccess("Đổi mật khẩu thành công! Đang chuyển sang trang đăng tin...");
+        setTimeout(() => navigate("/post-property", { replace: true }), 800);
+
         setTimeout(() => navigate("/login", { replace: true }), 2000);
       } else {
         setError(data?.error || "Liên kết không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.");
@@ -160,7 +164,11 @@ const ResetPassword: React.FC = () => {
               </div>
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button
+              type="submit"
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              disabled={loading}
+            >
               {loading ? "Đang đổi mật khẩu..." : "Xác nhận"}
             </Button>
 
