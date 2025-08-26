@@ -1,4 +1,4 @@
-// src/pages/Home.tsx
+// src/pages/Home.tsx 
 import { useEffect, useMemo, useRef, useState, useCallback, FormEvent } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
@@ -834,6 +834,9 @@ function PaginationBar({
   const pages: number[] = [];
   for (let i = start; i <= end; i++) pages.push(i);
 
+  /* >>> Added: formatter 2 chữ số 01/02/… */
+  const fmt = (n: number) => String(n).padStart(2, "0");
+
   return (
     <div className="mt-8 flex items-center justify-center gap-2">
       <button
@@ -846,7 +849,7 @@ function PaginationBar({
 
       {start > 1 && (
         <>
-          <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(1)}>1</button>
+          <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(1)}>{fmt(1)}</button>
           {start > 2 && <span className="px-1 text-gray-500">…</span>}
         </>
       )}
@@ -858,7 +861,7 @@ function PaginationBar({
           aria-current={page === p ? "page" : undefined}
           onClick={() => onChange(p)}
         >
-          {p}
+          {fmt(p)} {/* >>> Changed hiển thị 01/02/03 */}
         </button>
       ))}
 
@@ -866,7 +869,7 @@ function PaginationBar({
         <>
           {end < totalPages - 1 && <span className="px-1 text-gray-500">…</span>}
           <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(totalPages)}>
-            {totalPages}
+            {fmt(totalPages)} {/* >>> Changed */}
           </button>
         </>
       )}
