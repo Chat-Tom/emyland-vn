@@ -131,7 +131,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
     return p > 0 ? (p / 1_000_000_000).toString() : "";
   });
   const [rentMil, setRentMil] = useState<string>(() => {
-    the const r = Number((property as any).rent_per_month || 0);
+    const r = Number((property as any).rent_per_month || 0); // <-- fixed typo
     return r > 0 ? (r / 1_000_000).toString() : "";
   });
 
