@@ -1,4 +1,4 @@
-// src/pages/Home.tsx 
+// src/pages/Home.tsx  
 import { useEffect, useMemo, useRef, useState, useCallback, FormEvent } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
@@ -360,7 +360,8 @@ export default function Home() {
         items = items.filter((p) =>
           wantType === SOCIAL_TYPE_VALUE ? isSocialRecord(p) : isTypeRecord(p, wantType)
         );
-        t = items.length;
+        t = items.length;                    // (giữ dòng cũ)
+        t = res.total as number;             // >>> Fix: dùng tổng từ server để phân trang hiển thị đúng
       }
 
       setProperties(items);
@@ -782,7 +783,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {totalPages > 1 && (
+              {total > 0 && (               /* >>> Changed: luôn render khi có kết quả để test hiệu ứng chọn trang */
                 <PaginationBar page={page} totalPages={totalPages} onChange={goPage} />
               )}
             </>
@@ -857,7 +858,7 @@ function PaginationBar({
       {pages.map((p) => (
         <button
           key={p}
-          className={`px-3 py-2 rounded border ${page === p ? "bg-black text-white" : "bg-white"}`}
+          className={`px-3 py-2 rounded border transition ${page === p ? "bg-black text-white" : "bg-white hover:bg-gray-50"}`}
           aria-current={page === p ? "page" : undefined}
           onClick={() => onChange(p)}
         >
