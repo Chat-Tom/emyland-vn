@@ -67,8 +67,7 @@ function _inferRoomsHome(p: any): { bedrooms?: number; bathrooms?: number } {
   let bathrooms =
     _toPosInt(p?.bathrooms) ??
     _toPosInt(p?.bathroom_count) ??
-    _toPosInt(p?.bath) ??
-    _toPosInt(p?.wc) ?? _toPosInt(p?.WC) ??
+    _toPosInt(p?.bath) ?? _toPosInt(p?.wc) ?? _toPosInt(p?.WC) ??
     _toPosInt(p?.toilet) ?? _toPosInt(p?.toilets) ??
     _toPosInt(p?.numBathrooms) ??
     _toPosInt(p?.rooms?.bathrooms) ??
@@ -227,6 +226,16 @@ export default function Home() {
   const [total, setTotal] = useState<number>(0);
   const [totalAll, setTotalAll] = useState<number>(0);
 
+  /* >>> Added: helper điều hướng tab qua URL (1 nguồn sự thật) */
+  const goTab = useCallback((tab: "sell" | "rent" | "social") => {
+    setSp((prev) => {
+      const q = new URLSearchParams(prev);
+      q.set("tab", tab);
+      q.set("page", "1");
+      return q;
+    });
+  }, [setSp]);
+
   // Data
   const [loading, setLoading] = useState(false);
   const [properties, setProperties] = useState<DBProperty[]>([]);
@@ -361,7 +370,7 @@ export default function Home() {
       setProperties([]);
       setTotal(0);
     } finally {
-           setLoading(false);
+      setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, province, type, minPrice, maxPrice, minArea, maxArea, page, pageSize, socialMode]);
@@ -382,20 +391,35 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, socialMode]);
 
+  // >>> Added: ref chốt để tránh set state lần 2 khi click tab
+  const tabClickRef = useRef<"sell" | "rent" | "social" | null>(null);
+
   // read ?tab=
   useEffect(() => {
     const q = new URLSearchParams(location.search || "");
-    const tab = (q.get("tab") || "").toLowerCase();
+    const tab = (q.get("tab") || "").toLowerCase() as "sell" | "rent" | "social" | "";
+
+    // >>> Added: nếu chính tay vừa click tab, bỏ qua set lần 2
+    if (tabClickRef.current && tab === tabClickRef.current) {
+      tabClickRef.current = null;
+      return;
+    }
+
+    /* >>> Guard cũ: nếu trạng thái đã đúng thì bỏ qua để tránh render/lần load thứ 2 */
+    if (tab === "sell"   && !socialMode && listingType === "sell") return;
+    if (tab === "rent"   && !socialMode && listingType === "rent") return;
+    if (tab === "social" &&  socialMode) return;
+
     if (tab === "sell") { setSocialMode(false); setListingType("sell"); }
     else if (tab === "rent") { setSocialMode(false); setListingType("rent"); }
     else if (tab === "social") { setSocialMode(true); }
-  }, [location.search]);
+  }, [location.search, socialMode, listingType]);  // >>> Added deps giữ nguyên
 
   // sync page from url
   useEffect(() => {
     const p = Math.max(1, parseInt(sp.get("page") || "1", 10) || 1);
     if (p !== page) setPage(p);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp]);
 
   useEffect(() => { setFavicon(FAVICON_URL); }, []);
@@ -568,22 +592,25 @@ export default function Home() {
         <div className="container mx-auto px-4 py-6 sm:py-8">
           {/* Tabs */}
           <div className="mb-3 grid grid-cols-[1fr_1.35fr_1fr] sm:grid-cols-[1fr_1.25fr_1fr] md:grid-cols-3 gap-2 sm:gap-3">
+            {/* >>> Đồng bộ URL tab = sell + ghi nhận click để tránh set lần 2 */}
             <button
-              onClick={() => { setSocialMode(false); setListingType("sell"); }}
+              onClick={() => { tabClickRef.current = "sell"; setSocialMode(false); setListingType("sell"); goTab("sell"); }}
               className={tabClass(!socialMode && listingType === "sell")}
               aria-pressed={!socialMode && listingType === "sell"}
             >
               Nhà đất bán
             </button>
+            {/* >>> Đồng bộ URL tab = rent + ghi nhận click */}
             <button
-              onClick={() => { setSocialMode(false); setListingType("rent"); }}
+              onClick={() => { tabClickRef.current = "rent"; setSocialMode(false); setListingType("rent"); goTab("rent"); }}
               className={tabClass(!socialMode && listingType === "rent")}
               aria-pressed={!socialMode && listingType === "rent"}
             >
               Nhà đất cho thuê
             </button>
+            {/* >>> Đồng bộ URL tab = social + ghi nhận click */}
             <button
-              onClick={() => { setSocialMode(true); }}
+              onClick={() => { tabClickRef.current = "social"; setSocialMode(true); goTab("social"); }}
               className={tabClass(socialMode === true)}
               aria-pressed={socialMode === true}
             >
@@ -707,7 +734,7 @@ export default function Home() {
         .range-2 input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:9999px;background:#111;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25),0 0 0 3px rgba(0,0,0,.1);cursor:pointer;}
         .range-2 input[type="range"]::-moz-range-thumb{width:20px;height:20px;border-radius:9999px;background:#111;border:3px solid #fff;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.25),0 0 0 3px rgba(0,0,0,.1);}
         .range-2 input.slider-min::-webkit-slider-thumb{background:#fbbf24;}
-        .range-2 input.slider-max::-webkit-slider-thumb{background:#ef4444;}
+        .range-2 input.slider-max::-webkit-slider-thumb{背景:#ef4444;}
         .range-2 .mark{width:6px;height:6px;border-radius:9999px;background:#9ca3af;transform:translateX(-50%);top:22px;position:absolute;}
         .range-2 .mark-label{position:absolute;top:30px;transform:translateX(-50%);font-size:11px;color:#6b7280;}
         @media (min-width: 768px) {
@@ -1008,7 +1035,7 @@ function DualSlider({ min, max, step, leftValue, rightValue, onLeft, onRight, ma
         className="absolute top-3 h-2 rounded-full track-fill"
         style={{
           left: `${(leftValue / max) * 100}%`,
-          right: `${(1 - rightValue / max) * 100}%`, // ✅ fixed template string
+          right: `${(1 - rightValue / max) * 100}%`,
         }}
       />
       {marks.map((m: number) => (
