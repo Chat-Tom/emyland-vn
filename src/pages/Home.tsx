@@ -1,4 +1,3 @@
-// src/pages/Home.tsx  
 import { useEffect, useMemo, useRef, useState, useCallback, FormEvent } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
@@ -1037,7 +1036,7 @@ function DualSlider({ min, max, step, leftValue, rightValue, onLeft, onRight, ma
         className="absolute top-3 h-2 rounded-full track-fill"
         style={{
           left: `${(leftValue / max) * 100}%`,
-          right: `${(1 - rightValue / max) * 100}%`,
+          right: `${(1 - rightValue / max) * 100)%}`,
         }}
       />
       {marks.map((m: number) => (
