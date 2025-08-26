@@ -133,6 +133,36 @@ function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
   return { bedrooms, bathrooms };
 }
 
+/* ========= FIX CAP 4 TIN: đọc toàn bộ rồi lọc theo email/phone ========= */
+const normalizePhone = (s?: string) => (s || "").replace(/\D+/g, "");
+const normalizeEmail = (s?: string) => (s || "").trim().toLowerCase();
+
+const listMyProperties = (u: UserAccount): PropertyListing[] => {
+  const email = normalizeEmail(u.email);
+  const phone = normalizePhone(u.phone);
+
+  // Đọc toàn bộ kho tin (ưu tiên API của StorageManager; fallback localStorage)
+  const all: any[] =
+    (typeof (StorageManager as any).getAllProperties === "function"
+      ? (StorageManager as any).getAllProperties()
+      : JSON.parse(localStorage.getItem("emyland_properties") || "[]")) || [];
+
+  const mine = all.filter((p: any) => {
+    const pe = normalizeEmail(p.userEmail || p.ownerEmail || p.contactInfo?.email);
+    const pp = normalizePhone(p.userPhone || p.ownerPhone || p.contactInfo?.phone);
+    return (email && pe === email) || (phone && pp === phone);
+  });
+
+  // Sắp xếp mới nhất trước
+  mine.sort((a, b) => {
+    const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
+    const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
+    return tb - ta;
+  });
+
+  return mine as PropertyListing[];
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<UserAccount | null>(null);
@@ -160,9 +190,9 @@ const Dashboard = () => {
       }
       setUser(parsedUser);
 
-      const identifier = parsedUser.email || parsedUser.phone || "";
-      const userProperties = StorageManager.getUserProperties(identifier);
-      setProperties(userProperties);
+      // 🔧 FIX: không dùng getUserProperties (dễ bỏ sót/giới hạn),
+      // dùng listMyProperties để lấy đúng toàn bộ tin theo email/phone
+      setProperties(listMyProperties(parsedUser));
     } catch (error) {
       console.error("Error loading dashboard data:", error);
       navigate("/login");
@@ -177,7 +207,10 @@ const Dashboard = () => {
       const data = localStorage.getItem("emyland_user");
       if (data) {
         try {
-          setUser(JSON.parse(data));
+          const u = JSON.parse(data) as UserAccount;
+          setUser(u);
+          // Đồng bộ lại danh sách tin (phòng trường hợp đổi phone/email)
+          setProperties(listMyProperties(u));
         } catch {}
       }
     };
@@ -189,21 +222,19 @@ const Dashboard = () => {
   useEffect(() => {
     const refreshMine = () => {
       if (!user) return;
-      const identifier = user.email || user.phone || "";
-      setProperties(StorageManager.getUserProperties(identifier));
+      setProperties(listMyProperties(user));
     };
     window.addEventListener("emyland:properties-changed", refreshMine as EventListener);
+    window.addEventListener("storage", (e: any) => {
+      if (e?.key === "emyland_properties") refreshMine();
+    });
     return () => window.removeEventListener("emyland:properties-changed", refreshMine as EventListener);
   }, [user]);
 
   const handleDeleteProperty = (propertyId: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) {
       StorageManager.deleteProperty(propertyId);
-      if (user) {
-        const identifier = user.email || user.phone || "";
-        const userProperties = StorageManager.getUserProperties(identifier);
-        setProperties(userProperties);
-      }
+      if (user) setProperties(listMyProperties(user));
     }
   };
 
@@ -213,11 +244,7 @@ const Dashboard = () => {
   };
 
   const handleSaveProperty = () => {
-    if (user) {
-      const identifier = user.email || user.phone || "";
-      const userProperties = StorageManager.getUserProperties(identifier);
-      setProperties(userProperties);
-    }
+    if (user) setProperties(listMyProperties(user));
   };
 
   const handleSaveUser = () => {

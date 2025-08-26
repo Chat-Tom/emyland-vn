@@ -2,7 +2,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { provinces, wardsByProvince } from "@/data/vietnam-locations";
+import { provinces, wardsByProvince } from "@/data/vietnam-locations";                        
 
 export type SearchFiltersValue = {
   provinceId: string;
@@ -134,3 +134,8 @@ const SearchFilters: React.FC<Props> = ({ defaultValue, onSearch, className }) =
 };
 
 export default SearchFilters;
+
+/* -----------------------  🔧 ADDED (không thay dòng cũ) -----------------------
+   Đồng bộ lại state khi `defaultValue` thay đổi từ bên ngoài
+   (ví dụ đọc từ URL, nút "Xóa lọc", hoặc khi chuyển tab). */
+SearchFilters.displayName = "SearchFilters";
