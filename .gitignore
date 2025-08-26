@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 nul
 nul
+.env.production
