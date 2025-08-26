@@ -281,251 +281,260 @@ const Dashboard = () => {
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-          <p className="text-gray-600">Quản lý tài khoản và tin đăng của bạn</p>
-        </div>
+      {/* Full viewport height + padding hợp lý cho mobile/desktop */}
+      <section className="min-h-[100svh] px-4 md:px-6">
+        {/* Khối nội dung căn giữa ngang (max-w) và có khoảng đệm trên/dưới */}
+        <div className="mx-auto max-w-5xl py-6 md:py-10">
+          <div className="mb-8 text-center sm:text-left">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
+            <p className="text-gray-600">Quản lý tài khoản và tin đăng của bạn</p>
+          </div>
 
-        <Tabs defaultValue="properties" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="properties" className="flex items-center gap-2">
-              <Home className="h-4 w-4" />
-              Tin đăng của tôi
-            </TabsTrigger>
-            <TabsTrigger value="profile" className="flex items-center gap-2">
-              <User className="h-4 w-4" />
-              Thông tin cá nhân
-            </TabsTrigger>
-          </TabsList>
+          <Tabs defaultValue="properties" className="space-y-6">
+            <TabsList className="grid w-full max-w-md mx-auto grid-cols-2">
+              <TabsTrigger value="properties" className="flex items-center gap-2">
+                <Home className="h-4 w-4" />
+                Tin đăng của tôi
+              </TabsTrigger>
+              <TabsTrigger value="profile" className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Thông tin cá nhân
+              </TabsTrigger>
+            </TabsList>
 
-          {/* ====== TAB: PROPERTIES ====== */}
-          <TabsContent value="properties" className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-semibold">Tin đăng của tôi ({properties.length})</h2>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => navigate("/")}>
-                  Quay về trang chủ
-                </Button>
-                <Button onClick={() => navigate("/post-property")} className="flex items-center gap-2">
-                  <Plus className="h-4 w-4" />
-                  Đăng tin mới
-                </Button>
+            {/* ====== TAB: PROPERTIES ====== */}
+            <TabsContent value="properties" className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-center sm:text-left">
+                <h2 className="text-2xl font-semibold">
+                  Tin đăng của tôi ({properties.length})
+                </h2>
+                <div className="flex items-center justify-center sm:justify-end gap-2">
+                  <Button variant="outline" onClick={() => navigate("/")}>
+                    Quay về trang chủ
+                  </Button>
+                  <Button onClick={() => navigate("/post-property")} className="flex items-center gap-2">
+                    <Plus className="h-4 w-4" />
+                    Đăng tin mới
+                  </Button>
+                </div>
               </div>
-            </div>
 
-            {properties.length === 0 ? (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <Home className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Chưa có tin đăng nào</h3>
-                  <p className="text-gray-600 mb-6">Bắt đầu đăng tin bất động sản đầu tiên của bạn</p>
-                  <Button onClick={() => navigate("/post-property")}>Đăng tin ngay</Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-6">
-                {properties.map((property) => {
-                  const lt = listingTypeOf(property);
-                  const vStatus = verifyStatusOf(property);
-                  const typeLabel =
-                    TYPE_LABELS[String(property.propertyType || "").toLowerCase()] ||
-                    property.propertyType ||
-                    "Nhà đất";
+              {properties.length === 0 ? (
+                <Card>
+                  <CardContent className="text-center py-12">
+                    <Home className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Chưa có tin đăng nào</h3>
+                    <p className="text-gray-600 mb-6">Bắt đầu đăng tin bất động sản đầu tiên của bạn</p>
+                    <Button onClick={() => navigate("/post-property")}>Đăng tin ngay</Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-6">
+                  {properties.map((property) => {
+                    const lt = listingTypeOf(property);
+                    const vStatus = verifyStatusOf(property);
+                    const typeLabel =
+                      TYPE_LABELS[String(property.propertyType || "").toLowerCase()] ||
+                      property.propertyType ||
+                      "Nhà đất";
 
-                  const { bedrooms, bathrooms } = inferRooms(property);
+                    const { bedrooms, bathrooms } = inferRooms(property);
 
-                  return (
-                    <Card key={property.id} className="overflow-hidden">
-                      <CardContent className="p-6">
-                        <div className="flex gap-6">
-                          <div className="w-48 h-32 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
-                            {property.images && property.images.length > 0 ? (
-                              <img
-                                src={property.images[0]}
-                                alt={property.title}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-gray-400">
-                                <Home className="h-8 w-8" />
+                    return (
+                      <Card key={property.id} className="overflow-hidden">
+                        <CardContent className="p-6">
+                          <div className="flex gap-6">
+                            <div className="w-48 h-32 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+                              {property.images && property.images.length > 0 ? (
+                                <img
+                                  src={property.images[0]}
+                                  alt={property.title}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                  <Home className="h-8 w-8" />
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex-1">
+                              <div className="flex justify-between items-start mb-2 gap-2">
+                                <div className="min-w-0">
+                                  <h3 className="text-xl font-semibold text-gray-900 line-clamp-2">
+                                    {property.title}
+                                  </h3>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <Badge variant="secondary">{typeLabel}</Badge>
+                                    <Badge className={lt === "sell" ? "bg-blue-600" : "bg-emerald-600"}>
+                                      {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
+                                    </Badge>
+
+                                    {vStatus === "verified" ? (
+                                      <Badge className="bg-emerald-600 inline-flex items-center gap-1.5">
+                                        <ShieldCheck className="w-3.5 h-3.5" />
+                                        Đã xác nhận chính chủ
+                                      </Badge>
+                                    ) : (
+                                      <Badge className="bg-amber-500 inline-flex items-center gap-1.5">
+                                        <Hourglass className="w-3.5 h-3.5" />
+                                        Đang xác nhận chính chủ
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                            )}
-                          </div>
 
-                          <div className="flex-1">
-                            <div className="flex justify-between items-start mb-2 gap-2">
-                              <div className="min-w-0">
-                                <h3 className="text-xl font-semibold text-gray-900 line-clamp-2">
-                                  {property.title}
-                                </h3>
-                                <div className="mt-1 flex flex-wrap items-center gap-2">
-                                  <Badge variant="secondary">{typeLabel}</Badge>
-                                  <Badge className={lt === "sell" ? "bg-blue-600" : "bg-emerald-600"}>
-                                    {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
-                                  </Badge>
+                              <p className="text-gray-600 mb-2 line-clamp-2">{property.description}</p>
 
-                                  {vStatus === "verified" ? (
-                                    <Badge className="bg-emerald-600 inline-flex items-center gap-1.5">
-                                      <ShieldCheck className="w-3.5 h-3.5" />
-                                      Đã xác nhận chính chủ
-                                    </Badge>
-                                  ) : (
-                                    <Badge className="bg-amber-500 inline-flex items-center gap-1.5">
-                                      <Hourglass className="w-3.5 h-3.5" />
-                                      Đang xác nhận chính chủ
-                                    </Badge>
-                                  )}
+                              {/* Thông tin ngắn: Diện tích • N • WC • Đăng: … */}
+                              <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
+                                <span>Diện tích: {property.area ?? "--"}m²</span>
+                                {typeof bedrooms === "number" && <span>• {bedrooms}N</span>}
+                                {typeof bathrooms === "number" && <span>• {bathrooms}WC</span>}
+                                <span>• {renderPosted(property.createdAt)}</span>
+                              </div>
+
+                              <div className="flex justify-between items-center">
+                                <div className="text-2xl font-bold text-red-600">
+                                  {priceText(property)} {lt === "sell" ? "VND" : ""}
+                                </div>
+
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-1"
+                                    onClick={() => navigate(`/property/${property.id}`)}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                    Xem
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-1"
+                                    onClick={() => handleEditProperty(property)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                    Sửa
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-1 text-red-600 hover:text-red-700"
+                                    onClick={() => handleDeleteProperty(property.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    Xóa
+                                  </Button>
                                 </div>
                               </div>
                             </div>
-
-                            <p className="text-gray-600 mb-2 line-clamp-2">{property.description}</p>
-
-                            {/* Thông tin ngắn: Diện tích • N • WC • Đăng: … */}
-                            <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
-                              <span>Diện tích: {property.area ?? "--"}m²</span>
-                              {typeof bedrooms === "number" && <span>• {bedrooms}N</span>}
-                              {typeof bathrooms === "number" && <span>• {bathrooms}WC</span>}
-                              <span>• {renderPosted(property.createdAt)}</span>
-                            </div>
-
-                            <div className="flex justify-between items-center">
-                              <div className="text-2xl font-bold text-red-600">
-                                {priceText(property)} {lt === "sell" ? "VND" : ""}
-                              </div>
-
-                              <div className="flex gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="flex items-center gap-1"
-                                  onClick={() => navigate(`/property/${property.id}`)}
-                                >
-                                  <Eye className="h-4 w-4" />
-                                  Xem
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="flex items-center gap-1"
-                                  onClick={() => handleEditProperty(property)}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                  Sửa
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="flex items-center gap-1 text-red-600 hover:text-red-700"
-                                  onClick={() => handleDeleteProperty(property.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                  Xóa
-                                </Button>
-                              </div>
-                            </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </TabsContent>
-
-          {/* ====== TAB: PROFILE ====== */}
-          <TabsContent value="profile" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Thông tin tài khoản</CardTitle>
-
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsUserEditModalOpen(true)}
-                    className="flex items-center gap-2"
-                  >
-                    <Edit className="h-4 w-4" />
-                    Chỉnh sửa
-                  </Button>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
-              </CardHeader>
+              )}
+            </TabsContent>
 
-              <CardContent className="space-y-6">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-                  {/* Avatar (click để đổi) */}
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={onAvatarClick}
-                      title="Nhấp để đổi ảnh đại diện"
-                      className="relative inline-flex rounded-full overflow-hidden ring-2 ring-gray-200 hover:ring-blue-400 focus:outline-none focus:ring-4 transition"
-                      aria-label="Đổi ảnh đại diện"
+            {/* ====== TAB: PROFILE ====== */}
+            <TabsContent value="profile" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Thông tin tài khoản</CardTitle>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsUserEditModalOpen(true)}
+                      className="flex items-center gap-2"
                     >
-                      <img src={avatarUrl} alt="Avatar" className="h-16 w-16 object-cover" />
-                      <span className="absolute bottom-0 right-0 bg-black/60 text-white rounded-full p-1">
-                        <Camera className="h-3.5 w-3.5" />
-                      </span>
-                    </button>
-
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={onAvatarSelected}
-                    />
-
-                    <div className="hidden md:block text-sm text-gray-500">
-                      Nhấp vào ảnh để đổi ảnh đại diện
-                    </div>
+                      <Edit className="h-4 w-4" />
+                      Chỉnh sửa
+                    </Button>
                   </div>
+                </CardHeader>
 
-                  {/* Thông tin dạng hàng ngang */}
-                  <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">Email</label>
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-gray-500" />
-                        <p className="text-gray-900 break-all">{user?.email}</p>
+                <CardContent className="space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                    {/* Avatar (click để đổi) */}
+                    <div className="flex items-center gap-4">
+                      <button
+                        type="button"
+                        onClick={onAvatarClick}
+                        title="Nhấp để đổi ảnh đại diện"
+                        className="relative inline-flex rounded-full overflow-hidden ring-2 ring-gray-200 hover:ring-blue-400 focus:outline-none focus:ring-4 transition"
+                        aria-label="Đổi ảnh đại diện"
+                      >
+                        <img src={avatarUrl} alt="Avatar" className="h-16 w-16 object-cover" />
+                        <span className="absolute bottom-0 right-0 bg-black/60 text-white rounded-full p-1">
+                          <Camera className="h-3.5 w-3.5" />
+                        </span>
+                      </button>
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={onAvatarSelected}
+                      />
+
+                      <div className="hidden md:block text-sm text-gray-500">
+                        Nhấp vào ảnh để đổi ảnh đại diện
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        * Email dùng để khôi phục tài khoản khi quên mật khẩu.
-                      </p>
                     </div>
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">Họ tên</label>
-                      <p className="text-gray-900">{user?.fullName}</p>
-                    </div>
+                    {/* Thông tin dạng hàng ngang */}
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Email</label>
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-4 w-4 text-gray-500" />
+                          <p className="text-gray-900 break-all">{user?.email}</p>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          * Email dùng để khôi phục tài khoản khi quên mật khẩu.
+                        </p>
+                      </div>
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">Số điện thoại</label>
-                      <p className="text-gray-900">{user?.phone}</p>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Họ tên</label>
+                        <p className="text-gray-900">{user?.fullName}</p>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Số điện thoại</label>
+                        <p className="text-gray-900">{user?.phone}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
 
-        <PropertyEditModal
-          property={editingProperty}
-          isOpen={isEditModalOpen}
-          onClose={() => setIsEditModalOpen(false)}
-          onSave={handleSaveProperty}
-        />
+          {/* Modal sửa tin: ẩn quyền xác minh đối với user thường */}
+          {/* @ts-ignore */}
+          <PropertyEditModal
+            property={editingProperty}
+            isOpen={isEditModalOpen}
+            onClose={() => setIsEditModalOpen(false)}
+            onSave={handleSaveProperty}
+            canVerify={false}
+          />
 
-        <UserEditModal
-          user={user}
-          isOpen={isUserEditModalOpen}
-          onClose={() => setIsUserEditModalOpen(false)}
-          onSave={handleSaveUser}
-        />
-      </div>
+          <UserEditModal
+            user={user}
+            isOpen={isUserEditModalOpen}
+            onClose={() => setIsUserEditModalOpen(false)}
+            onSave={handleSaveUser}
+          />
+        </div>
+      </section>
     </AppLayout>
   );
 };

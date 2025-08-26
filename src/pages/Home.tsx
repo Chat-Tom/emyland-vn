@@ -1,4 +1,4 @@
-// src/pages/Home.tsx
+// src/pages/Home.tsx  
 import { useEffect, useMemo, useRef, useState, useCallback, FormEvent } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
@@ -360,7 +360,8 @@ export default function Home() {
         items = items.filter((p) =>
           wantType === SOCIAL_TYPE_VALUE ? isSocialRecord(p) : isTypeRecord(p, wantType)
         );
-        t = items.length;
+        t = items.length;                    // (giữ dòng cũ)
+        t = res.total as number;             // >>> Fix: dùng tổng từ server để phân trang hiển thị đúng
       }
 
       setProperties(items);
@@ -782,7 +783,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {totalPages > 1 && (
+              {total > 0 && (               /* >>> Changed: luôn render khi có kết quả để test hiệu ứng chọn trang */
                 <PaginationBar page={page} totalPages={totalPages} onChange={goPage} />
               )}
             </>
@@ -834,6 +835,9 @@ function PaginationBar({
   const pages: number[] = [];
   for (let i = start; i <= end; i++) pages.push(i);
 
+  /* >>> Added: formatter 2 chữ số 01/02/… */
+  const fmt = (n: number) => String(n).padStart(2, "0");
+
   return (
     <div className="mt-8 flex items-center justify-center gap-2">
       <button
@@ -846,7 +850,7 @@ function PaginationBar({
 
       {start > 1 && (
         <>
-          <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(1)}>1</button>
+          <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(1)}>{fmt(1)}</button>
           {start > 2 && <span className="px-1 text-gray-500">…</span>}
         </>
       )}
@@ -854,11 +858,11 @@ function PaginationBar({
       {pages.map((p) => (
         <button
           key={p}
-          className={`px-3 py-2 rounded border ${page === p ? "bg-black text-white" : "bg-white"}`}
+          className={`px-3 py-2 rounded border transition ${page === p ? "bg-black text-white" : "bg-white hover:bg-gray-50"}`}
           aria-current={page === p ? "page" : undefined}
           onClick={() => onChange(p)}
         >
-          {p}
+          {fmt(p)} {/* >>> Changed hiển thị 01/02/03 */}
         </button>
       ))}
 
@@ -866,7 +870,7 @@ function PaginationBar({
         <>
           {end < totalPages - 1 && <span className="px-1 text-gray-500">…</span>}
           <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(totalPages)}>
-            {totalPages}
+            {fmt(totalPages)} {/* >>> Changed */}
           </button>
         </>
       )}

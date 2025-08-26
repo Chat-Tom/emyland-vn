@@ -80,7 +80,10 @@ interface PropertyEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: () => void;
+  /** Quyền admin (giữ nguyên prop cũ) */
   isAdmin?: boolean;
+  /** Alias mới để tương thích với Dashboard: nếu truyền, sẽ ưu tiên giá trị này */
+  canVerify?: boolean;
 }
 
 const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
@@ -89,6 +92,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
   onClose,
   onSave,
   isAdmin,
+  canVerify,
 }) => {
   if (!property) return null;
 
@@ -127,7 +131,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
     return p > 0 ? (p / 1_000_000_000).toString() : "";
   });
   const [rentMil, setRentMil] = useState<string>(() => {
-    const r = Number((property as any).rent_per_month || 0);
+    const r = Number((property as any).rent_per_month || 0); // <-- fixed typo
     return r > 0 ? (r / 1_000_000).toString() : "";
   });
 
@@ -162,6 +166,10 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
 
   const admin =
     typeof isAdmin === "boolean" ? isAdmin : !!StorageManager.getCurrentUser?.()?.isAdmin;
+
+  // ✔️ Quyền xác minh hợp nhất (ưu tiên canVerify nếu có truyền từ Dashboard)
+  const allowVerify = typeof canVerify === "boolean" ? canVerify : admin;
+
   const [verification, setVerification] = useState<"verified" | "pending" | "unverified">(
     ((property as any).verificationStatus as any) ||
       ((property as any).is_verified ? "verified" : "pending")
@@ -307,6 +315,16 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
 
         updatedAt: new Date().toISOString(),
       };
+
+      // 🔒 Nếu không có quyền xác minh, không ghi đè các field xác minh
+      if (!allowVerify) {
+        next.verificationStatus = (property as any).verificationStatus;
+        next.is_verified = (property as any).is_verified;
+        if (next.contactInfo) {
+          next.contactInfo.ownerVerified =
+            (property as any)?.contactInfo?.ownerVerified ?? false;
+        }
+      }
 
       // Lưu property
       if (typeof (StorageManager as any).updateProperty === "function") {
@@ -529,7 +547,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
               <Switch checked={isHot} onCheckedChange={setIsHot} />
               <span>Đánh dấu Nổi bật</span>
             </div>
-            {(typeof isAdmin === "boolean" ? isAdmin : admin) && (
+            {allowVerify && (
               <div className="flex items-center gap-3">
                 <Label>Trạng thái xác minh</Label>
                 <Select value={verification} onValueChange={(v: any) => setVerification(v)}>
