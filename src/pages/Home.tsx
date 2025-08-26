@@ -1,5 +1,5 @@
 // src/pages/Home.tsx
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, FormEvent } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -32,7 +32,7 @@ function setFavicon(url: string) {
       let link = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
       if (!link) {
         link = document.createElement("link");
-        link.rel = rel as any;
+        (link as any).rel = rel as any;
         document.head.appendChild(link);
       }
       link.href = url;
@@ -137,7 +137,7 @@ function normalizeForCard(p: any) {
   /* >>> Added: điền sẵn PN/WC nếu thiếu bằng alias + mô tả */
   const guessed = _inferRoomsHome(p);
   const bedroomsFixed = bedrooms ?? guessed.bedrooms;
-  const bathroomsFixed = (bathrooms ?? guessed.bathrooms);
+  const bathroomsFixed = bathrooms ?? guessed.bathrooms;
 
   return {
     ...p,
@@ -514,7 +514,7 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const onSearch = async (e?: React.FormEvent) => {
+  const onSearch = async (e?: FormEvent) => {
     e?.preventDefault?.();
     await applySearchNow();
   };
@@ -538,8 +538,7 @@ export default function Home() {
   const priceSummary = useMemo(() => {
     const minD = toDisplay(isRent, minPrice);
     const maxD = toDisplay(isRent, maxPrice);
-    if ((minPrice === 0 && maxPrice === 0) || (minD === 0 && maxD === 0))
-      return "Thỏa thuận";
+    if ((minPrice === 0 && maxPrice === 0) || (minD === 0 && maxD === 0)) return "Thỏa thuận";
     if (!minD && !maxD) return isRent ? "Mức giá (triệu/tháng)" : "Mức giá (tỷ)";
     if (minD && !maxD) return `Từ ${minD} ${priceUnitShort}`;
     if (!minD && maxD) return `Đến ${maxD} ${priceUnitShort}`;
@@ -592,7 +591,7 @@ export default function Home() {
         <div className="container mx-auto px-4 py-6 sm:py-8">
           {/* Tabs */}
           <div className="mb-3 grid grid-cols-[1fr_1.35fr_1fr] sm:grid-cols-[1fr_1.25fr_1fr] md:grid-cols-3 gap-2 sm:gap-3">
-            {/* >>> Đồng bộ URL tab = sell + ghi nhận click để tránh set lần 2 */}
+            {/* sell */}
             <button
               onClick={() => { tabClickRef.current = "sell"; setSocialMode(false); setListingType("sell"); goTab("sell"); }}
               className={tabClass(!socialMode && listingType === "sell")}
@@ -600,7 +599,7 @@ export default function Home() {
             >
               Nhà đất bán
             </button>
-            {/* >>> Đồng bộ URL tab = rent + ghi nhận click */}
+            {/* rent */}
             <button
               onClick={() => { tabClickRef.current = "rent"; setSocialMode(false); setListingType("rent"); goTab("rent"); }}
               className={tabClass(!socialMode && listingType === "rent")}
@@ -608,7 +607,7 @@ export default function Home() {
             >
               Nhà đất cho thuê
             </button>
-            {/* >>> Đồng bộ URL tab = social + ghi nhận click */}
+            {/* social */}
             <button
               onClick={() => { tabClickRef.current = "social"; setSocialMode(true); goTab("social"); }}
               className={tabClass(socialMode === true)}
@@ -618,12 +617,12 @@ export default function Home() {
             </button>
           </div>
 
-          {/* DẢI BỘ LỌC – không còn nhãn mờ phía trên */}
+          {/* Filters */}
           <form
             onSubmit={onSearch}
             className="searchbar grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto] items-end gap-3 font-sans"
           >
-            {/* Khu vực */}
+            {/* Province */}
             <div>
               <select
                 className="control-11 w-full rounded-md border-2 px-3 text-sm md:text-xl text-gray-900 font-medium appearance-none text-center hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white/95"
@@ -638,7 +637,7 @@ export default function Home() {
               </select>
             </div>
 
-            {/* Loại nhà đất */}
+            {/* Type */}
             <div>
               {socialMode ? (
                 <button
@@ -664,7 +663,7 @@ export default function Home() {
               )}
             </div>
 
-            {/* 'Mức giá' — mở bằng click */}
+            {/* Price */}
             <PricePopover
               summary={priceSummary}
               show={showPrice}
@@ -687,7 +686,7 @@ export default function Home() {
               }}
             />
 
-            {/* 'Diện tích' — mở bằng click */}
+            {/* Area */}
             <AreaPopover
               summary={areaSummary}
               show={showArea}
@@ -706,7 +705,7 @@ export default function Home() {
               }}
             />
 
-            {/* Tìm kiếm */}
+            {/* Search */}
             <div className="flex md:justify-end">
               <button
                 type="submit"
@@ -724,8 +723,7 @@ export default function Home() {
         .control-11{height:44px;line-height:44px;padding:0 12px;text-align:center;}
         .control-11-btn{height:44px;display:flex;align-items:center;justify-content:center;}
         .popover-input.control-11-input{height:40px;line-height:40px;padding:0 12px;text-align:center;}
-         /* Dropdown: căn trái & cỡ chữ nhỏ hơn cho các mục bung ra */
-         select.control-11 { text-align-last:center; }
+        select.control-11 { text-align-last:center; }
         .control-11 option,
         .control-11 optgroup { text-align:left; font-size:0.8rem; }
         .range-2 .track-base{background:linear-gradient(90deg,#93c5fd,#d8b4fe,#fdba74);opacity:.65;}
@@ -734,7 +732,7 @@ export default function Home() {
         .range-2 input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:9999px;background:#111;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25),0 0 0 3px rgba(0,0,0,.1);cursor:pointer;}
         .range-2 input[type="range"]::-moz-range-thumb{width:20px;height:20px;border-radius:9999px;background:#111;border:3px solid #fff;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.25),0 0 0 3px rgba(0,0,0,.1);}
         .range-2 input.slider-min::-webkit-slider-thumb{background:#fbbf24;}
-        .range-2 input.slider-max::-webkit-slider-thumb{背景:#ef4444;}
+        .range-2 input.slider-max::-webkit-slider-thumb{background:#ef4444;}
         .range-2 .mark{width:6px;height:6px;border-radius:9999px;background:#9ca3af;transform:translateX(-50%);top:22px;position:absolute;}
         .range-2 .mark-label{position:absolute;top:30px;transform:translateX(-50%);font-size:11px;color:#6b7280;}
         @media (min-width: 768px) {

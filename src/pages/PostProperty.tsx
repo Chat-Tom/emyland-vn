@@ -615,14 +615,14 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
               />
             </div>
 
-            {/* Mô tả */}
+            {/* Mô tả chi tiết*/}
             <div className="relative md:col-span-2">
-              <label className="block text-sm font-medium mb-1">Mô tả *</label>
+              <label className="block text-sm font-medium mb-1">Mô tả chi tiết*</label>
               <textarea
                 rows={5}
                 value={form.description}
                 onChange={onChange("description")}
-                placeholder="Mô tả chi tiết bất động sản, tiện ích xung quanh..."
+                placeholder="Mô tả thêm tiện ích xung quanh (nếu cần)...Nhấp AI mô tả cuốn hút người đọc"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div className="absolute -bottom-3 right-0 translate-y-full mt-2 flex items-center gap-2">
@@ -650,10 +650,10 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
             </span>
           </div>
 
-          {/* Ảnh BĐS */}
+          {/* Ảnh nhà đất */}
           <div>
             <label className="block text-sm font-medium mb-1">
-              Ảnh bất động sản (tối đa 10, ≤ 8MB/ảnh)
+              Ảnh nhà đất (tối đa 10, ≤ 8MB/ảnh)
             </label>
             <input
               type="file"
@@ -716,7 +716,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
 
             <div className="mt-4">
               <label className="block text-sm font-medium mb-1">
-                Ảnh sổ đỏ / HĐMB (bắt buộc — chụp phần có <strong>tên chính chủ</strong>, tối đa 5 ảnh)
+                Ảnh sổ đỏ / HĐMB (bắt buộc — chụp phần có <strong>tên chính chủ</strong>, chỉ emyland xem được và bảo mật thông tin khách hàng)
               </label>
               <input
                 type="file"
