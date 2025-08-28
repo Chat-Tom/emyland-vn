@@ -18,5 +18,8 @@
         { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]
     }
+  ],
+  "crons": [
+    { "path": "/api/admin/refresh-counts", "schedule": "*/2 * * * *" }
   ]
 }
