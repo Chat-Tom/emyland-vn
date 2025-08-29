@@ -29,3 +29,6 @@ nul
 .vercel
 
 .vercel
+
+.env*
+
