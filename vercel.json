@@ -2,6 +2,15 @@
   "cleanUrls": true,
   "trailingSlash": false,
 
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.emyland.vn" }],
+      "destination": "https://emyland.vn/:path*",
+      "permanent": true
+    }
+  ],
+
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/" }
@@ -20,8 +29,6 @@
         { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]
     },
-
-    /* ===== BỔ SUNG MỚI (KHÔNG SỬA DÒNG CŨ) ===== */
     {
       "source": "/api/list-properties",
       "headers": [
@@ -34,7 +41,6 @@
         { "key": "Cache-Control", "value": "no-store" }
       ]
     }
-    /* ===== HẾT PHẦN BỔ SUNG ===== */
   ],
 
   "crons": [
