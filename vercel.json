@@ -41,9 +41,5 @@
         { "key": "Cache-Control", "value": "no-store" }
       ]
     }
-  ],
-
-  "crons": [
-    { "path": "/api/admin/refresh-counts", "schedule": "*/2 * * * *" }
   ]
 }
