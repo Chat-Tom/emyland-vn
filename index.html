@@ -3,21 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
+
     <!-- Chặn Google Translate tự dịch -->
     <meta name="google" content="notranslate" />
-    
+
     <!-- SEO & Meta mặc định -->
     <title>EmyLand Real Estate Platform</title>
     <meta name="description" content="Nền tảng bất động sản EmyLand - chính chủ, đa nền tảng, tra cứu dễ dàng." />
     <link rel="icon" type="image/png" href="/emyland-logo.png" />
+
+    <!-- ✅ Thêm canonical để trình duyệt/SEO cố định đúng origin -->
+    <link rel="canonical" href="https://emyland.vn" />
+
+    <!-- ✅ Cố định base về gốc để mọi đường dẫn tương đối là /... -->
+    <base href="/" />
 
     <!-- Open Graph (Facebook, Zalo, LinkedIn...) -->
     <meta property="og:title" content="EmyLand Real Estate Platform" />
     <meta property="og:description" content="Nền tảng bất động sản EmyLand - chính chủ, đa nền tảng, tra cứu dễ dàng." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/og.jpg" />
-    <meta property="og:url" content="https://emyland-vn.vercel.app" />
+    <!-- ❗ Sửa về domain thật -->
+    <meta property="og:url" content="https://emyland.vn" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -26,6 +33,9 @@
 
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Vite dev sẽ dùng /src/main.tsx; khi build, Vite tự viết lại /assets/*.js -->
+    <!-- Thêm crossorigin để đảm bảo module fetch theo CORS anonymous -->
+    <script type="module" crossorigin src="/src/main.tsx"></script>
   </body>
 </html>
