@@ -1,33 +1,102 @@
-// api/list-properties.ts  (Vercel Serverless Function – Node/TS)
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+// api/list-properties.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.SUPABASE_SERVICE_ROLE_KEY as string  // server-only
-);
+const ALLOWED_ORIGINS = new Set([
+  'https://emyland.vn',
+  'https://www.emyland.vn',
+]);
+
+function setCORS(req: VercelRequest, res: VercelResponse) {
+  const origin = (req.headers.origin as string) || '';
+  if (ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // Không biết origin -> từ chối chia sẻ credentials, vẫn trả JSON bình thường
+    res.setHeader('Access-Control-Allow-Origin', 'https://emyland.vn');
+  }
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+  );
+}
+
+function unaccentLower(s?: string) {
+  if (!s) return undefined;
+  return s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  try {
-    if (req.method !== 'POST') {
-      res.status(405).json({ error: 'Method not allowed' }); return;
-    }
-    const p = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-    const params = {
-      p_listing: p.listing ?? null,  p_social: p.social ?? null,
-      p_province: p.province ?? null, p_ward: p.ward ?? null,
-      p_prop_type: p.property_type ?? null,
-      p_min_price: p.min_price ?? null, p_max_price: p.max_price ?? null,
-      p_min_area:  p.min_area ?? null,  p_max_area:  p.max_area ?? null,
-      p_limit: Math.min(Number(p.limit ?? 16), 50),
-      p_offset: Math.max(Number(p.offset ?? 0), 0),
-    };
-    const { data, error } = await supabase.rpc('get_properties', params);
-    if (error) throw error;
+  setCORS(req, res);
 
-    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=600');
-    res.status(200).json(data);
-  } catch (e: any) {
-    res.status(500).json({ error: String(e?.message ?? e) });
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed. Use GET with querystring.' });
+  }
+
+  try {
+    const q = req.query as Record<string, string | string[]>;
+    const get = (k: string) => (Array.isArray(q[k]) ? q[k][0] : q[k]);
+
+    const listing   = get('listing');
+    const province  = get('province');
+    const ward      = get('ward');
+    const min_price = get('min_price');
+    const max_price = get('max_price');
+    const min_area  = get('min_area');
+    const max_area  = get('max_area');
+    const prop_type = get('prop_type');
+    const limit     = get('limit')  ?? '16';
+    const offset    = get('offset') ?? '0';
+
+    const params = new URLSearchParams();
+    if (listing)   params.set('listing', String(listing));
+    if (province)  params.set('province', unaccentLower(String(province))!);
+    if (ward)      params.set('ward',     unaccentLower(String(ward))!);
+    if (min_price) params.set('min_price', String(min_price));
+    if (max_price) params.set('max_price', String(max_price));
+    if (min_area)  params.set('min_area',  String(min_area));
+    if (max_area)  params.set('max_area',  String(max_area));
+    if (prop_type) params.set('prop_type', String(prop_type));
+    params.set('limit',  String(limit));
+    params.set('offset', String(offset));
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    if (!supabaseUrl) {
+      return res.status(500).json({ error: 'missing_env', message: 'SUPABASE_URL not set' });
+    }
+
+    const upstream = `${supabaseUrl}/functions/v1/list-properties?${params.toString()}`;
+    const r = await fetch(upstream, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        ...(process.env.SUPABASE_ANON_KEY
+          ? { authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}` }
+          : {}),
+      },
+    });
+
+    const bodyText = await r.text();
+
+    // Cache CDN 5 phút, SWR 10 phút
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+
+    return res.status(r.status).send(bodyText);
+  } catch (err: any) {
+    return res
+      .status(500)
+      .json({ error: 'upstream_error', message: err?.message ?? String(err) });
   }
 }

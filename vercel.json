@@ -17,6 +17,18 @@
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]
+    },
+    {
+      "source": "/api/list-properties",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, s-maxage=60, stale-while-revalidate=600" }
+      ]
+    },
+    {
+      "source": "/api/admin/refresh-counts",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
     }
   ],
   "crons": [
