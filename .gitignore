@@ -25,3 +25,5 @@ dist-ssr
 nul
 nul
 .env.production
+
+.vercel
