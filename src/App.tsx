@@ -112,9 +112,9 @@ function AppInner() {
             {/* Alias ngắn */}
             <Route path="/noxh" element={<Navigate to="/social-housing" replace />} />
 
-            {/* >>> Added: Tin mới (công khai) */}
+            {/* >>> Tin mới (công khai) */}
             <Route path="/news" element={<NewsPage />} />
-            <Route path="/news/:id" element={<NewsDetail />} />
+            <Route path="/news/:slug" element={<NewsDetail />} />
             {/* Alias tiếng Việt cho dễ nhớ */}
             <Route path="/tin-moi" element={<Navigate to="/news" replace />} />
             <Route path="/tin-tuc" element={<Navigate to="/news" replace />} />
