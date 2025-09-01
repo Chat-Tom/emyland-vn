@@ -81,6 +81,16 @@ const BIG6 = [
 const viSort = (a: string, b: string) => a.localeCompare(b, "vi");
 const wardWeight = (name: string) => (name.startsWith("Phường") ? 0 : name.startsWith("Xã") ? 1 : 2);
 
+// === Định dạng ngày theo giờ Việt Nam (dd/mm/yyyy)
+const vnDateString = (d?: string | number | Date) => {
+  if (!d) return "";
+  try {
+    return new Date(d).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+  } catch {
+    return "";
+  }
+};
+
 /* >>> Added: Suy luận số phòng ngủ / WC từ field & mô tả */
 const toPosInt = (v: any): number | undefined => {
   if (typeof v === "number" && v > 0) return Math.round(v);
@@ -238,6 +248,30 @@ function EditPropertyModal({
     const provinceName =
       sortedProvinces.find((p) => p.provinceId === provinceId)?.provinceName || property?.location?.province || "";
 
+    // --- Xác định mốc xác minh trước đó & cập nhật theo tick hiện tại ---
+    const wasVerified = Boolean(
+      property?.contactInfo?.ownerVerified ||
+        property?.verificationStatus === "verified" ||
+        property?.verifiedAt ||
+        property?.verified_at ||
+        property?.contactInfo?.ownerVerifiedAt ||
+        property?.contactInfo?.owner_verified_at
+    );
+
+    let nextVerifiedAt: string | undefined =
+      property?.verifiedAt ||
+      property?.verified_at ||
+      property?.contactInfo?.ownerVerifiedAt ||
+      property?.contactInfo?.owner_verified_at;
+
+    if (!wasVerified && ownerVerified) {
+      // Bật xác minh lần đầu: đóng dấu thời điểm hiện tại (ISO)
+      nextVerifiedAt = new Date().toISOString();
+    } else if (wasVerified && !ownerVerified) {
+      // Gỡ xác minh: xoá mốc thời gian
+      nextVerifiedAt = undefined;
+    }
+
     const updated: any = {
       ...property,
       title: title.trim(),
@@ -258,9 +292,15 @@ function EditPropertyModal({
         phone: contactPhone.trim(),
         email: contactEmail.trim(),
         ownerVerified,
+        // Lưu cả mốc xác minh trong contactInfo để tương thích
+        ownerVerifiedAt: nextVerifiedAt,
+        owner_verified_at: nextVerifiedAt,
       },
       // ⬇️ Trạng thái xác minh hiển thị
       verificationStatus: ownerVerified ? "verified" : "pending",
+      // Lưu mốc xác minh ở cấp property (camel & snake) để các view khác dễ đọc
+      verifiedAt: nextVerifiedAt,
+      verified_at: nextVerifiedAt,
       updatedAt: now,
     };
 
@@ -573,7 +613,7 @@ const SystemDashboard = () => {
 
   const formatDate = (dateString: string) => {
     try {
-      return new Date(dateString).toLocaleDateString("vi-VN");
+      return new Date(dateString).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
     } catch {
       return "";
     }
@@ -849,7 +889,17 @@ const SystemDashboard = () => {
                             {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
                           </Badge>
                           {isVerified ? (
-                            <Badge className="bg-emerald-600">Đã xác nhận chính chủ</Badge>
+                            <Badge className="bg-emerald-600">
+                              {(() => {
+                                const t =
+                                  property?.verifiedAt ||
+                                  property?.verified_at ||
+                                  property?.contactInfo?.ownerVerifiedAt ||
+                                  property?.contactInfo?.owner_verified_at;
+                                const d = vnDateString(t);
+                                return d ? `Đã xác nhận chính chủ ngày ${d}` : "Đã xác nhận chính chủ";
+                              })()}
+                            </Badge>
                           ) : (
                             <Badge className="bg-amber-500">Đang xác nhận chính chủ</Badge>
                           )}

@@ -20,7 +20,7 @@ import {
   ShieldCheck,
   Hourglass,
 } from "lucide-react";
-import { postDateLabel } from "@utils/date";
+import { postDateLabel, renderVerifiedAt } from "@utils/date"; // ⬅️ thêm renderVerifiedAt
 
 import { StorageManager } from "@utils/storage";
 import type { UserAccount, PropertyListing } from "@utils/storage";
@@ -292,6 +292,7 @@ const Dashboard = () => {
   const renderPosted = (dateString: string) => {
     const label = postDateLabel(dateString);
     return label ? `Đăng: ${label}` : "";
+    // (múi giờ VN đã xử lý trong utils/date.ts)
   };
 
   if (loading) {
@@ -400,7 +401,8 @@ const Dashboard = () => {
                                     {vStatus === "verified" ? (
                                       <Badge className="bg-emerald-600 inline-flex items-center gap-1.5">
                                         <ShieldCheck className="w-3.5 h-3.5" />
-                                        Đã xác nhận chính chủ
+                                        {/* Hiển thị kèm ngày xác nhận theo giờ VN */}
+                                        {renderVerifiedAt(property) || "Đã xác nhận chính chủ"}
                                       </Badge>
                                     ) : (
                                       <Badge className="bg-amber-500 inline-flex items-center gap-1.5">

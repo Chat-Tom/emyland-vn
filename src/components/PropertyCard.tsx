@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { MapPin, Star, Eye, ShieldCheck, Hourglass } from "lucide-react";
 import { Link } from "react-router-dom";
 // ⚠️ utils nằm ngoài /src nên dùng đường dẫn tương đối
-import { renderPosted } from "../../utils/date";
+import { renderPosted, verifiedDateLabel } from "../../utils/date"; // ⬅️ thêm verifiedDateLabel
 
 /** Kiểu prop – cho phép property có thể undefined để tránh crash khi gọi thiếu */
 export interface PropertyCardProps {
@@ -125,16 +125,11 @@ function formatPricePerM2(
   let val = price_per_m2 ?? (price ?? 0) / area;
   if (!val || val <= 0) return null;
 
-  // >>> Added: Chuẩn hoá hiển thị giá/m² thành số nguyên (kèm phân tách hàng nghìn)
+  // Chuẩn hoá: hiển thị số nguyên + phân tách nghìn
   const _roundedText =
     val >= 1_000_000_000
       ? `${Math.round(val / 1_000_000_000).toLocaleString("vi-VN")} tỷ/m²`
       : `${Math.round(val / 1_000_000).toLocaleString("vi-VN")} triệu/m²`;
-
-  // Giữ nguyên 2 dòng cũ (không dùng nữa):
-  // if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(2)} tỷ/m²`;
-  // return `${(val / 1_000_000).toFixed(2)} triệu/m²`;
-
   return _roundedText;
 }
 
@@ -274,7 +269,7 @@ function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
   let bedrooms = bd;
   let bathrooms = bt;
 
-  // >>> Added: alias bổ sung & xử lý trường hợp 0/"" chặn mất fallback
+  // Alias bổ sung & xử lý trường hợp 0/"" chặn mất fallback
   if (bathrooms === undefined || bathrooms <= 0) {
     const wcAliases = [
       p?.WC, p?.wc, p?.toilets, p?.toilet, p?.toilet_count,
@@ -285,7 +280,7 @@ function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
       if (typeof n === "number") { bathrooms = n; break; }
     }
   }
-  // (tuỳ chọn) cho PN – đề phòng 0/""
+  // Bổ sung cho PN – đề phòng 0/""
   if (bedrooms === undefined || bedrooms <= 0) {
     const n = toPosInt(p?.rooms?.bedrooms ?? p?.details?.bedrooms);
     if (typeof n === "number") bedrooms = n;
@@ -300,7 +295,7 @@ function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
     const m = hay.match(/(\d+)\s*(wc|ve\s*sinh|vs)\b/i);
     if (m) bathrooms = Number(m[1]);
   }
-  // >>> Added: thêm một lần bắt nữa với “phòng tắm/toilet”
+  // Bắt thêm với “phòng tắm/toilet”
   if (!bathrooms) {
     const m2 = hay.match(/(\d+)\s*(phong\s*tam|phòng\s*tắm|toilet|rest\s*room|nha\s*tam)\b/i);
     if (m2) bathrooms = Number(m2[1]);
@@ -345,6 +340,9 @@ export default function PropertyCard({ property }: PropertyCardProps) {
 
   // Phòng ngủ / vệ sinh (từ field hoặc suy luận từ text)
   const { bedrooms, bathrooms } = inferRooms(p);
+
+  // ⬇️ Nhãn ngày xác nhận ngắn gọn (ví dụ: "ngày 1/9/2025")
+  const verifiedShort = verifiedDateLabel(p);
 
   return (
     <Card className="group overflow-hidden border shadow-sm bg-white rounded-2xl hover:shadow-lg transition">
@@ -411,7 +409,9 @@ export default function PropertyCard({ property }: PropertyCardProps) {
               ) : (
                 <Hourglass className="w-3.5 h-3.5" />
               )}
-              {finalStatus === "verified" ? "Đã xác nhận chính chủ" : "Đang xác nhận chính chủ"}
+              {finalStatus === "verified"
+                ? `Đã xác nhận chính chủ${verifiedShort ? " " + verifiedShort : ""}`
+                : "Đang xác nhận chính chủ"}
             </span>
           )}
         </div>
