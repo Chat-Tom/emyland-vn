@@ -6,6 +6,7 @@ import PropertyCard from "@/components/PropertyCard";
 import { provinces as PROVINCES_ORG } from "@/data/vietnam-locations";
 import { PropertyService, type Property as DBProperty } from "@/services/propertyService";
 import "@/index.css";
+import Pagination01 from "@/components/Pagination01";
 
 type ListingType = "sell" | "rent";
 
@@ -40,7 +41,7 @@ function setFavicon(url: string) {
   } catch {}
 }
 
-/* >>> Added: helpers suy luận PN/WC tại Home để điền sẵn dữ liệu cho Card */
+/* >>> Điền PN/WC khi thiếu để Card hiển thị đầy đủ */
 function _deburrLower(s?: string) {
   if (!s) return "";
   try { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
@@ -133,7 +134,6 @@ function normalizeForCard(p: any) {
   const createdAt: string | number | Date | undefined =
     p.createdAt ?? p.created_at ?? p.postedAt ?? p.updatedAt ?? p.date ?? p.created;
 
-  /* >>> Added: điền sẵn PN/WC nếu thiếu bằng alias + mô tả */
   const guessed = _inferRoomsHome(p);
   const bedroomsFixed = bedrooms ?? guessed.bedrooms;
   const bathroomsFixed = bathrooms ?? guessed.bathrooms;
@@ -149,8 +149,8 @@ function normalizeForCard(p: any) {
     ward,
     province,
     area,
-    bedrooms: bedroomsFixed,          // >>> Added
-    bathrooms: bathroomsFixed,        // >>> Added
+    bedrooms: bedroomsFixed,
+    bathrooms: bathroomsFixed,
     images,
     type,
     verificationStatus,
@@ -162,33 +162,14 @@ function normalizeForCard(p: any) {
   };
 }
 
-/* —— đoán/nhãn —— */
+/* —— tags —— */
 function deburrLower(s?: string) {
   if (!s) return "";
   try { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
   catch { return String(s).toLowerCase(); }
 }
-function guessTypeFromResults(list: any[]): string | undefined {
-  const counts: Record<string, number> = {};
-  for (const p of list ?? []) {
-    let t: any = p?.type ?? p?.category ?? p?.propertyType ?? p?.kind;
-    const raw = deburrLower(String(t || p?.badge || p?.label || ""));
-    let key: string | undefined;
-    if (raw === "land" || raw.includes("dat")) key = "land";
-    else if (raw === "apartment" || raw.includes("can ho") || raw.includes("apartment")) key = "apartment";
-    else if (raw === "villa" || raw.includes("biet thu") || raw.includes("villa")) key = "villa";
-    else if (raw === "office" || raw.includes("van phong") || raw.includes("office")) key = "office";
-    else if (raw === "house" || raw.includes("nha")) key = "house";
-    if (key) counts[key] = (counts[key] ?? 0) + 1;
-  }
-  let best: string | undefined, bestN = 0;
-  for (const k in counts) if (counts[k] > bestN) { best = k; bestN = counts[k]; }
-  return best;
-}
 function isSocialRecord(p: any) {
-  const hay = deburrLower(
-    [p?.type, p?.category, p?.propertyType, p?.kind, p?.badge, p?.label, p?.title].filter(Boolean).join(" ")
-  );
+  const hay = deburrLower([p?.type, p?.category, p?.propertyType, p?.kind, p?.badge, p?.label, p?.title].filter(Boolean).join(" "));
   return hay.includes("xa hoi") || hay.includes("social");
 }
 function isTypeRecord(p: any, want: string) {
@@ -199,6 +180,16 @@ function isTypeRecord(p: any, want: string) {
   if (want === "office")    return raw.includes("office") || raw.includes("van phong");
   if (want === "land")      return raw.includes("land") || raw.includes("dat");
   return true;
+}
+
+// ====== Verified-first + newest-first ======
+function isVerified(p: any): boolean {
+  return p?.is_verified === true || p?.verified === true || p?.verificationStatus === "verified";
+}
+function tsOf(p: any): number {
+  const v = p?.createdAt ?? p?.created_at ?? p?.postedAt ?? p?.updatedAt ?? p?.date ?? p?.created;
+  const t = v ? new Date(v as any).getTime() : NaN;
+  return Number.isFinite(t) ? t : 0;
 }
 
 export default function Home() {
@@ -221,11 +212,19 @@ export default function Home() {
   const [sp, setSp] = useSearchParams();
   const initPage = Math.max(1, parseInt(sp.get("page") || "1", 10) || 1);
   const [page, setPage] = useState<number>(initPage);
-  const [pageSize] = useState<number>(24);
-  const [total, setTotal] = useState<number>(0);
-  const [totalAll, setTotalAll] = useState<number>(0);
+  const PAGE_SIZE = 12;
+  const [pageSize] = useState<number>(PAGE_SIZE);
+  const [total, setTotal] = useState<number>(0);        // tổng dùng cho phân trang page hiện tại
+  const [totalAll, setTotalAll] = useState<number>(0);  // tổng hệ thống (Bán+Thuê+XH)
 
-  /* >>> Added: helper điều hướng tab qua URL (1 nguồn sự thật) */
+  // Tổng theo từng tab để hiển thị khi không có filter phụ
+  const [totalSell, setTotalSell] = useState<number | null>(null);
+  const [totalRent, setTotalRent] = useState<number | null>(null);
+
+  // Tổng "tin phù hợp" để hiển thị (độc lập với `total` của phân trang)
+  const [matchedTotal, setMatchedTotal] = useState<number>(0);
+
+  // Điều hướng tab qua URL
   const goTab = useCallback((tab: "sell" | "rent" | "social") => {
     setSp((prev) => {
       const q = new URLSearchParams(prev);
@@ -310,13 +309,28 @@ export default function Home() {
     }, 350);
   };
 
-  // Totals
+  // Totals (toàn hệ thống)
   const loadTotals = useCallback(async () => {
     try {
       const { total: all } = await PropertyService.getPropertiesPaged(undefined, { page: 1, pageSize: 1 });
       setTotalAll(all);
     } catch {
       setTotalAll(0);
+    }
+  }, []);
+
+  // Tổng theo tab Bán/Thuê (dùng khi không có filter phụ)
+  const loadTabTotals = useCallback(async () => {
+    try {
+      const [sellRes, rentRes] = await Promise.all([
+        PropertyService.getPropertiesPaged({ listingType: "sell" } as any, { page: 1, pageSize: 1 }),
+        PropertyService.getPropertiesPaged({ listingType: "rent" } as any, { page: 1, pageSize: 1 }),
+      ]);
+      setTotalSell(Number(sellRes?.total) || 0);
+      setTotalRent(Number(rentRes?.total) || 0);
+    } catch {
+      setTotalSell(null);
+      setTotalRent(null);
     }
   }, []);
 
@@ -332,7 +346,63 @@ export default function Home() {
     }
   }, []);
 
-  // Load by filters (server không nhận 'type')
+  /**
+   * Đếm "tin phù hợp" CHÍNH XÁC cho thanh báo cáo (độc lập với phân trang)
+   * - Bán/Thuê: gọi 1 request riêng chỉ để lấy `total` theo tab & filter số (khu vực/giá/diện tích)
+   * - Xã hội: đếm client-side (lọc "xã hội") với progressive fetch (giới hạn an toàn)
+   *   => đảm bảo số hiển thị luôn theo 1 trong 3 luồng Bán/Thuê/Xã hội.
+   */
+  const loadMatchedTotal = useCallback(async (overrides?: Partial<{
+    minPrice: number | undefined; maxPrice: number | undefined;
+    minArea: number | undefined; maxArea: number | undefined;
+    province: string;
+  }>) => {
+    try {
+      const fBase: any = {
+        listingType,
+        province: ((overrides?.province ?? province) || undefined),
+        minPrice: overrides?.minPrice ?? minPrice,
+        maxPrice: overrides?.maxPrice ?? maxPrice,
+        minArea: overrides?.minArea ?? minArea,
+        maxArea: overrides?.maxArea ?? maxArea,
+      };
+
+      if (!socialMode) {
+        // Bán/Thuê → đếm từ server theo tab
+        const res = await PropertyService.getPropertiesPaged(fBase, { page: 1, pageSize: 1 });
+        setMatchedTotal(Number(res?.total) || 0);
+        return;
+      }
+
+      // XÃ HỘI → đếm client-side (lọc "social")
+      // Progressive fetch có giới hạn cứng để tránh quá tải
+      let cap = 4000; // đủ để báo cáo; có thể tăng nếu cần
+      let take = 1000;
+      let collected: DBProperty[] = [];
+      for (let k = 0; k < 5 && collected.length < cap; k++) {
+        const res = await PropertyService.getPropertiesPaged(
+          { province: fBase.province, minPrice: fBase.minPrice, maxPrice: fBase.maxPrice, minArea: fBase.minArea, maxArea: fBase.maxArea } as any,
+          { page: 1, pageSize: take, limit: take, per_page: take }
+        );
+        const arr = Array.isArray(res?.items) ? res.items : [];
+        collected = arr;
+        if (arr.length < take) break; // server đã trả < yêu cầu → không còn nhiều
+        take = Math.min(take + 1000, cap);
+      }
+      const filtered = collected.filter(isSocialRecord);
+      setMatchedTotal(filtered.length);
+    } catch {
+      setMatchedTotal(0);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingType, province, minPrice, maxPrice, minArea, maxArea, socialMode]);
+
+  /**
+   * Load page with progressive over-fetch & verified-first sort
+   * - Không gửi listingType khi socialMode.
+   * - Kéo dữ liệu nhiều dần cho tới khi đủ để cắt trang sau LỌC.
+   * - Sắp xếp: verified trước, rồi createdAt desc.
+   */
   const loadFromSupabase = useCallback(async (nextPage = page, overrides?: Partial<{
     minPrice: number | undefined; maxPrice: number | undefined;
     minArea: number | undefined; maxArea: number | undefined;
@@ -341,34 +411,65 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
-      const filters = {
+      const baseFilters: any = {
         listingType,
         province: ((overrides?.province ?? province) || undefined),
         minPrice: overrides?.minPrice ?? minPrice,
         maxPrice: overrides?.maxPrice ?? maxPrice,
         minArea: overrides?.minArea ?? minArea,
         maxArea: overrides?.maxArea ?? maxArea,
-      } as any;
+      };
+      // Tab "xã hội": KHÔNG gửi listingType
+      if (socialMode) delete baseFilters.listingType;
 
-      const res = await PropertyService.getPropertiesPaged(filters, { page: nextPage, pageSize });
-      let items = res.items as DBProperty[];
-      let t = res.total as number;
+      const needCount = nextPage * pageSize;
+      let perPage = Math.max(pageSize * 3, needCount * 2);
+      let collected: DBProperty[] = [];
+      let serverTotal = 0;
 
-      const wantType = overrides?.type ?? (socialMode ? SOCIAL_TYPE_VALUE : type);
-      if (wantType) {
-        items = items.filter((p) =>
-          wantType === SOCIAL_TYPE_VALUE ? isSocialRecord(p) : isTypeRecord(p, wantType)
-        );
-        t = items.length;                    // (giữ dòng cũ)
-        t = res.total as number;             // >>> Fix: dùng tổng từ server để phân trang hiển thị đúng
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const opts: any = {
+          page: 1,
+          pageSize: perPage,
+          limit: perPage, per_page: perPage, take: perPage, size: perPage, PageSize: perPage, perPage, page_size: perPage,
+        };
+        const res = await PropertyService.getPropertiesPaged(baseFilters, opts);
+        const arr = Array.isArray(res?.items) ? res.items : [];
+        if (arr.length > collected.length) collected = arr;
+        serverTotal = Number(res?.total) || serverTotal || arr.length;
+
+        if (collected.length >= needCount || perPage >= Math.max(serverTotal, needCount * 5)) break;
+        perPage = Math.min(Math.max(perPage * 2, needCount * 3), 5000);
       }
 
-      setProperties(items);
-      setTotal(t);
+      // —— Lọc client theo loại hình (apartment/house/...) hoặc xã hội
+      const wantType = overrides?.type ?? (socialMode ? SOCIAL_TYPE_VALUE : type);
+      let filtered = (wantType
+        ? collected.filter((p) => wantType === SOCIAL_TYPE_VALUE ? isSocialRecord(p) : isTypeRecord(p, wantType))
+        : collected
+      );
+
+      // —— Sắp xếp: verified trước → mới nhất trước
+      filtered.sort((a, b) => {
+        const ra = isVerified(a) ? 0 : 1;
+        const rb = isVerified(b) ? 0 : 1;
+        if (ra !== rb) return ra - rb;
+        return tsOf(b) - tsOf(a);
+      });
+
+      // —— Cắt trang
+      const start = (nextPage - 1) * pageSize;
+      const end = start + pageSize;
+      const pageItems = filtered.slice(start, end);
+
+      setProperties(pageItems);
+
+      // tổng dùng cho PHÂN TRANG của page hiện tại
+      setTotal(serverTotal || filtered.length);
     } catch (e: any) {
       setError(e?.message ?? "Đã có lỗi khi tải dữ liệu");
       setProperties([]);
-      setTotal(0);
+      setTotal((prev) => prev);
     } finally {
       setLoading(false);
     }
@@ -388,24 +489,22 @@ export default function Home() {
 
     loadFromSupabase(1, { type: nextType });
     loadTotals();
+    loadMatchedTotal();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, socialMode]);
 
-  // >>> Added: ref chốt để tránh set state lần 2 khi click tab
+  // ref chống click tab 2 lần
   const tabClickRef = useRef<"sell" | "rent" | "social" | null>(null);
 
-  // read ?tab=
+  // đọc ?tab=
   useEffect(() => {
     const q = new URLSearchParams(location.search || "");
     const tab = (q.get("tab") || "").toLowerCase() as "sell" | "rent" | "social" | "";
 
-    // >>> Added: nếu chính tay vừa click tab, bỏ qua set lần 2
     if (tabClickRef.current && tab === tabClickRef.current) {
       tabClickRef.current = null;
       return;
     }
-
-    /* >>> Guard cũ: nếu trạng thái đã đúng thì bỏ qua để tránh render/lần load thứ 2 */
     if (tab === "sell"   && !socialMode && listingType === "sell") return;
     if (tab === "rent"   && !socialMode && listingType === "rent") return;
     if (tab === "social" &&  socialMode) return;
@@ -413,7 +512,7 @@ export default function Home() {
     if (tab === "sell") { setSocialMode(false); setListingType("sell"); }
     else if (tab === "rent") { setSocialMode(false); setListingType("rent"); }
     else if (tab === "social") { setSocialMode(true); }
-  }, [location.search, socialMode, listingType]);  // >>> Added deps giữ nguyên
+  }, [location.search, socialMode, listingType]);
 
   // sync page from url
   useEffect(() => {
@@ -423,14 +522,16 @@ export default function Home() {
   }, [sp]);
 
   useEffect(() => { setFavicon(FAVICON_URL); }, []);
-  useEffect(() => { loadTotals(); }, [loadTotals]);
 
-  // load latest on empty
+  // tải tổng hệ thống + tổng theo tab
+  useEffect(() => { loadTotals(); loadTabTotals(); }, [loadTotals, loadTabTotals]);
+
+  // load latest chỉ khi không có KẾT QUẢ (total === 0)
   useEffect(() => {
-    if (!loading && properties.length === 0) loadLatest();
-  }, [loading, properties.length, loadLatest]);
+    if (!loading && total === 0) loadLatest();
+  }, [loading, total, loadLatest]);
 
-  // reset by header logo
+  // reset bằng logo
   useEffect(() => {
     const handler = () => {
       setSocialMode(false);
@@ -442,18 +543,21 @@ export default function Home() {
       setPage(1);
       setSp((prev) => { const q = new URLSearchParams(prev); q.set("page", "1"); return q; });
       loadFromSupabase(1, { province: "", type: "", minPrice: undefined, maxPrice: undefined, minArea: undefined, maxArea: undefined });
+      loadMatchedTotal({ province: "", minPrice: undefined, maxPrice: undefined, minArea: undefined, maxArea: undefined });
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
     window.addEventListener("emyland:resetHome", handler);
     return () => window.removeEventListener("emyland:resetHome", handler);
-  }, [loadFromSupabase, setSp]);
+  }, [loadFromSupabase, loadMatchedTotal, setSp]);
 
-  // auto refresh when localStorage changes
+  // auto refresh
   useEffect(() => {
     const refreshAll = () => {
       loadFromSupabase(1, { type: socialMode ? SOCIAL_TYPE_VALUE : type });
       loadTotals();
+      loadTabTotals();
       loadLatest();
+      loadMatchedTotal();
       setPage(1);
       setSp((prev) => { const q = new URLSearchParams(prev); q.set("page","1"); return q; });
     };
@@ -467,24 +571,39 @@ export default function Home() {
       window.removeEventListener("emyland:properties-changed", onCustom as EventListener);
       window.removeEventListener("storage", onStorage);
     };
-  }, [loadFromSupabase, loadLatest, loadTotals, socialMode, type, setSp]);
+  }, [loadFromSupabase, loadLatest, loadTotals, loadTabTotals, loadMatchedTotal, socialMode, type, setSp]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize));
+  const otherTotal = useMemo(() => totalAll || 0, [totalAll]);
+
+  // Có filter phụ nào ngoài "tab" không?
+  const extraFiltersActive = !!(
+    province || minPrice !== undefined || maxPrice !== undefined ||
+    minArea !== undefined || maxArea !== undefined
+  );
+
+  // "Tin phù hợp" hiển thị: nếu không có filter phụ, Bán/Thuê dùng tổng theo tab để tránh sai số từ backend.
+  const displayMatched = useMemo(() => {
+    if (socialMode) return matchedTotal; // xã hội đếm client-side
+    if (!extraFiltersActive) {
+      if (listingType === "sell" && totalSell !== null) return totalSell;
+      if (listingType === "rent" && totalRent !== null) return totalRent;
+    }
+    return matchedTotal;
+  }, [matchedTotal, socialMode, extraFiltersActive, listingType, totalSell, totalRent]);
+
+  // Chỉ kéo về trang hợp lệ khi có tổng
   useEffect(() => {
-    if (page > totalPages) {
+    if (total > 0 && page > totalPages) {
       setPage(totalPages);
       setSp((prev) => { const q = new URLSearchParams(prev); q.set("page", String(totalPages)); return q; });
     }
-  }, [page, totalPages, setSp]);
+  }, [page, totalPages, setSp, total]);
 
-  const goPage = (p: number) => {
-    const np = Math.max(1, Math.min(totalPages, p));
-    if (np === page) return;
-    setPage(np);
-    setSp((prev) => { const q = new URLSearchParams(prev); q.set("page", String(np)); return q; });
-    loadFromSupabase(np, { type: socialMode ? SOCIAL_TYPE_VALUE : type });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  // luôn refetch khi `page` đổi (không cần đếm lại)
+  useEffect(() => {
+    loadFromSupabase(page, { type: socialMode ? SOCIAL_TYPE_VALUE : type });
+  }, [page, socialMode, type, loadFromSupabase]);
 
   const applySearchNow = async (overrides?: Partial<{
     minPrice: number | undefined; maxPrice: number | undefined;
@@ -511,6 +630,7 @@ export default function Home() {
     setPage(1);
     setSp((prev) => { const q = new URLSearchParams(prev); q.set("page", "1"); return q; });
     await loadFromSupabase(1, { minArea: a, maxArea: b, minPrice: pmin, maxPrice: pmax, province: overrides?.province, type: nextType });
+    await loadMatchedTotal({ minArea: a, maxArea: b, minPrice: pmin, maxPrice: pmax, province: overrides?.province });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -566,7 +686,6 @@ export default function Home() {
      ${active
        ? "bg-gradient-to-r from-green-600 to-green-700 text-white shadow hover:brightness-110"
        : "bg-yellow-500 text-white hover:bg-yellow-600 hover:shadow active:scale-[0.99]"}
-     /* >>> Added: chống tràn chữ mobile */
      leading-[1.2] min-h-[44px] text-[12px] tracking-tight`;
 
   return (
@@ -617,7 +736,7 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Filters */}
+          {/* Filters – layout gốc */}
           <form
             onSubmit={onSearch}
             className="searchbar grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto] items-end gap-3 font-sans"
@@ -745,9 +864,24 @@ export default function Home() {
       {/* COUNTER BAR */}
       <div className="container mx-auto px-4">
         <div className="mt-4 mb-2 px-1 text-sm md:text-base text-gray-700 flex items-center justify-between font-sans">
-          <div>
-            <span className="font-medium text-gray-900">{total.toLocaleString("vi-VN")}</span> tin phù hợp
+          <div className="flex items-center gap-3 flex-wrap">
+            <div>
+              <span className="font-medium text-gray-900">
+                {displayMatched.toLocaleString("vi-VN")}
+              </span>{" "}
+              tin phù hợp
+            </div>
+
+            <span className="hidden sm:inline text-gray-400">•</span>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                {otherTotal.toLocaleString("vi-VN")}
+              </span>{" "}
+              tin nhà đất khác
+            </div>
           </div>
+
           <button
             className="hidden sm:inline-flex text-xs md:text-sm px-3 py-1 rounded border hover:bg-gray-50 font-medium"
             onClick={() => {
@@ -757,7 +891,13 @@ export default function Home() {
               setMinArea(undefined); setMaxArea(undefined);
               setPage(1);
               setSp((prev) => { const q = new URLSearchParams(prev); q.set("page","1"); return q; });
-              loadFromSupabase(1, { province: "", type: socialMode ? SOCIAL_TYPE_VALUE : "", minPrice: undefined, maxPrice: undefined, minArea: undefined, maxArea: undefined });
+              loadFromSupabase(1, {
+                province: "",
+                type: socialMode ? SOCIAL_TYPE_VALUE : "",
+                minPrice: undefined, maxPrice: undefined,
+                minArea: undefined, maxArea: undefined
+              });
+              loadMatchedTotal({ province: "", minPrice: undefined, maxPrice: undefined, minArea: undefined, maxArea: undefined });
             }}
           >
             Xóa lọc & xem tất cả
@@ -774,24 +914,11 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
             </div>
-          ) : properties.length > 0 ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {properties.map((p: any) => (
-                  <PropertyCard key={String(p.id ?? p._id)} property={normalizeForCard(p)} />
-                ))}
-              </div>
-
-              {total > 0 && (               /* >>> Changed: luôn render khi có kết quả để test hiệu ứng chọn trang */
-                <PaginationBar page={page} totalPages={totalPages} onChange={goPage} />
-              )}
-            </>
-          ) : (
+          ) : total === 0 ? (
             <>
               <div className="mb-4">
                 <h3 className="text-lg font-semibold">Tin đăng mới nhất</h3>
               </div>
-
               {latestLoading ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
@@ -806,6 +933,23 @@ export default function Home() {
                 </div>
               )}
             </>
+          ) : (
+            <>
+              {properties.length === 0 ? (
+                <div className="text-center text-gray-600 py-10">Trang này chưa có dữ liệu. Vui lòng chọn trang khác bên dưới.</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {properties.map((p: any) => (
+                    <PropertyCard key={String(p.id ?? p._id)} property={normalizeForCard(p)} />
+                  ))}
+                </div>
+              )}
+
+              {/* LUÔN hiển thị phân trang khi có kết quả tổng */}
+              {Math.max(1, Math.ceil((total || 0) / pageSize)) > 1 && (
+                <Pagination01 total={total} pageSize={pageSize} className="mt-8" />
+              )}
+            </>
           )}
         </div>
       </main>
@@ -815,77 +959,7 @@ export default function Home() {
   );
 }
 
-/* ===== Pagination ===== */
-function PaginationBar({
-  page,
-  totalPages,
-  onChange,
-}: {
-  page: number;
-  totalPages: number;
-  onChange: (p: number) => void;
-}) {
-  const MAX_BUTTONS = 7;
-  const half = Math.floor(MAX_BUTTONS / 2);
-  let start = Math.max(1, page - half);
-  let end = Math.min(totalPages, start + MAX_BUTTONS - 1);
-  if (end - start + 1 < MAX_BUTTONS) start = Math.max(1, end - MAX_BUTTONS + 1);
-
-  const pages: number[] = [];
-  for (let i = start; i <= end; i++) pages.push(i);
-
-  /* >>> Added: formatter 2 chữ số 01/02/… */
-  const fmt = (n: number) => String(n).padStart(2, "0");
-
-  return (
-    <div className="mt-8 flex items-center justify-center gap-2">
-      <button
-        className="px-3 py-2 rounded border bg-white disabled:opacity-50"
-        onClick={() => onChange(page - 1)}
-        disabled={page <= 1}
-      >
-        ‹ Trước
-      </button>
-
-      {start > 1 && (
-        <>
-          <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(1)}>{fmt(1)}</button>
-          {start > 2 && <span className="px-1 text-gray-500">…</span>}
-        </>
-      )}
-
-      {pages.map((p) => (
-        <button
-          key={p}
-          className={`px-3 py-2 rounded border transition ${page === p ? "bg-black text-white" : "bg-white hover:bg-gray-50"}`}
-          aria-current={page === p ? "page" : undefined}
-          onClick={() => onChange(p)}
-        >
-          {fmt(p)} {/* >>> Changed hiển thị 01/02/03 */}
-        </button>
-      ))}
-
-      {end < totalPages && (
-        <>
-          {end < totalPages - 1 && <span className="px-1 text-gray-500">…</span>}
-          <button className="px-3 py-2 rounded border bg-white" onClick={() => onChange(totalPages)}>
-            {fmt(totalPages)} {/* >>> Changed */}
-          </button>
-        </>
-      )}
-
-      <button
-        className="px-3 py-2 rounded border bg-white disabled:opacity-50"
-        onClick={() => onChange(page + 1)}
-        disabled={page >= totalPages}
-      >
-        Sau ›
-      </button>
-    </div>
-  );
-}
-
-/* ===== Popover Giá — mở bằng click ===== */
+/* ===== Popover Giá — click mở ===== */
 function PricePopover({...props}: any) {
   const {
     summary, show, setShow, isRent,
@@ -968,7 +1042,7 @@ function PricePopover({...props}: any) {
   );
 }
 
-/* ===== Popover Diện tích — mở bằng click ===== */
+/* ===== Popover Diện tích — click mở ===== */
 function AreaPopover({...props}: any) {
   const { summary, show, setShow, minArea, maxArea, areaPresets, areaMax, areaStep, marks, areaRefEl, onChange } = props;
   const minD = typeof minArea === "number" ? minArea : 0;
