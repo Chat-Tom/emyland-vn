@@ -26,6 +26,9 @@ const BIG6_ORDER = [
 const AI_TMP_BUCKET =
   (import.meta as any)?.env?.VITE_SUPABASE_BUCKET_PUBLIC || "public";
 
+const MAX_IMAGE_MB = 8;
+const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
+
 function isValidUrl(u: string) {
   try {
     const url = new URL(u);
@@ -194,9 +197,10 @@ const PostProperty: React.FC = () => {
       setForm((f) => ({ ...f, [key]: e.target.checked }));
     };
 
-  const filesToDataUrls = (files: FileList) =>
+  // chuyển File[] -> dataURL[]
+  const filesToDataUrls = (files: File[]) =>
     Promise.all(
-      Array.from(files).map(
+      files.map(
         (f) =>
           new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -212,7 +216,21 @@ const PostProperty: React.FC = () => {
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
-      const urls = await filesToDataUrls(files);
+
+      // Lọc theo kích thước ≤ 8MB/ảnh
+      const all = Array.from(files);
+      const accepted = all.filter((f) => f.size <= MAX_IMAGE_BYTES);
+      const rejectedCount = all.length - accepted.length;
+
+      if (rejectedCount > 0) {
+        alert(`Đã bỏ qua ${rejectedCount} ảnh vượt quá ${MAX_IMAGE_MB}MB/ảnh.`);
+      }
+      if (accepted.length === 0) {
+        e.target.value = "";
+        return;
+      }
+
+      const urls = await filesToDataUrls(accepted);
       setForm((f) => {
         const merged = [...f[field], ...urls].slice(0, limit);
         return { ...f, [field]: merged };
@@ -253,7 +271,7 @@ const PostProperty: React.FC = () => {
     return null;
   };
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     const err = validate();
     if (err) {
       alert(err);
@@ -289,8 +307,15 @@ const PostProperty: React.FC = () => {
         phone: form.contactPhone.trim(),
         // email: form.contactEmail?.trim() || undefined,
         ownerVerified: false,
+        // ▼ Thêm mốc xác minh rỗng để đồng nhất schema
+        ownerVerifiedAt: undefined,
+        owner_verified_at: undefined,
       },
+      // ▼ Trạng thái & mốc xác minh (rỗng khi mới đăng)
       verificationStatus: "pending",
+      verifiedAt: undefined,
+      verified_at: undefined,
+
       images: form.images,
       userEmail: current.email,
       createdAt: now,
@@ -311,8 +336,47 @@ const PostProperty: React.FC = () => {
     if (isFinite(bd) && bd > 0) property.bedrooms = bd;
     if (isFinite(bt) && bt > 0) property.bathrooms = bt;
 
+    // ===== ✅ BỔ SUNG ALIAS + TRẢI PHẲNG TRƯỜNG để Home/Admin đọc đồng nhất
+    if (isFinite(bd) && bd > 0) {
+      property.bedroom_count = bd;
+      property.bed = bd;
+    }
+    if (isFinite(bt) && bt > 0) {
+      property.bathroom_count = bt;
+      property.bath = bt;
+      property.wc = bt;
+      property.WC = bt;
+    }
+    property.ward = form.ward;
+    property.province = provinceName;
+    property.address = form.address.trim();
+
+    // cờ xác minh & timestamps (snake_case) + snake_case key phổ biến
+    property.is_verified = false;
+    property.verified = false;
+    property.verification_status = "pending";
+    property.created_at = now;
+    property.updated_at = now;
+
+    // snake_case mirrors for một số key phổ biến ở DB
+    property.listing_type = property.listingType;
+    property.property_type = property.propertyType;
+    property.user_email = property.userEmail;
+
+    // ===== Lưu LocalStorage (giữ nguyên hành vi cũ)
     StorageManager.saveProperty(property);
     StorageManager.saveLegalImages(id, form.legalImages);
+
+    // ===== NEW: Đẩy lên Supabase để Admin thấy & Home truy vấn unified
+    try {
+      const { error } = await supabase.from("properties").insert([property]);
+      if (error) {
+        // log lỗi nhưng không chặn luồng người dùng
+        console.error("Supabase insert error:", error);
+      }
+    } catch (e) {
+      console.error("Supabase insert exception:", e);
+    }
 
     try {
       window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
@@ -468,7 +532,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                   type="button"
                   disabled={!isValidUrl(form.mapUrl)}
                   onClick={() => window.open(form.mapUrl, "_blank")}
-                  className="px-4 rounded-lg border bg-amber-400 text-black hover:bg-amber-500 disabled:opacity-50 shadow"
+                  className="px-4 rounded-lg border bg-amber-400 text-black hover:bg-amber-500 disabled:opacity-50 shadow whitespace-nowrap"
                 >
                   Mở bản đồ
                 </button>
@@ -655,13 +719,26 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
             <label className="block text-sm font-medium mb-1">
               Ảnh nhà đất (tối đa 10, ≤ 8MB/ảnh)
             </label>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={onSelectImages("images", 10)}
-              className="block"
-            />
+            <div className="flex items-center gap-3">
+              <input
+                id="images-input"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={onSelectImages("images", 10)}
+                className="sr-only"
+              />
+              <label
+                htmlFor="images-input"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border bg-white hover:bg-amber-50 shadow cursor-pointer whitespace-nowrap"
+              >
+                Chọn ảnh
+              </label>
+              {form.images.length > 0 && (
+                <span className="text-sm text-gray-500">Đã chọn {form.images.length} ảnh</span>
+              )}
+            </div>
+
             {form.images.length > 0 && (
               <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                 {form.images.map((src, idx) => (
@@ -688,7 +765,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500 text-white font-semibold shadow hover:bg-emerald-600 disabled:opacity-60 animate-pulse"
                 title="Mở trình AI sửa ảnh và tự chèn sẵn ảnh đầu tiên của bạn"
               >
-                {aiBusy ? "Đang chuẩn bị ảnh…" : "✨ AI sửa ảnh (miễn phí)"} 
+                {aiBusy ? "Đang chuẩn bị ảnh…" : "✨ AI sửa ảnh (miễn phí)"}
               </button>
             </div>
           </div>
@@ -718,12 +795,27 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
               <label className="block text-sm font-medium mb-1">
                 Ảnh sổ đỏ / HĐMB (bắt buộc — chụp phần có <strong>tên chính chủ</strong>, chỉ emyland xem được và bảo mật thông tin khách hàng)
               </label>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={onSelectImages("legalImages", 5)}
-              />
+
+              <div className="flex items-center gap-3">
+                <input
+                  id="legal-input"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={onSelectImages("legalImages", 5)}
+                  className="sr-only"
+                />
+                <label
+                  htmlFor="legal-input"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border bg-white hover:bg-amber-50 shadow cursor-pointer whitespace-nowrap"
+                >
+                  Chọn ảnh pháp lý
+                </label>
+                {form.legalImages.length > 0 && (
+                  <span className="text-sm text-gray-500">Đã chọn {form.legalImages.length} ảnh</span>
+                )}
+              </div>
+
               {form.legalImages.length > 0 && (
                 <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
                   {form.legalImages.map((src, idx) => (
