@@ -184,10 +184,23 @@ const Header: React.FC<HeaderProps> = ({
     []
   );
 
-  // Hiển thị tên hội viên & avatar
-  const accountDisplay = currentUser ? buildMemberName(currentUser) : "Hội viên";
-  const avatarSrc = currentUser?.avatarUrl || DEFAULT_AVATAR;
+// Hiển thị tên hội viên & avatar (kèm fallback)
+/** Lấy tên hiển thị từ nhiều nguồn để chắc chắn có giá trị */
+const memberName =
+  (typeof buildMemberName === "function" && buildMemberName(currentUser)) ||
+  currentUser?.fullName ||
+  currentUser?.full_name ||     // trường snake_case từ DB
+  currentUser?.phone ||
+  currentUser?.email ||
+  "";
 
+/** “Hội viên …” nếu có tên, còn không thì chỉ “Hội viên” */
+const accountDisplay = memberName ? `Hội viên ${memberName}` : "Hội viên";
+
+/** Ảnh đại diện: ưu tiên avatarUrl/avatar_url; rỗng thì dùng logo mặc định */
+const avatarSrc =
+  (currentUser?.avatarUrl ?? currentUser?.avatar_url ?? "").trim() ||
+  "/logo.emyland.png"; // hoặc dùng hằng DEFAULT_AVATAR nếu bạn đã khai báo
   return (
     <header className={`bg-white shadow-lg sticky top-0 z-50 ${className}`}>
       <div className="container mx-auto px-4">
