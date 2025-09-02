@@ -186,21 +186,26 @@ const Header: React.FC<HeaderProps> = ({
 
 // Hiển thị tên hội viên & avatar (kèm fallback)
 /** Lấy tên hiển thị từ nhiều nguồn để chắc chắn có giá trị */
-const memberName =
+// --- Name (không lặp "Hội viên")
+const rawName =
   (typeof buildMemberName === "function" && buildMemberName(currentUser)) ||
+  currentUser?.full_name ||
   currentUser?.fullName ||
-  currentUser?.full_name ||     // trường snake_case từ DB
   currentUser?.phone ||
   currentUser?.email ||
   "";
 
-/** “Hội viên …” nếu có tên, còn không thì chỉ “Hội viên” */
-const accountDisplay = memberName ? `Hội viên ${memberName}` : "Hội viên";
+const memberName = rawName.replace(/^\s*Hội viên\s*/i, "").trim(); // nếu đã có "Hội viên", bỏ đi
+// Dạng hiển thị đầy đủ:
+const titledMemberName = memberName ? `Hội viên ${memberName}` : "Hội viên";
 
-/** Ảnh đại diện: ưu tiên avatarUrl/avatar_url; rỗng thì dùng logo mặc định */
+// --- Avatar fallback (ưu tiên avatarUrl / avatar_url, rỗng thì dùng logo mặc định)
+const s = (v?: string) => (typeof v === "string" ? v.trim() : "");
 const avatarSrc =
-  (currentUser?.avatarUrl ?? currentUser?.avatar_url ?? "").trim() ||
-  "/logo.emyland.png"; // hoặc dùng hằng DEFAULT_AVATAR nếu bạn đã khai báo
+  s(currentUser?.avatarUrl) ||
+  s(currentUser?.avatar_url) ||
+  "/logo.emyland.png";
+
   return (
     <header className={`bg-white shadow-lg sticky top-0 z-50 ${className}`}>
       <div className="container mx-auto px-4">
