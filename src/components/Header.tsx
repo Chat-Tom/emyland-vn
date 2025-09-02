@@ -21,8 +21,6 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 
 // ✅ dùng StorageManager & device để auto-login nếu thiết bị đã nhớ
-// (đường dẫn alias '/utils/*' đã dùng xuyên dự án; nếu dự án của Tom khác alias,
-// đổi sang '../utils/...' tương ứng)
 import { StorageManager } from "/utils/storage";
 import { getOrCreateDeviceId } from "/utils/device";
 
@@ -36,8 +34,35 @@ type HeaderProps = {
   className?: string;
 };
 
-const DEFAULT_AVATAR =
-  "https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754146152775_21c04ef8.png";
+/** Ảnh mặc định: Quả cầu có hình chữ S (trong public/) */
+const DEFAULT_AVATAR = "/logo.emyland.png";
+
+/** Tạo tên hiển thị theo chuẩn “Hội viên …” */
+function buildMemberName(u?: any): string {
+  if (!u) return "Hội viên";
+  const full =
+    u.fullName ||
+    u.full_name ||
+    u.name ||
+    u.display_name ||
+    u.username ||
+    u.email ||
+    u.phone ||
+    "";
+
+  let core = String(full).trim();
+
+  // Nếu là email, lấy phần trước @ và thêm lại ký tự '@' theo ví dụ yêu cầu
+  if (core.includes("@")) {
+    const left = core.split("@")[0];
+    core = `${left}@`;
+  }
+
+  // Nếu rỗng (hiếm), fallback đơn giản
+  if (!core) core = "thân mến";
+
+  return `Hội viên ${core}`;
+}
 
 const Header: React.FC<HeaderProps> = ({
   user: propsUser,
@@ -72,9 +97,7 @@ const Header: React.FC<HeaderProps> = ({
   }, []);
 
   /**
-   * ✅ Thử auto-login nếu thiết bị đã được nhớ (đúng yêu cầu:
-   *  - Lần sau trên cùng thiết bị: tự đăng nhập
-   *  - Thiết bị mới: không tự đăng nhập, điều hướng qua đăng ký/đăng nhập)
+   * ✅ Thử auto-login nếu thiết bị đã được nhớ
    */
   const attemptFastLogin = useCallback(() => {
     try {
@@ -94,7 +117,6 @@ const Header: React.FC<HeaderProps> = ({
           StorageManager.saveUser(u);
           StorageManager.setCurrentUser(u);
           setCurrentUser(u);
-          // phát sự kiện để các nơi khác (nếu có) đồng bộ
           window.dispatchEvent(new Event("emyland:userUpdated"));
           return true;
         }
@@ -123,7 +145,6 @@ const Header: React.FC<HeaderProps> = ({
 
   /**
    * ✅ Nút "Tin mới" (đăng nhanh – tự xoá sau 30 ngày) — GIỮ LẠI cho tương thích cũ
-   *  (không dùng ở UI nữa; để sẵn nếu sau này bật lại chế độ đăng nhanh)
    */
   const DAILY_QS = "?mode=daily&expiresDays=30";
   const handlePostDaily = useCallback(() => {
@@ -163,11 +184,8 @@ const Header: React.FC<HeaderProps> = ({
     []
   );
 
-  const accountDisplay =
-    currentUser?.fullName ||
-    currentUser?.phone ||
-    currentUser?.email ||
-    "Tài khoản";
+  // Hiển thị tên hội viên & avatar
+  const accountDisplay = currentUser ? buildMemberName(currentUser) : "Hội viên";
   const avatarSrc = currentUser?.avatarUrl || DEFAULT_AVATAR;
 
   return (
@@ -192,7 +210,7 @@ const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
 
-              {/* Tagline: luôn 1 dòng, font-sans đồng nhất */}
+              {/* Tagline */}
               <span
                 className="
                   font-sans font-medium tracking-normal leading-none
@@ -205,7 +223,6 @@ const Header: React.FC<HeaderProps> = ({
             </Link>
 
             {/* Đăng tin miễn phí (DESKTOP) + Tin mới (DESKTOP) */}
-            {/* đổi block → flex để đặt thêm nút Tin mới */}
             <div className="hidden md:flex items-center gap-2">
               <Button
                 onClick={handlePostProperty}
@@ -230,7 +247,7 @@ const Header: React.FC<HeaderProps> = ({
             <Sheet>
               <SheetTrigger asChild>
                 <div className="flex items-center gap-2 md:hidden">
-                  {/* >>> Tin mới mobile (nhỏ, cạnh Menu) */}
+                  {/* >>> Tin mới mobile */}
                   <Button
                     onClick={handleOpenNews}
                     variant="outline"
@@ -251,28 +268,26 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
               </SheetTrigger>
 
-              {/* Nền vàng nhạt + z-index cao để không bị hero đè, có đệm trong để nút không dính mép */}
               <SheetContent
                 side="right"
                 aria-label="Menu điều hướng"
                 aria-describedby="mobile-menu-desc"
                 className="w-[320px] sm:w-[360px] bg-amber-50 z-[1000] border-l shadow-2xl px-3 py-3"
-                data-logged-in={!!currentUser} // >>> Added: cho phép CSS ẩn/hiện
+                data-logged-in={!!currentUser}
               >
                 <SheetHeader>
-                  {/* Ẩn tiêu đề/miêu tả để gọn UI nhưng đáp ứng a11y → xoá cảnh báo Radix */}
                   <SheetTitle className="sr-only">Menu</SheetTitle>
                   <SheetDescription id="mobile-menu-desc" className="sr-only">
                     Menu điều hướng chính trên thiết bị di động
                   </SheetDescription>
                 </SheetHeader>
 
-                {/* Thứ tự: Tài khoản → Tra cứu quy hoạch → Thẩm định giá - Chứng thư */}
+                {/* Thứ tự: Tài khoản hội viên → Tra cứu quy hoạch → Thẩm định giá - Chứng thư */}
                 <nav className="mt-1 flex flex-col gap-2">
-                  {/* Tài khoản (giữ nguyên) */}
+                  {/* Tài khoản hội viên (giữ logic điều hướng) */}
                   <Button
                     variant="ghost"
-                    aria-label="Đi tới tài khoản"
+                    aria-label="Đi tới tài khoản hội viên"
                     className="btn-account-basic justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
                     onClick={() =>
                       navigate(
@@ -282,7 +297,7 @@ const Header: React.FC<HeaderProps> = ({
                       )
                     }
                   >
-                    Tài khoản
+                    Tài khoản hội viên
                   </Button>
 
                   {/* >>> Khối cá nhân hoá trên MOBILE */}
@@ -339,11 +354,7 @@ const Header: React.FC<HeaderProps> = ({
                             Đăng nhập
                           </Link>
                         </Button>
-                        <Button
-                          variant="outline"
-                          asChild
-                          className="rounded-lg"
-                        >
+                        <Button variant="outline" asChild className="rounded-lg">
                           <Link to={`/register?next=${encodeURIComponent("/dashboard")}`}>
                             Đăng ký
                           </Link>
@@ -374,7 +385,7 @@ const Header: React.FC<HeaderProps> = ({
                   </Button>
                 </nav>
 
-                {/* >>> ẩn nút “Tài khoản” mặc định khi đã đăng nhập (không sửa dòng cũ) */}
+                {/* Ẩn nút “Tài khoản hội viên” mặc định khi đã đăng nhập */}
                 <style>{`
                   [data-logged-in="true"] .btn-account-basic{ display:none; }
                 `}</style>
@@ -382,7 +393,7 @@ const Header: React.FC<HeaderProps> = ({
             </Sheet>
           </div>
 
-          {/* >>> Nút Đăng tin miễn phí riêng cho MOBILE (full-width, có nhấp nháy) */}
+          {/* >>> Nút Đăng tin miễn phí riêng cho MOBILE */}
           <div className="w-full md:hidden">
             <Button
               onClick={handlePostProperty}
@@ -392,7 +403,6 @@ const Header: React.FC<HeaderProps> = ({
               Đăng tin miễn phí
             </Button>
           </div>
-          {/* <<< Added MOBILE button */}
 
           {/* Menu desktop cũ (giữ nguyên logic) */}
           <nav className="hidden md:flex items-center space-x-6">
@@ -413,14 +423,14 @@ const Header: React.FC<HeaderProps> = ({
                     variant="outline"
                     size="sm"
                     className="flex items-center gap-2 hover:bg-gray-50"
-                    aria-label="Mở menu tài khoản"
+                    aria-label="Mở menu tài khoản hội viên"
                   >
                     <img
                       src={avatarSrc}
                       alt="Avatar"
                       className="h-6 w-6 object-cover rounded-full"
                     />
-                    <span className="text-sm font-medium">Tài khoản</span>
+                    <span className="text-sm font-medium">Tài khoản hội viên</span>
                     <ChevronDown className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -450,14 +460,12 @@ const Header: React.FC<HeaderProps> = ({
             ) : (
               <Button
                 onClick={() =>
-                  navigate(
-                    "/login?next=" + encodeURIComponent("/dashboard")
-                  )
+                  navigate("/login?next=" + encodeURIComponent("/dashboard"))
                 }
                 variant="outline"
                 className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white"
               >
-                Tài khoản
+                Tài khoản hội viên
               </Button>
             )}
           </nav>
@@ -474,7 +482,6 @@ const Header: React.FC<HeaderProps> = ({
           }
         }
       `}</style>
-      {/* <<< Added */}
     </header>
   );
 };
