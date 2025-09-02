@@ -184,9 +184,6 @@ const Header: React.FC<HeaderProps> = ({
     []
   );
 
-// Hiển thị tên hội viên & avatar (kèm fallback)
-/** Lấy tên hiển thị từ nhiều nguồn để chắc chắn có giá trị */
-// --- Name (không lặp "Hội viên")
 const rawName =
   (typeof buildMemberName === "function" && buildMemberName(currentUser)) ||
   currentUser?.full_name ||
@@ -195,11 +192,13 @@ const rawName =
   currentUser?.email ||
   "";
 
-const memberName = rawName.replace(/^\s*Hội viên\s*/i, "").trim(); // nếu đã có "Hội viên", bỏ đi
-// Dạng hiển thị đầy đủ:
+const memberName = rawName.replace(/^\s*Hội viên\s*/i, "").trim();
 const titledMemberName = memberName ? `Hội viên ${memberName}` : "Hội viên";
 
-// --- Avatar fallback (ưu tiên avatarUrl / avatar_url, rỗng thì dùng logo mặc định)
+// ✅ Alias cho code cũ còn dùng accountDisplay (tránh lỗi runtime)
+const accountDisplay = titledMemberName;
+
+// --- Avatar fallback
 const s = (v?: string) => (typeof v === "string" ? v.trim() : "");
 const avatarSrc =
   s(currentUser?.avatarUrl) ||
