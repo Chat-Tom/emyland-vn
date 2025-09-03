@@ -28,6 +28,16 @@ function isValidVNPhone(v: string) {
   return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 }
 
+// Tìm user theo email (không phân biệt hoa/thường)
+function getUserByEmailCI(email: string) {
+  const direct = StorageManager.getUserByEmail(email);
+  if (direct) return direct;
+  const low = email.toLowerCase();
+  return (
+    StorageManager.getAllUsers().find((u) => (u.email || "").toLowerCase() === low) || null
+  );
+}
+
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
@@ -174,6 +184,50 @@ const Login: React.FC = () => {
     }
   };
 
+  // ✅ Quên mật khẩu: chỉ cho đi nếu ĐÚNG & ĐÃ ĐĂNG KÝ
+  const handleForgotClick = () => {
+    const id = identifier.trim();
+
+    if (!id) {
+      setErrors((p) => ({
+        ...p,
+        identifier: "Vui lòng nhập số điện thoại hoặc email trước khi khôi phục mật khẩu",
+      }));
+      return;
+    }
+
+    // Email
+    if (isEmail(id)) {
+      const u = getUserByEmailCI(id);
+      if (!u) {
+        setErrors((p) => ({ ...p, identifier: "Email chưa được đăng ký" }));
+        return;
+      }
+      navigate(`/forgot-password?email=${encodeURIComponent(u.email)}`);
+      return;
+    }
+
+    // Số điện thoại
+    if (!isValidVNPhone(id)) {
+      setErrors((p) => ({ ...p, identifier: "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)" }));
+      return;
+    }
+    const phoneKey = sanitizePhone(id);
+    const u = StorageManager.getUserByPhone(phoneKey);
+    if (!u) {
+      setErrors((p) => ({ ...p, identifier: "Số điện thoại chưa được đăng ký" }));
+      return;
+    }
+    if (!u.email) {
+      setErrors((p) => ({
+        ...p,
+        identifier: "Tài khoản này chưa có email khôi phục. Vui lòng liên hệ hỗ trợ.",
+      }));
+      return;
+    }
+    navigate(`/forgot-password?email=${encodeURIComponent(u.email)}`);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-orange-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-xl">
@@ -278,17 +332,11 @@ const Login: React.FC = () => {
                 </p>
               )}
 
-              {/* ✅ Quên mật khẩu: gợi ý nhận link về đúng email đã đăng ký */}
+              {/* ✅ Quên mật khẩu: CHỈ cho đi nếu tài khoản tồn tại */}
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() =>
-                    navigate(
-                      isEmail(identifier)
-                        ? `/forgot-password?email=${encodeURIComponent(identifier.trim())}`
-                        : "/forgot-password"
-                    )
-                  }
+                  onClick={handleForgotClick}
                   className="text-sm text-blue-600 hover:text-blue-700"
                 >
                   Quên mật khẩu?
