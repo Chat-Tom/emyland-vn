@@ -300,21 +300,12 @@ function isLocalOrPrivate(urlStr: string) {
   return false;
 }
 
-/** ===== Zalo share =====
- * - PUBLIC link → dùng zalo.me/share (Zalo mở DANH BẠ & tự chèn link).
- * - LOCAL/PRIVATE → copy link & mở thẳng Danh bạ để dán thủ công (không thể auto paste do cross-origin).
+/** ===== Zalo share (ổn định) =====
+ * Luôn: copy sẵn link & mở thẳng DANH BẠ Zalo Web.
+ * Sau khi Tom chọn người nhận: dán (Ctrl+V) và Enter để gửi.
+ * (Không thể tự dán/tự gửi vào khung chat của Zalo Web do bảo mật cross-origin.)
  */
-function openZaloShare(title: string, shareUrl: string) {
-  const isLocal = isLocalOrPrivate(shareUrl);
-
-  if (!isLocal) {
-    const zaloShare = `https://zalo.me/share?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(
-      title || "EmyLand"
-    )}`;
-    window.location.assign(zaloShare);
-    return;
-  }
-
+function openZaloShare(shareUrl: string) {
   copyText(shareUrl);
   const contactsUrls = [
     "https://chat.zalo.me/#/contacts",
@@ -325,7 +316,7 @@ function openZaloShare(title: string, shareUrl: string) {
   window.location.assign(contactsUrls[0]);
   setTimeout(() => {
     try {
-      alert("Đã chép link. Chọn người nhận trong DANH BẠ rồi dán (Ctrl+V) và Enter để gửi.");
+      alert("Đã chép link. Chọn người nhận trong Danh bạ, dán (Ctrl+V) rồi Enter để gửi.");
     } catch {}
   }, 600);
 }
@@ -392,7 +383,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
     setShareOpen(false);
   };
   const shareZalo = () => {
-    openZaloShare(title || "EmyLand", shareUrl);
+    openZaloShare(shareUrl);
     setShareOpen(false);
   };
 
@@ -522,7 +513,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
             ) : null}
           </div>
 
-          {/* Popover: Zalo / FaceBook (đã gọn, bỏ hàng dưới) */}
+        {/* Popover: Zalo / FaceBook (gọn) */}
           <div className="relative" ref={shareWrapRef}>
             <button
               type="button"
@@ -545,7 +536,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
                     type="button"
                     onClick={shareZalo}
                     className="inline-flex justify-center items-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow"
-                    title="Zalo (mở DANH BẠ, tự chèn link nếu là PUBLIC)"
+                    title="Zalo (mở DANH BẠ; đã copy link — chọn người nhận rồi Ctrl+V, Enter)"
                   >
                     Zalo
                   </button>
