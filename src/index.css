@@ -174,3 +174,7 @@ div[data-radix-portal] {
 [data-radix-popper-content-wrapper] [data-state="open"] {
   z-index: var(--z-dropdown) !important;
 }
+/* Placeholder luôn mờ như hướng dẫn */
+::placeholder { color: #9ca3af; opacity: 1; } /* gray-400 */
+input::placeholder { color: #9ca3af; opacity: 1; }
+textarea::placeholder { color: #9ca3af; opacity: 1; }
