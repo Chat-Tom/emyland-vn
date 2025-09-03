@@ -1,4 +1,4 @@
-Tương tự mục "Đăng ký tài khoản": // src/pages/Dashboard.tsx
+// src/pages/Dashboard.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
@@ -8,20 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import {
-  User,
-  Home,
-  Edit,
-  Trash2,
-  Eye,
-  Plus,
-  Camera,
-  Mail,
-  ShieldCheck,
-  Hourglass,
-} from "lucide-react";
-import { postDateLabel, renderVerifiedAt } from "@utils/date"; // ⬅️ thêm renderVerifiedAt
-
+import { User, Home, Edit, Trash2, Eye, Plus, Camera, Mail, ShieldCheck, Hourglass } from "lucide-react";
+import { postDateLabel, renderVerifiedAt } from "@utils/date";
 import { StorageManager } from "@utils/storage";
 import type { UserAccount, PropertyListing } from "@utils/storage";
 
