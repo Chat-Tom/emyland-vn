@@ -1,4 +1,4 @@
-// src/pages/Dashboard.tsx
+Tương tự mục "Đăng ký tài khoản": // src/pages/Dashboard.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";

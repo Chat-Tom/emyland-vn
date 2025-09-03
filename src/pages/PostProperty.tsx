@@ -29,6 +29,7 @@ const AI_TMP_BUCKET =
 const MAX_IMAGE_MB = 8;
 const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
 
+/* ===== Helpers kiểm tra hợp lệ ===== */
 function isValidUrl(u: string) {
   try {
     const url = new URL(u);
@@ -55,6 +56,20 @@ function dataURLtoBlob(dataUrl: string): Blob {
   }
   const u8 = new Uint8Array(unescape(data).split("").map((c) => c.charCodeAt(0)));
   return new Blob([u8], { type: mime || "image/jpeg" });
+}
+
+/* ===== Phone helpers (giống Login/Đăng ký) ===== */
+function sanitizePhone(v: string) {
+  return v.replace(/\D/g, "");
+}
+function normalizeVNPhone(input: string) {
+  const digits = sanitizePhone(input);
+  let normalized = digits.startsWith("84") ? "0" + digits.slice(2) : digits;
+  if (normalized.length > 0 && normalized[0] !== "0") normalized = "0" + normalized;
+  return normalized.slice(0, 10);
+}
+function isValidVNPhone(v: string) {
+  return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 }
 
 type FormState = {
@@ -247,6 +262,21 @@ const PostProperty: React.FC = () => {
       });
     };
 
+  /* ====== LIVE ERROR cho số điện thoại + chặn submit khi sai ====== */
+  const phoneError = useMemo(() => {
+    const v = form.contactPhone.trim();
+    if (!v) return ""; // chỉ báo lỗi khi đã nhập gì đó mà sai
+    const normalized = normalizeVNPhone(v);
+    return isValidVNPhone(normalized)
+      ? ""
+      : "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
+  }, [form.contactPhone]);
+
+  const canSubmit = useMemo(() => {
+    // Chặn Đăng tin nếu phone sai hoặc để trống, đồng thời không đang bận AI
+    return !aiBusy && form.contactPhone.trim() !== "" && !phoneError;
+  }, [aiBusy, form.contactPhone, phoneError]);
+
   const validate = (): string | null => {
     if (!form.provinceId) return "Vui lòng chọn Tỉnh/Thành.";
     if (!form.ward) return "Vui lòng chọn Phường/Xã.";
@@ -263,6 +293,8 @@ const PostProperty: React.FC = () => {
     if (!form.description.trim()) return "Vui lòng nhập Mô tả.";
     if (!form.contactPhone.trim())
       return "Vui lòng nhập Số điện thoại liên hệ. Bạn có thể thay số khác với số gợi ý.";
+    if (!isValidVNPhone(normalizeVNPhone(form.contactPhone)))
+      return "Số điện thoại liên hệ không hợp lệ (VN 10 số, đầu 03/05/07/08/09).";
     if (form.images.length === 0) return "Vui lòng chọn ít nhất 1 ảnh bất động sản.";
     if (form.legalImages.length === 0)
       return "Vui lòng tải ảnh pháp lý (sổ đỏ/HĐMB) — chụp phần có tên chính chủ.";
@@ -304,7 +336,7 @@ const PostProperty: React.FC = () => {
       mapUrl: form.mapUrl || undefined,
       contactInfo: {
         name: form.contactName.trim(),
-        phone: form.contactPhone.trim(),
+        phone: form.contactPhone.trim(), // giữ nguyên lưu trữ như bản cũ
         // email: form.contactEmail?.trim() || undefined,
         ownerVerified: false,
         // ▼ Thêm mốc xác minh rỗng để đồng nhất schema
@@ -866,14 +898,23 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
             <div>
               <label className="block text-sm font-medium mb-1">Số điện thoại liên hệ *</label>
               <input
+                type="tel"
                 value={form.contactPhone}
                 onChange={onChange("contactPhone")}
                 placeholder="VD: 09xxxxxxxx"
-                className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 ${
+                  phoneError ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "focus:ring-blue-500"
+                }`}
+                aria-invalid={!!phoneError}
+                aria-describedby={phoneError ? "contact-phone-error" : undefined}
               />
-              <p className="mt-1 text-xs italic text-gray-500">
-                (Bạn có thể thay số điện thoại khác với số gợi ý)
-              </p>
+              {phoneError ? (
+                <p id="contact-phone-error" className="mt-1 text-sm text-red-500">{phoneError}</p>
+              ) : (
+                <p className="mt-1 text-xs italic text-gray-500">
+                  (Bạn có thể thay số điện thoại khác với số gợi ý)
+                </p>
+              )}
             </div>
           </div>
         </section>
@@ -896,7 +937,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
           </button>
           <button
             onClick={onSubmit}
-            className="rounded-xl bg-amber-400 px-6 py-3 font-semibold shadow-sm transition hover:bg-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            disabled={!canSubmit}
+            className="rounded-xl bg-amber-400 px-6 py-3 font-semibold shadow-sm transition hover:bg-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Đăng tin
           </button>

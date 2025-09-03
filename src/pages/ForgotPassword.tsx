@@ -12,6 +12,8 @@ function isValidEmail(v: string) {
 }
 
 const SUPPORT_EMAIL = "contact@emyland.vn";
+// Prefill mặc định cho Tom nếu không có ?email= và chưa xác định currentUser
+const TOM_DEFAULT_EMAIL = "chat301277@gmail.com";
 
 const ForgotPassword: React.FC = () => {
   const [sp] = useSearchParams();
@@ -22,13 +24,15 @@ const ForgotPassword: React.FC = () => {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Prefill từ ?email=
+  // Prefill: ?email= → currentUser.email → TOM_DEFAULT_EMAIL
   useEffect(() => {
-    const seed = sp.get("email") || "";
-    if (seed) setEmail(seed);
+    const fromQuery = sp.get("email") || "";
+    const current = (StorageManager as any)?.getCurrentUser?.();
+    const fallback = current?.email || TOM_DEFAULT_EMAIL;
+    setEmail((fromQuery || fallback || "").trim());
   }, [sp]);
 
-  // Tìm user theo email (không phân biệt hoa/thường)
+  // Chỉ cho khôi phục đúng email đã đăng ký (không phân biệt hoa/thường)
   const userExists = useMemo(() => {
     if (!email) return false;
     const norm = email.trim();
@@ -40,6 +44,12 @@ const ForgotPassword: React.FC = () => {
       (u) => (u.email || "").toLowerCase() === low
     );
   }, [email]);
+
+  // Nút chỉ bật khi email hợp lệ & đã đăng ký & không đang gửi
+  const canSubmit = useMemo(
+    () => isValidEmail(email) && userExists && !submitting,
+    [email, userExists, submitting]
+  );
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +66,7 @@ const ForgotPassword: React.FC = () => {
       return;
     }
     if (!userExists) {
-      setErr("Email chưa được đăng ký. Vui lòng nhập đúng Email trong tài khoản.");
+      setErr("Email chưa được đăng ký. Vui lòng dùng đúng Email trong tài khoản.");
       return;
     }
 
@@ -69,7 +79,6 @@ const ForgotPassword: React.FC = () => {
       });
 
       if (!r.ok) {
-        // cố gắng lấy thông báo lỗi từ server
         let detail = "";
         try {
           const d = await r.json();
@@ -97,9 +106,7 @@ const ForgotPassword: React.FC = () => {
             </span>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">Quên mật khẩu</CardTitle>
-          <p className="text-gray-600 mt-2">
-            Nhập <b>email đã đăng ký</b> để nhận liên kết đặt lại mật khẩu.
-          </p>
+          {/* (đã xoá dòng hướng dẫn dưới tiêu đề theo yêu cầu) */}
         </CardHeader>
 
         <CardContent>
@@ -126,25 +133,31 @@ const ForgotPassword: React.FC = () => {
                   type="email"
                   autoComplete="email"
                   value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (msg) setMsg(null);
-                    if (err) setErr(null);
+                  readOnly // 🔒 không cho sửa email
+                  onChange={() => {
+                    /* readOnly: no-op */
                   }}
                   placeholder="you@example.com"
-                  aria-invalid={!!err}
-                  className="pr-10"
+                  aria-readonly="true"
+                  aria-invalid={!userExists}
+                  className="pr-10 bg-gray-100 text-gray-700 cursor-not-allowed select-text"
+                  title="Email được cố định theo tài khoản đã đăng ký"
                 />
                 <Mail className="h-4 w-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
               <p className="text-xs text-gray-500">
-                Hệ thống chỉ gửi về <b>email đã đăng ký trong tài khoản</b>. Không chấp nhận email khác.
+                Hệ thống chỉ gửi về <b>email đã đăng ký trong tài khoản</b>. Ô trên được cố định theo hồ sơ của bạn.
               </p>
+              {!userExists && (
+                <p className="text-red-500 text-sm">
+                  Email này chưa tồn tại trong hệ thống. Vui lòng dùng đúng email đã đăng ký.
+                </p>
+              )}
             </div>
 
             <Button
               type="submit"
-              disabled={submitting}
+              disabled={!canSubmit}
               className="relative group w-full overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to-orange-500 text-white font-semibold py-3 transition-transform duration-200 hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <span

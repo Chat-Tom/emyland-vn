@@ -447,8 +447,12 @@ export default function PropertyCard({ property }: PropertyCardProps) {
           {postedText ? <span className="text-gray-500 font-normal"> • {postedText}</span> : null}
         </div>
 
-        {/* Mô tả rút gọn */}
-        {shortDesc && <p className="text-[13px] text-gray-700 emy-desc-clamp">{shortDesc}</p>}
+        {/* Mô tả rút gọn → HIỆU ỨNG “CHỮ MỜ” */}
+        {shortDesc && (
+          <p className="text-[13px] text-gray-400 italic opacity-90 emy-desc-clamp select-none">
+            {shortDesc}
+          </p>
+        )}
 
         {/* CTA – kéo lên gần phần nội dung cuối */}
         {id && (

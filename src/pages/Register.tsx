@@ -36,13 +36,59 @@ const Register: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const sanitizePhone = (v: string) => v.replace(/\D/g, "");
+  const isValidVNEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
   const isValidVNPhone = useCallback(
     (v: string) => /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v)),
     []
   );
 
-  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  // ⬇️ Realtime validate để hiển thị cảnh báo đỏ ngay khi nhập
+  const phoneError = useMemo(() => {
+    if (!form.phone.trim()) return "";
+    return isValidVNPhone(form.phone)
+      ? ""
+      : "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
+  }, [form.phone, isValidVNPhone]);
+
+  const emailError = useMemo(() => {
+    if (!form.email.trim()) return "";
+    return isValidVNEmail(form.email) ? "" : "Email không hợp lệ";
+  }, [form.email]);
+
+  const passwordHint = useMemo(() => {
+    if (!form.password) return "";
+    return form.password.length >= 6 ? "" : "Mật khẩu tối thiểu 6 ký tự";
+  }, [form.password]);
+
+  const confirmHint = useMemo(() => {
+    if (!form.confirmPassword) return "";
+    return form.confirmPassword === form.password ? "" : "Mật khẩu không khớp";
+  }, [form.confirmPassword, form.password]);
+
+  const canSubmit = useMemo(() => {
+    // Chặn nút khi có lỗi realtime hoặc còn thiếu bắt buộc
+    const requiredOk =
+      form.phone.trim() &&
+      form.email.trim() &&
+      form.fullName.trim() &&
+      form.password &&
+      form.confirmPassword;
+    const noRealtimeErrors =
+      !phoneError && !emailError && !passwordHint && !confirmHint;
+    return !!requiredOk && noRealtimeErrors && !submitting;
+  }, [
+    form.phone,
+    form.email,
+    form.fullName,
+    form.password,
+    form.confirmPassword,
+    phoneError,
+    emailError,
+    passwordHint,
+    confirmHint,
+    submitting,
+  ]);
 
   // <<< CHUẨN HÓA SĐT: luôn giữ 0 đầu, tối đa 10 số (kể cả nhập +84...)
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,6 +109,7 @@ const Register: React.FC = () => {
     if (errors.general) setErrors((p) => ({ ...p, general: "" }));
   };
 
+  // Validate cuối trước khi submit (giữ nguyên logic tổng thể)
   const validate = () => {
     const e: Record<string, string> = {};
 
@@ -71,7 +118,7 @@ const Register: React.FC = () => {
       e.phone = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
 
     if (!form.email) e.email = "Email là bắt buộc";
-    else if (!isValidEmail(form.email)) e.email = "Email không hợp lệ";
+    else if (!isValidVNEmail(form.email)) e.email = "Email không hợp lệ";
 
     if (!form.fullName) e.fullName = "Họ và tên là bắt buộc";
 
@@ -200,16 +247,17 @@ const Register: React.FC = () => {
                 value={form.phone}
                 onChange={handleChange}
                 placeholder="090xxxxxxx"
-                aria-invalid={!!errors.phone}
-                aria-describedby={errors.phone ? "phone-error" : undefined}
-                maxLength={10} // hạn chế tối đa 10 ký tự
+                aria-invalid={!!(errors.phone || phoneError)}
+                aria-describedby={errors.phone || phoneError ? "phone-error" : undefined}
+                maxLength={10}
+                className={(errors.phone || phoneError) ? "border-red-500 focus:border-red-500" : ""}
               />
               <p className="text-xs text-gray-500">
                 Chấp nhận số Việt Nam 10 số (đầu 03/05/07/08/09).
               </p>
-              {errors.phone && (
+              {(errors.phone || phoneError) && (
                 <p id="phone-error" className="text-red-500 text-sm">
-                  {errors.phone}
+                  {errors.phone || phoneError}
                 </p>
               )}
             </div>
@@ -227,12 +275,13 @@ const Register: React.FC = () => {
                 value={form.email}
                 onChange={handleChange}
                 placeholder="you@example.com"
-                aria-invalid={!!errors.email}
-                aria-describedby={errors.email ? "email-error" : undefined}
+                aria-invalid={!!(errors.email || emailError)}
+                aria-describedby={errors.email || emailError ? "email-error" : undefined}
+                className={(errors.email || emailError) ? "border-red-500 focus:border-red-500" : ""}
               />
-              {errors.email && (
+              {(errors.email || emailError) && (
                 <p id="email-error" className="text-red-500 text-sm">
-                  {errors.email}
+                  {errors.email || emailError}
                 </p>
               )}
             </div>
@@ -250,6 +299,7 @@ const Register: React.FC = () => {
                 placeholder="Nguyễn Văn A"
                 aria-invalid={!!errors.fullName}
                 aria-describedby={errors.fullName ? "fullName-error" : undefined}
+                className={errors.fullName ? "border-red-500 focus:border-red-500" : ""}
               />
               {errors.fullName && (
                 <p id="fullName-error" className="text-red-500 text-sm">
@@ -272,9 +322,9 @@ const Register: React.FC = () => {
                   value={form.password}
                   onChange={handleChange}
                   placeholder="Nhập mật khẩu"
-                  aria-invalid={!!errors.password}
-                  aria-describedby={errors.password ? "password-error" : undefined}
-                  className="pr-10"
+                  aria-invalid={!!(errors.password || passwordHint)}
+                  aria-describedby={errors.password || passwordHint ? "password-error" : undefined}
+                  className={`pr-10 ${(errors.password || passwordHint) ? "border-red-500 focus:border-red-500" : ""}`}
                 />
                 <button
                   type="button"
@@ -285,9 +335,9 @@ const Register: React.FC = () => {
                   {showPw ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
-              {errors.password && (
+              {(errors.password || passwordHint) && (
                 <p id="password-error" className="text-red-500 text-sm">
-                  {errors.password}
+                  {errors.password || passwordHint}
                 </p>
               )}
             </div>
@@ -306,9 +356,9 @@ const Register: React.FC = () => {
                   value={form.confirmPassword}
                   onChange={handleChange}
                   placeholder="Nhập lại mật khẩu"
-                  aria-invalid={!!errors.confirmPassword}
-                  aria-describedby={errors.confirmPassword ? "confirmPassword-error" : undefined}
-                  className="pr-10"
+                  aria-invalid={!!(errors.confirmPassword || confirmHint)}
+                  aria-describedby={errors.confirmPassword || confirmHint ? "confirmPassword-error" : undefined}
+                  className={`pr-10 ${(errors.confirmPassword || confirmHint) ? "border-red-500 focus:border-red-500" : ""}`}
                 />
                 <button
                   type="button"
@@ -319,9 +369,9 @@ const Register: React.FC = () => {
                   {showPw2 ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
-              {errors.confirmPassword && (
+              {(errors.confirmPassword || confirmHint) && (
                 <p id="confirmPassword-error" className="text-red-500 text-sm">
-                  {errors.confirmPassword}
+                  {errors.confirmPassword || confirmHint}
                 </p>
               )}
             </div>
@@ -330,7 +380,7 @@ const Register: React.FC = () => {
             <div className="md:col-span-2">
               <Button
                 type="submit"
-                disabled={submitting}
+                disabled={!canSubmit}
                 className="relative group w-full overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to-orange-500 text-white font-semibold py-3 transition-transform duration-200 hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <span

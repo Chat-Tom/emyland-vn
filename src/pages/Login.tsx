@@ -38,6 +38,7 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   // ✅ Hỗ trợ điều hướng về trang mong muốn sau đăng nhập
   const DEFAULT_NEXT = "/post-property";
@@ -72,9 +73,28 @@ const Login: React.FC = () => {
     [identifier]
   );
 
+  // ❗ Cảnh báo ngay khi nhập: xác thực theo thời gian thực
+  const liveIdentifierError = useMemo(() => {
+    const v = identifier.trim();
+    if (!v) return "";
+    if (mode === "email") {
+      return isEmail(v) ? "" : "Email không hợp lệ";
+    }
+    const normalized = normalizeVNPhone(v);
+    return isValidVNPhone(normalized)
+      ? ""
+      : "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
+  }, [identifier, mode]);
+
+  const canSubmit = useMemo(() => {
+    // Chỉ cho phép submit khi: identifier hợp lệ + có password + không đang loading
+    return !liveIdentifierError && identifier.trim() !== "" && password.trim() !== "" && !isLoading;
+  }, [identifier, password, liveIdentifierError, isLoading]);
+
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!identifier.trim()) e.identifier = "Vui lòng nhập số điện thoại hoặc email";
+    if (!identifier.trim())
+      e.identifier = "Vui lòng nhập số điện thoại hoặc email";
     else if (mode === "email") {
       if (!isEmail(identifier)) e.identifier = "Email không hợp lệ";
     } else {
@@ -89,6 +109,13 @@ const Login: React.FC = () => {
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (isLoading) return;
+    setSubmitted(true);
+
+    // Chặn đăng nhập nếu đang có lỗi định dạng khi nhập
+    if (liveIdentifierError) {
+      setErrors((p) => ({ ...p, identifier: liveIdentifierError }));
+      return;
+    }
     if (!validate()) return;
 
     setIsLoading(true);
@@ -116,7 +143,10 @@ const Login: React.FC = () => {
       // Fallback tìm email không phân biệt hoa/thường
       if (!u && isEmail(loginId)) {
         const lower = loginId.toLowerCase();
-        u = StorageManager.getAllUsers().find((x) => (x.email || "").toLowerCase() === lower) || null;
+        u =
+          StorageManager.getAllUsers().find(
+            (x) => (x.email || "").toLowerCase() === lower
+          ) || null;
       }
 
       if (u) {
@@ -184,13 +214,18 @@ const Login: React.FC = () => {
                 value={identifier}
                 onChange={(e) => {
                   setIdentifier(e.target.value);
+                  // xoá lỗi cũ khi người dùng tiếp tục nhập
                   if (errors.identifier) setErrors((p) => ({ ...p, identifier: "" }));
                   if (errors.general) setErrors((p) => ({ ...p, general: "" }));
                 }}
                 placeholder="090xxxxxxx hoặc name@example.com"
-                aria-invalid={!!errors.identifier}
-                aria-describedby={errors.identifier ? "identifier-error" : undefined}
-                className={errors.identifier ? "border-red-500 focus:border-red-500" : ""}
+                aria-invalid={!!(errors.identifier || liveIdentifierError)}
+                aria-describedby={
+                  errors.identifier || liveIdentifierError ? "identifier-error" : undefined
+                }
+                className={(errors.identifier || liveIdentifierError)
+                  ? "border-red-500 focus:border-red-500 focus-visible:ring-red-500"
+                  : ""}
               />
               {mode === "phone" ? (
                 <p className="text-xs text-gray-500">
@@ -199,9 +234,9 @@ const Login: React.FC = () => {
               ) : (
                 <p className="text-xs text-gray-500">Ví dụ: {ADMIN_EMAIL}</p>
               )}
-              {errors.identifier && (
+              {(errors.identifier || liveIdentifierError) && (
                 <p id="identifier-error" className="text-red-500 text-sm">
-                  {errors.identifier}
+                  {errors.identifier || liveIdentifierError}
                 </p>
               )}
             </div>
@@ -226,7 +261,7 @@ const Login: React.FC = () => {
                   placeholder="Nhập mật khẩu"
                   aria-invalid={!!errors.password}
                   aria-describedby={errors.password ? "password-error" : undefined}
-                  className={`pr-10 ${errors.password ? "border-red-500 focus:border-red-500" : ""}`}
+                  className={`pr-10 ${errors.password ? "border-red-500 focus:border-red-500 focus-visible:ring-red-500" : ""}`}
                 />
                 <button
                   type="button"
@@ -237,9 +272,9 @@ const Login: React.FC = () => {
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
-              {errors.password && (
+              {submitted && !password && (
                 <p id="password-error" className="text-red-500 text-sm">
-                  {errors.password}
+                  {errors.password || "Vui lòng nhập mật khẩu"}
                 </p>
               )}
 
@@ -264,7 +299,7 @@ const Login: React.FC = () => {
             {/* Submit */}
             <Button
               type="submit"
-              disabled={isLoading}
+              disabled={!canSubmit}
               className="relative group w-full overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to-orange-500 text-white font-semibold py-3 transition-transform duration-200 hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <span
