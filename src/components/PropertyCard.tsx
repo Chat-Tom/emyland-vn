@@ -1,9 +1,8 @@
 // src/components/PropertyCard.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Star, Eye, ShieldCheck, Hourglass, Share2 } from "lucide-react";
+import { MapPin, Star, ShieldCheck, Hourglass, Share2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { renderPosted, verifiedDateLabel } from "../../utils/date";
 
@@ -299,13 +298,29 @@ function isLocalOrPrivate(urlStr: string) {
   } catch {}
   return false;
 }
+function isMobileUA() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /android|iphone|ipad|ipod|mobile/i.test(ua);
+}
 
-/** ===== Zalo share (ổn định, không preview) =====
- * Copy link & mở DANH BẠ Zalo Web. Link copy là /api/go?t=<URL tin>,
- * bot Zalo nhận 204 nên không tạo preview, người dùng click sẽ 302 tới trang tin.
- */
-function openZaloShare(shareUrlForZalo: string) {
-  copyText(shareUrlForZalo);
+/** ===== Zalo share (đa nền tảng) ===== */
+function openZaloShareSmart(title: string, urlForZalo: string, rawUrlForCopy?: string) {
+  const isMobile = isMobileUA();
+  const local = isLocalOrPrivate(urlForZalo) || (rawUrlForCopy ? isLocalOrPrivate(rawUrlForCopy) : false);
+
+  if (isMobile && !local) {
+    const zaloShare = `https://zalo.me/share?url=${encodeURIComponent(urlForZalo)}&title=${encodeURIComponent(
+      title || "EmyLand"
+    )}`;
+    window.location.assign(zaloShare);
+    return;
+  }
+  if (isMobile && local && (navigator as any)?.share) {
+    (navigator as any).share({ title: title || "EmyLand", url: rawUrlForCopy || urlForZalo }).catch(() => {});
+    return;
+  }
+  copyText(rawUrlForCopy || urlForZalo);
   const contactsUrls = [
     "https://chat.zalo.me/#/contacts",
     "https://chat.zalo.me/?page=contacts",
@@ -376,11 +391,11 @@ export default function PropertyCard({ property }: PropertyCardProps) {
     }
   }, [id, PUBLIC_SHARE_ORIGIN]);
 
-  // Link chuyên dùng cho Zalo để KHÔNG tạo preview: /api/go?t=<shareUrl>
+  // Link KHÔNG preview cho Zalo: /api/go?t=<shareUrl>
   const zaloNoPreviewUrl = useMemo(() => {
     try {
       const origin = new URL(shareUrl).origin;
-      if (isLocalOrPrivate(origin)) return shareUrl; // dev: dùng link thẳng
+      if (isLocalOrPrivate(origin)) return shareUrl;
       const u = new URL("/api/go", origin);
       u.searchParams.set("t", shareUrl);
       return u.toString();
@@ -395,7 +410,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
     setShareOpen(false);
   };
   const shareZalo = () => {
-    openZaloShare(zaloNoPreviewUrl);
+    openZaloShareSmart(title || "EmyLand", zaloNoPreviewUrl, shareUrl);
     setShareOpen(false);
   };
 
@@ -493,11 +508,19 @@ export default function PropertyCard({ property }: PropertyCardProps) {
       </div>
 
       <CardContent className="p-4 space-y-3">
-        {/* Tiêu đề + ⭐ */}
+        {/* Tiêu đề (click = xem chi tiết) + ⭐ */}
         <div className="flex items-start justify-between gap-3">
-          <h3 className="text-base sm:text-lg font-semibold text-gray-900 line-clamp-2">
-            {title}
-          </h3>
+          <Link
+            to={id ? `/property/${id}` : "#"}
+            aria-label={title ? `Xem chi tiết: ${title}` : "Xem chi tiết"}
+            className="group/link -m-1 p-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            title="Xem chi tiết"
+          >
+            <h3 className="cursor-pointer text-base sm:text-lg font-semibold text-gray-900 line-clamp-2 transition-all duration-200 group-hover:text-indigo-600 group-hover:drop-shadow-sm group-hover/link:text-indigo-600 hover:underline decoration-2 underline-offset-2">
+              {title}
+            </h3>
+          </Link>
+
           {(rating ?? 0) > 0 && (
             <div className="shrink-0 inline-flex items-center gap-1 text-yellow-500">
               <Star className="h-4 w-4 fill-yellow-500" />
@@ -548,7 +571,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
                     type="button"
                     onClick={shareZalo}
                     className="inline-flex justify-center items-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow"
-                    title="Zalo (mở Danh bạ; đã copy link — Ctrl+V rồi Enter)"
+                    title="Zalo (Mobile: mở Danh bạ app; Desktop/Local: Danh bạ web + đã copy link)"
                   >
                     Zalo
                   </button>
@@ -572,16 +595,6 @@ export default function PropertyCard({ property }: PropertyCardProps) {
           <p className="text-[13px] text-gray-400 italic opacity-90 emy-desc-clamp select-none">
             {shortDesc}
           </p>
-        )}
-
-        {/* CTA */}
-        {id && (
-          <Link to={`/property/${id}`} className="block mt-1">
-            <Button className="w-full font-semibold bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:via-purple-600 hover:to-pink-600 active:scale-[0.99] text-white shadow-md hover:shadow-lg transition">
-              <Eye className="h-4 w-4 mr-2" />
-              Xem chi tiết
-            </Button>
-          </Link>
         )}
       </CardContent>
 
