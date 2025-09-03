@@ -300,13 +300,12 @@ function isLocalOrPrivate(urlStr: string) {
   return false;
 }
 
-/** ===== Zalo share (ổn định) =====
- * Luôn: copy sẵn link & mở thẳng DANH BẠ Zalo Web.
- * Sau khi Tom chọn người nhận: dán (Ctrl+V) và Enter để gửi.
- * (Không thể tự dán/tự gửi vào khung chat của Zalo Web do bảo mật cross-origin.)
+/** ===== Zalo share (ổn định, không preview) =====
+ * Copy link & mở DANH BẠ Zalo Web. Link copy là /api/go?t=<URL tin>,
+ * bot Zalo nhận 204 nên không tạo preview, người dùng click sẽ 302 tới trang tin.
  */
-function openZaloShare(shareUrl: string) {
-  copyText(shareUrl);
+function openZaloShare(shareUrlForZalo: string) {
+  copyText(shareUrlForZalo);
   const contactsUrls = [
     "https://chat.zalo.me/#/contacts",
     "https://chat.zalo.me/?page=contacts",
@@ -377,13 +376,26 @@ export default function PropertyCard({ property }: PropertyCardProps) {
     }
   }, [id, PUBLIC_SHARE_ORIGIN]);
 
+  // Link chuyên dùng cho Zalo để KHÔNG tạo preview: /api/go?t=<shareUrl>
+  const zaloNoPreviewUrl = useMemo(() => {
+    try {
+      const origin = new URL(shareUrl).origin;
+      if (isLocalOrPrivate(origin)) return shareUrl; // dev: dùng link thẳng
+      const u = new URL("/api/go", origin);
+      u.searchParams.set("t", shareUrl);
+      return u.toString();
+    } catch {
+      return shareUrl;
+    }
+  }, [shareUrl]);
+
   // === Actions
   const shareFacebook = () => {
     openFacebookShare(shareUrl);
     setShareOpen(false);
   };
   const shareZalo = () => {
-    openZaloShare(shareUrl);
+    openZaloShare(zaloNoPreviewUrl);
     setShareOpen(false);
   };
 
@@ -513,7 +525,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
             ) : null}
           </div>
 
-        {/* Popover: Zalo / FaceBook (gọn) */}
+          {/* Popover: Zalo / FaceBook (gọn) */}
           <div className="relative" ref={shareWrapRef}>
             <button
               type="button"
@@ -536,7 +548,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
                     type="button"
                     onClick={shareZalo}
                     className="inline-flex justify-center items-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow"
-                    title="Zalo (mở DANH BẠ; đã copy link — chọn người nhận rồi Ctrl+V, Enter)"
+                    title="Zalo (mở Danh bạ; đã copy link — Ctrl+V rồi Enter)"
                   >
                     Zalo
                   </button>
