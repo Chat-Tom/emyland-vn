@@ -26,7 +26,10 @@ const normalizeImages = (images: any): string[] => {
         const arr = JSON.parse(images);
         if (Array.isArray(arr)) return arr.filter(Boolean);
       } catch {
-        return images.split(",").map((s) => s.trim()).filter(Boolean);
+        return images
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
       }
     }
   } catch {}
@@ -84,6 +87,8 @@ interface PropertyEditModalProps {
   isAdmin?: boolean;
   /** Alias mới để tương thích với Dashboard: nếu truyền, sẽ ưu tiên giá trị này */
   canVerify?: boolean;
+  /** Ẩn/hiện “Đánh dấu Nổi bật” (mặc định ẩn để đúng yêu cầu) */
+  showFeatured?: boolean;
 }
 
 const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
@@ -93,6 +98,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
   onSave,
   isAdmin,
   canVerify,
+  showFeatured = false, // ⬅ mặc định ẩn
 }) => {
   if (!property) return null;
 
@@ -157,7 +163,11 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
 
   // Ảnh
   const [images, setImages] = useState<string[]>(normalizeImages((property as any).images));
-  const [legalImages, setLegalImages] = useState<string[]>([]);
+
+  // ⬅ Prefill ảnh pháp lý từ prop (nếu Dashboard truyền vào), fallback load từ StorageManager
+  const [legalImages, setLegalImages] = useState<string[]>(
+    normalizeImages((property as any).legalImages)
+  );
 
   // Thông số thêm
   const [bedrooms, setBedrooms] = useState<string>(toStr((property as any).bedrooms));
@@ -175,9 +185,10 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       ((property as any).is_verified ? "verified" : "pending")
   );
 
-  // Load ảnh pháp lý nếu có API
+  // Load ảnh pháp lý từ kho nếu prop chưa có
   useEffect(() => {
     (async () => {
+      if (legalImages.length > 0) return; // đã có từ prop
       try {
         const fn: any = (StorageManager as any).loadLegalImages || (StorageManager as any).getLegalImages;
         if (typeof fn === "function") {
@@ -186,6 +197,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
         }
       } catch {}
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [property]);
 
   // ==== Derived ====
@@ -507,7 +519,13 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
                 {images.map((src, i) => (
                   <div key={i} className="relative">
                     <img src={src} className="h-28 w-full object-cover rounded-md border" />
-                    <button type="button" onClick={removeImage("images", i)} className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white">X</button>
+                    <button
+                      type="button"
+                      onClick={removeImage("images", i)}
+                      className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white"
+                    >
+                      X
+                    </button>
                   </div>
                 ))}
               </div>
@@ -523,7 +541,13 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
                 {legalImages.map((src, i) => (
                   <div key={i} className="relative">
                     <img src={src} className="h-24 w-full object-cover rounded-md border" />
-                    <button type="button" onClick={removeImage("legalImages", i)} className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white">X</button>
+                    <button
+                      type="button"
+                      onClick={removeImage("legalImages", i)}
+                      className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white"
+                    >
+                      X
+                    </button>
                   </div>
                 ))}
               </div>
@@ -543,12 +567,15 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
           </div>
 
           <div className="flex items-center justify-between py-2">
-            <div className="flex items-center gap-3">
-              <Switch checked={isHot} onCheckedChange={setIsHot} />
-              <span>Đánh dấu Nổi bật</span>
-            </div>
-            {allowVerify && (
+            {/* Ẩn theo yêu cầu nhưng không xoá logic */}
+            {showFeatured && (
               <div className="flex items-center gap-3">
+                <Switch checked={isHot} onCheckedChange={setIsHot} />
+                <span>Đánh dấu Nổi bật</span>
+              </div>
+            )}
+            {allowVerify && (
+              <div className="flex items-center gap-3 ml-auto">
                 <Label>Trạng thái xác minh</Label>
                 <Select value={verification} onValueChange={(v: any) => setVerification(v)}>
                   <SelectTrigger className="w-[220px]"><SelectValue placeholder="Trạng thái" /></SelectTrigger>

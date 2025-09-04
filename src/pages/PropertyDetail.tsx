@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-// ✅ THÊM: nguồn dữ liệu thật và fallback local
+// dữ liệu thật + fallback local
 import { PropertyService } from "@/services/propertyService";
 import { StorageManager, type PropertyListing } from "@utils/storage";
 
@@ -37,7 +37,7 @@ type Property = {
   rating?: number;
 };
 
-// ✅ Placeholder SVG nội tuyến để không bị trắng khi lỗi ảnh
+// placeholder ảnh an toàn
 const FALLBACK_SVG = encodeURIComponent(
   `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'>
     <defs><linearGradient id='g' x1='0' x2='1'>
@@ -49,7 +49,7 @@ const FALLBACK_SVG = encodeURIComponent(
 );
 const PLACEHOLDER = `data:image/svg+xml;charset=UTF-8,${FALLBACK_SVG}`;
 
-/* ---------- Helpers ---------- */
+// ===== helpers =====
 function formatPriceVn(price?: number, listingType?: ListingType) {
   if (!price || price <= 0) return "Thoả thuận";
   if (listingType === "rent")
@@ -63,7 +63,19 @@ function verifyBadge(status?: Verify) {
   return null;
 }
 
-/* ---------- Normalize (giữ toàn bộ logic cũ, thêm mapUrl) ---------- */
+// renderer nhẹ: escape HTML + hỗ trợ **bold** / *italic* + xuống dòng
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function renderRichText(raw?: string) {
+  const s = escapeHtml(String(raw ?? ""));
+  const md = s
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>");
+  return md.replace(/\r?\n/g, "<br/>");
+}
+
+// chuẩn hoá record từ API
 function normalizeProperty(raw: any): Property {
   if (!raw) return { id: "", title: "Tin bất động sản" };
 
@@ -113,16 +125,14 @@ function normalizeProperty(raw: any): Property {
   };
 }
 
-// ✅ THÊM: chuẩn hoá từ localStorage (tin do người dùng đăng trên site)
+// chuẩn hoá record từ localStorage (tin user đăng)
 function normalizeFromLocal(p: PropertyListing | null): Property | null {
   if (!p) return null;
 
-  // Lấy listingType đúng từ local (đã lưu khi đăng)
   const listingType: ListingType =
     (p as any).listingType ??
     ((typeof (p as any).rent_per_month === "number" ? "rent" : "sell") as ListingType);
 
-  // Giá hiển thị theo listingType
   const price =
     listingType === "rent"
       ? (p as any).rent_per_month
@@ -130,10 +140,6 @@ function normalizeFromLocal(p: PropertyListing | null): Property | null {
       ? (p as any).price
       : undefined;
 
-  // Trạng thái xác minh:
-  // - Nếu đã có p.verificationStatus ⇒ dùng luôn
-  // - Nếu chưa có mà contactInfo.ownerVerified === true ⇒ "verified"
-  // - Ngược lại ⇒ "pending" (đúng yêu cầu “mặc định đang xác nhận”)
   const verificationStatus: Verify =
     ((p as any).verificationStatus as Verify) ??
     (p.contactInfo?.ownerVerified ? "verified" : "pending");
@@ -156,7 +162,7 @@ function normalizeFromLocal(p: PropertyListing | null): Property | null {
     verificationStatus,
     ownerName: p.contactInfo?.name,
     ownerPhone: p.contactInfo?.phone,
-    mapUrl: (p as any).mapUrl, // ⬅️ dùng link map lưu khi đăng tin
+    mapUrl: (p as any).mapUrl,
     type: p.propertyType,
     rating: 4.8,
   };
@@ -169,7 +175,7 @@ const buildMapsLink = (p: Property, address: string) => {
   return undefined;
 };
 
-/* ---------- ✅ THÊM: CTA về trang chủ + ẩn "Quay lại" mà không xoá dòng ---------- */
+// CTA dính trên cùng
 const CTA_HOME_URL =
   (import.meta as any)?.env?.VITE_PUBLIC_SITE_URL ||
   (import.meta as any)?.env?.VITE_PUBLIC_SHARE_ORIGIN ||
@@ -194,7 +200,6 @@ function CTAHomeBar() {
   );
 }
 
-/* ---------- Page ---------- */
 export default function PropertyDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -202,7 +207,7 @@ export default function PropertyDetail() {
 
   const stateProp = location.state?.property ? normalizeProperty(location.state.property) : undefined;
 
-  // ✅ SỬA: fetch thật theo id → Supabase trước, không có thì fallback local
+  // fetch theo id → ưu tiên Supabase, fallback local
   const { data: fetchedProp, isLoading } = useQuery<Property | null>({
     queryKey: ["property-detail", id],
     enabled: !stateProp && !!id,
@@ -210,23 +215,20 @@ export default function PropertyDetail() {
     queryFn: async () => {
       if (!id) return null;
 
-      // 1) Supabase
       const db = await PropertyService.getPropertyById(id);
       if (db) return normalizeProperty(db);
 
-      // 2) Fallback localStorage (tin từ Dashboard/đăng mới)
       const local = StorageManager.getPropertyById(id);
       const normalizedLocal = normalizeFromLocal(local);
       if (normalizedLocal) return normalizedLocal;
 
-      // 3) Không có
       return null;
     },
   });
 
   const property = stateProp ?? fetchedProp ?? null;
 
-  // Gallery state
+  // gallery
   const pics = useMemo(
     () => (property?.images?.length ? property.images : [PLACEHOLDER]),
     [property]
@@ -234,7 +236,7 @@ export default function PropertyDetail() {
   const [active, setActive] = useState(0);
   useEffect(() => setActive(0), [property?.id]);
 
-  // ✅ THÊM: Ẩn nút "Quay lại" cũ (không xoá dòng) và giữ lại hành vi hiện có
+  // ẩn nút "Quay lại" cũ (không xoá dòng)
   useEffect(() => {
     try {
       const els = Array.from(document.querySelectorAll("button, a"));
@@ -269,17 +271,16 @@ export default function PropertyDetail() {
 
   return (
     <>
-      {/* ✅ THÊM: thanh CTA dính trên cùng */}
       <CTAHomeBar />
 
       <div className="bg-white">
         <div className="max-w-6xl mx-auto px-4 py-6">
-          {/* Top actions – bỏ hẳn ô trống bên phải (giữ dòng cũ nhưng đã ẩn bằng useEffect) */}
+          {/* dòng cũ giữ nguyên (đã ẩn bằng effect) */}
           <div className="mb-4">
             <Button variant="ghost" onClick={() => navigate(-1)}>Quay lại</Button>
           </div>
 
-          {/* Gallery */}
+          {/* gallery */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 rounded-xl overflow-hidden bg-gray-100">
               <img
@@ -290,7 +291,6 @@ export default function PropertyDetail() {
               />
             </div>
 
-            {/* Chỉ render thumbnail khi có >1 ảnh */}
             {pics.length > 1 ? (
               <div className="flex lg:flex-col gap-3">
                 {pics.slice(0, 6).map((src, i) => (
@@ -305,7 +305,6 @@ export default function PropertyDetail() {
                     ].join(" ")}
                     aria-label={`Ảnh ${i + 1}`}
                   >
-                    {/* eslint-disable-next-line jsx-a11y/alt-text */}
                     <img
                       src={src || PLACEHOLDER}
                       onError={(e) => ((e.currentTarget as HTMLImageElement).src = PLACEHOLDER)}
@@ -336,7 +335,7 @@ export default function PropertyDetail() {
               {property.type && <Badge variant="outline">{property.type}</Badge>}
             </div>
 
-            {/* Summary row */}
+            {/* Summary */}
             <div className="text-gray-700 text-base leading-relaxed">
               <div className="mb-1">{address}</div>
               <div className="font-medium">
@@ -347,11 +346,10 @@ export default function PropertyDetail() {
             </div>
           </div>
 
-          {/* Contact card (2 cột desktop, 1 cột mobile) */}
+          {/* Contact */}
           {(property.ownerName || property.ownerPhone || mapsLink) && (
             <div className="mt-6 rounded-xl border bg-gray-50">
               <div className="p-4 md:p-5 grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 items-center">
-                {/* Left: info */}
                 <div className="md:col-span-2 space-y-1">
                   {property.ownerName && (
                     <div>
@@ -369,7 +367,6 @@ export default function PropertyDetail() {
                   )}
                 </div>
 
-                {/* Right: actions */}
                 <div className="flex flex-wrap md:justify-end gap-2">
                   {property.ownerPhone && (
                     <>
@@ -391,12 +388,17 @@ export default function PropertyDetail() {
             </div>
           )}
 
-          {/* Description */}
+          {/* Description: giữ định dạng như lúc đăng */}
           <div className="mt-8">
             <h2 className="text-xl font-semibold mb-2">Mô tả chi tiết</h2>
-            <p className="text-gray-700 leading-relaxed">
-              {property.description || "Chưa có mô tả cho tin đăng này."}
-            </p>
+            <div
+              className="text-gray-700 leading-relaxed prose-sm max-w-none"
+              dangerouslySetInnerHTML={{
+                __html: renderRichText(
+                  property.description || "Chưa có mô tả cho tin đăng này."
+                ),
+              }}
+            />
           </div>
         </div>
       </div>

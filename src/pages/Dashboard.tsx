@@ -151,6 +151,43 @@ const listMyProperties = (u: UserAccount): PropertyListing[] => {
   return mine as PropertyListing[];
 };
 
+/** 🔧 Helper: lấy ảnh pháp lý đã lưu cho tin */
+function getLegalImagesById(id?: string): string[] {
+  if (!id) return [];
+  try {
+    const fromSM = (StorageManager as any).getLegalImages?.(id);
+    if (Array.isArray(fromSM)) return fromSM;
+  } catch {}
+  try {
+    const raw = localStorage.getItem(`emyland_property_legal_${id}`);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 🔧 Ẩn checkbox “Đánh dấu Nổi bật” trong modal Sửa (không sửa modal) */
+function hideFeaturedFieldInModal() {
+  try {
+    // đợi modal render
+    setTimeout(() => {
+      const containers = Array.from(document.querySelectorAll<HTMLElement>(".fixed, [role='dialog'], .ReactModal__Content"));
+      containers.forEach((root) => {
+        const all = Array.from(root.querySelectorAll<HTMLElement>("label, div, span, p"));
+        for (const el of all) {
+          const txt = (el.textContent || "").trim();
+          if (/^đánh dấu\s*nổi bật$/i.test(txt) || /nổi bật/i.test(txt) && /đánh dấu/i.test(txt)) {
+            // Ẩn cả block chứa input + label
+            const wrapper = el.closest("div") || el.parentElement;
+            if (wrapper) (wrapper as HTMLElement).style.display = "none";
+          }
+        }
+      });
+    }, 0);
+  } catch {}
+}
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<UserAccount | null>(null);
@@ -227,9 +264,17 @@ const Dashboard = () => {
   };
 
   const handleEditProperty = (property: PropertyListing) => {
-    setEditingProperty(property);
+    // ✅ Prefill ảnh pháp lý khi mở sửa
+    const legalImages = getLegalImagesById(property.id);
+    const merged: any = { ...property, legalImages: Array.isArray(legalImages) ? legalImages : [] };
+    setEditingProperty(merged);
     setIsEditModalOpen(true);
   };
+
+  // ✅ Khi mở modal: ẩn trường "Đánh dấu Nổi bật"
+  useEffect(() => {
+    if (isEditModalOpen) hideFeaturedFieldInModal();
+  }, [isEditModalOpen, editingProperty?.id]);
 
   const handleSaveProperty = () => {
     if (user) setProperties(listMyProperties(user));
