@@ -9,6 +9,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { StorageManager } from "@utils/storage";
 import { getOrCreateDeviceId } from "@utils/device";
 
+/* ✅ THÊM: Supabase + token helpers (đa thiết bị) */
+import { supabase } from "@/lib/supabase";
+const ACCESS_TOKEN_KEY = "emy_access_token";
+const saveAccessToken = (t: string) => {
+  try { if (t) localStorage.setItem(ACCESS_TOKEN_KEY, t); } catch {}
+};
+
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
 
@@ -116,6 +123,54 @@ const Login: React.FC = () => {
     return Object.keys(e).length === 0;
   };
 
+  /* ✅ THÊM: Cloud login / migrate user cũ lên Supabase (không phá logic cũ) */
+  const tryCloudLoginOrMigrate = async (loginId: string, pwd: string, deviceId: string) => {
+    try {
+      // 1) Thử đăng nhập qua RPC
+      const { data, error } = await supabase.rpc("rpc_login", {
+        p_email_or_phone: loginId,
+        p_password: pwd,
+        p_device_id: deviceId,
+      });
+      if (!error && data?.[0]?.access_token) {
+        saveAccessToken(data[0].access_token);
+        return true;
+      }
+
+      // 2) Nếu chưa có trên cloud → migrate user cũ (tạo user rồi đăng nhập lại)
+      if (error?.message?.includes("EMAIL_OR_PHONE_NOT_FOUND")) {
+        const isMail = isEmail(loginId);
+        const localU =
+          (isMail && getUserByEmailCI(loginId)) ||
+          StorageManager.getUserByPhone(sanitizePhone(loginId)) ||
+          null;
+
+        const regParams = {
+          p_email: isMail ? loginId : (localU?.email || null),
+          p_phone: isMail ? (localU?.phone || null) : sanitizePhone(loginId),
+          p_password: pwd,
+          p_full_name: localU?.fullName || null,
+        };
+        const { error: regErr } = await supabase.rpc("rpc_register_user", regParams);
+        // Nếu đã tồn tại (trùng unique) thì cứ thử login lại
+        if (!regErr || /already exists|unique/i.test(regErr.message)) {
+          const { data: d2, error: e2 } = await supabase.rpc("rpc_login", {
+            p_email_or_phone: loginId,
+            p_password: pwd,
+            p_device_id: deviceId,
+          });
+          if (!e2 && d2?.[0]?.access_token) {
+            saveAccessToken(d2[0].access_token);
+            return true;
+          }
+        }
+      }
+    } catch {
+      /* bỏ qua, không chặn luồng cũ */
+    }
+    return false;
+  };
+
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (isLoading) return;
@@ -168,6 +223,9 @@ const Login: React.FC = () => {
           loggedInAt: new Date().toISOString(),
         });
       }
+
+      // ✅ THÊM: tạo phiên Supabase (đa thiết bị) + migrate user cũ nếu cần
+      await tryCloudLoginOrMigrate(loginId, password, deviceId);
 
       // Phát tín hiệu để chỗ khác sync UI (nếu có lắng nghe)
       try {

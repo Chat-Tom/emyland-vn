@@ -1,4 +1,4 @@
-// src/App.tsx
+// src/App.tsx 
 import NewsPage from "@/pages/NewsPage";
 import NewsDetail from "@/pages/NewsDetail";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
@@ -25,8 +25,12 @@ const NotFound             = lazy(() => import("@/pages/NotFound"));
 const SocialHousing        = lazy(() => import("@/pages/SocialHousing"));
 /* ========= Helpers cho auto-login theo thiết bị (giữ ở đây để không đụng các page) ========= */
 // Dùng alias '/utils/*' như trong dự án; nếu khác, đổi path tương ứng.
-import { StorageManager } from "/utils/storage";
-import { getOrCreateDeviceId } from "/utils/device";
+import { StorageManager } from "@utils/storage";
+import { getOrCreateDeviceId } from "@utils/device";
+
+/* ✅ THÊM: Supabase token cho auto-login đa thiết bị */
+import { supabase } from "@/lib/supabase";
+const ACCESS_TOKEN_KEY = "emy_access_token";
 
 /* ========== Scroll to top on route change ========== */
 function ScrollToTop() {
@@ -69,14 +73,51 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
     }
   }, []);
 
-  useEffect(() => {
-    // chỉ thử khi chưa đăng nhập
-    if (!isAuthenticated) {
-      attemptFastLogin();
+  /* ✅ THÊM: Auto-login qua Supabase token (đa thiết bị) */
+  const attemptCloudLogin = useCallback(async () => {
+    try {
+      const token = localStorage.getItem(ACCESS_TOKEN_KEY) || "";
+      if (!token) return false;
+
+      const { data, error } = await supabase.rpc("rpc_me", { p_token: token });
+      const row = data?.[0];
+      if (error || !row?.user_id) return false;
+
+      const u = {
+        id: row.user_id as string,
+        email: (row.email as string) || "",
+        phone: (row.phone as string) || "",
+        fullName: (row.full_name as string) || "",
+        isLoggedIn: true,
+      };
+      // Lưu vào storage theo schema cũ để toàn app hiểu
+      try {
+        StorageManager.saveUser?.(u as any);
+        StorageManager.setCurrentUser?.(u as any);
+        window.dispatchEvent(new Event("emyland:userUpdated"));
+        localStorage.setItem("emyland_user_updated", String(Date.now()));
+      } catch {}
+
+      return true;
+    } catch {
+      return false;
     }
-    // dù thành công hay không, kết thúc "trying" để render tiếp
-    setTrying(false);
-  }, [isAuthenticated, attemptFastLogin]);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      // chỉ thử khi chưa đăng nhập
+      if (!isAuthenticated) {
+        const okLocal = attemptFastLogin();
+        if (!okLocal) {
+          await attemptCloudLogin(); // ✅ thử khôi phục bằng Supabase token
+        }
+      }
+      if (mounted) setTrying(false);
+    })();
+    return () => { mounted = false; };
+  }, [isAuthenticated, attemptFastLogin, attemptCloudLogin]);
 
   // Loading từ context hoặc đang thử auto-login
   if (isLoading || trying) {

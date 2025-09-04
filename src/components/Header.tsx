@@ -21,8 +21,8 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 
 // ✅ dùng StorageManager & device để auto-login nếu thiết bị đã nhớ
-import { StorageManager } from "/utils/storage";
-import { getOrCreateDeviceId } from "/utils/device";
+import { StorageManager } from "@utils/storage";
+import { getOrCreateDeviceId } from "@utils/device";
 
 type LegacyFilter = { label: string; key: string };
 type HeaderProps = {

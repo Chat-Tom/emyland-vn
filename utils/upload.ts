@@ -1,7 +1,7 @@
 // utils/upload.ts (client)
 // Kiểm MIME + size (5MB) và đính kèm metadata.size khi upload lên Supabase Storage.
 
-import { supabase } from "./supabaseClient";
+import { supabase } from "@/lib/supabase";
 
 const BUCKET = "property-images";
 
