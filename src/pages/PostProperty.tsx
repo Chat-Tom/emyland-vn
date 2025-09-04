@@ -1,6 +1,6 @@
 // src/pages/PostProperty.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 // 🔧 storage ở GỐC dự án (ngoài /src) → đi ra 2 cấp
 import { StorageManager } from "../../utils/storage";
@@ -29,7 +29,7 @@ const AI_TMP_BUCKET =
 const MAX_IMAGE_MB = 8;
 const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
 
-/* ===== Helpers kiểm tra hợp lệ ===== */
+/* ===== Helpers ===== */
 function isValidUrl(u: string) {
   try {
     const url = new URL(u);
@@ -72,6 +72,57 @@ function isValidVNPhone(v: string) {
   return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 }
 
+/* ===== Read helpers ===== */
+function getAllLocalProperties(): any[] {
+  try {
+    const raw = localStorage.getItem("emyland_properties") || "[]";
+    return JSON.parse(raw) || [];
+  } catch {
+    return [];
+  }
+}
+function getPropertyByIdLocal(id: string): any | null {
+  const all = getAllLocalProperties();
+  return all.find((p) => String(p?.id) === String(id)) || null;
+}
+function getLegalImagesByIdLocal(id: string): string[] {
+  // Ưu tiên API của StorageManager nếu có
+  try {
+    if (typeof (StorageManager as any).getLegalImages === "function") {
+      const arr = (StorageManager as any).getLegalImages(id);
+      if (Array.isArray(arr)) return arr.filter(Boolean);
+    }
+  } catch {}
+  // Fallback quét localStorage theo nhiều khoá có thể có
+  const out: string[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || "";
+      if (!k) continue;
+      if (k.includes("legal") && k.includes(id)) {
+        const v = localStorage.getItem(k);
+        try {
+          const arr = JSON.parse(v || "[]");
+          if (Array.isArray(arr)) out.push(...arr.filter(Boolean));
+        } catch {}
+      }
+    }
+  } catch {}
+  return out;
+}
+
+/* ===== Province name → id ===== */
+function provinceIdFromName(name?: string): string {
+  if (!name) return "";
+  const exact = provinces.find((p) => p.provinceName === name)?.provinceId;
+  if (exact) return exact;
+  const loose = provinces.find(
+    (p) => p.provinceName.toLowerCase().includes(String(name).toLowerCase())
+  )?.provinceId;
+  return loose || "";
+}
+
+/* ===== Form state ===== */
 type FormState = {
   provinceId: string;
   ward: string;
@@ -95,7 +146,6 @@ type FormState = {
 
   contactName: string;
   contactPhone: string;
-  // contactEmail: string; // ẨN khỏi UI theo yêu cầu
 
   agreeOwnerPhone: boolean;
   agreeLegalTruth: boolean;
@@ -123,7 +173,6 @@ const initialForm: FormState = {
   legalImages: [],
   contactName: "",
   contactPhone: "",
-  // contactEmail: "",
 
   agreeOwnerPhone: true,
   agreeLegalTruth: true,
@@ -131,22 +180,125 @@ const initialForm: FormState = {
 
 const PostProperty: React.FC = () => {
   const navigate = useNavigate();
+  const [sp] = useSearchParams();
+
   const [form, setForm] = useState<FormState>(initialForm);
   const [aiBusy, setAiBusy] = useState(false);
 
+  // ===== trạng thái chỉnh sửa
+  const editId = useMemo(
+    () => sp.get("id") || sp.get("edit") || sp.get("pid"),
+    [sp]
+  );
+  const isEditMode = !!editId;
+  const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null);
+
+  // ===== Hydrate user (kể cả khi mất emyland_user nhưng còn session cục bộ)
   useEffect(() => {
-    const cur = StorageManager.getCurrentUser();
+    let cur = StorageManager.getCurrentUser?.();
     if (!cur || !cur.isLoggedIn) {
-      navigate("/login");
+      // cố gắng lấy từ active session nếu có
+      try {
+        const sessionRaw = localStorage.getItem("emyland_active_session");
+        if (sessionRaw) {
+          const session = JSON.parse(sessionRaw);
+          if (session?.phone) {
+            const u =
+              StorageManager.getUserByPhone?.(sanitizePhone(session.phone)) ||
+              StorageManager.getUserByEmail?.(session.email || "");
+            if (u) {
+              StorageManager.saveUser?.({ ...u, isLoggedIn: true });
+              cur = { ...u, isLoggedIn: true };
+            }
+          }
+        }
+      } catch {}
+    }
+    if (!cur || !cur.isLoggedIn) {
+      navigate(`/login?next=/post-property${editId ? `?id=${encodeURIComponent(editId)}` : ""}`);
       return;
     }
+    // seed tên/điện thoại từ tài khoản
     setForm((f) => ({
       ...f,
       contactName: cur.fullName || "",
       contactPhone: cur.phone || "",
-      // contactEmail: cur.email || "",
     }));
-  }, [navigate]);
+    // nếu đang sửa, nạp dữ liệu tin
+    if (isEditMode && editId) {
+      loadPropertyForEdit(editId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigate, isEditMode, editId]);
+
+  // ====== nạp dữ liệu tin để sửa (bao gồm ảnh pháp lý) ======
+  const loadPropertyForEdit = (id: string) => {
+    const p =
+      (typeof (StorageManager as any).getPropertyById === "function"
+        ? (StorageManager as any).getPropertyById(id)
+        : null) || getPropertyByIdLocal(id);
+
+    if (!p) return;
+
+    const lt: ListingType =
+      (p?.listingType as ListingType) ??
+      (typeof p?.rent_per_month === "number" ? "rent" : "sell");
+
+    const area = (p?.area ?? p?.size ?? "") as any;
+    const provinceName =
+      p?.location?.province || p?.province || p?.provinceName || "";
+    const provId = provinceIdFromName(provinceName);
+
+    const bedrooms =
+      p?.bedrooms ?? p?.bedroom_count ?? p?.bed ?? p?.rooms?.bedrooms ?? "";
+    const bathrooms =
+      p?.bathrooms ?? p?.bathroom_count ?? p?.wc ?? p?.rooms?.bathrooms ?? "";
+
+    const images = (p?.images || p?.photos || p?.gallery || []) as string[];
+    const legalImages =
+      getLegalImagesByIdLocal(id) ||
+      (p?.legalImages || p?.legal_images || p?.legal_docs || p?.attachments || []);
+
+    const priceTy =
+      lt === "sell" && Number(p?.price)
+        ? String((Number(p.price) / 1_000_000_000).toFixed(2)).replace(/\.00$/, "")
+        : "";
+    const rentMil =
+      lt === "rent" && Number(p?.rent_per_month)
+        ? String(Math.round(Number(p.rent_per_month) / 1_000_000))
+        : "";
+
+    setOriginalCreatedAt(p?.createdAt || p?.created_at || null);
+
+    setForm((f) => ({
+      ...f,
+      provinceId: provId,
+      ward: p?.location?.ward || p?.ward || "",
+      address: p?.location?.address || p?.address || "",
+      mapUrl: p?.mapUrl || p?.location?.map_url || "",
+
+      listingType: lt,
+
+      propertyType: p?.propertyType || p?.property_type || "",
+      area: area ? String(area) : "",
+      priceTy,
+      rentMil,
+      title: p?.title || "",
+      description: p?.description || p?.summary || "",
+
+      bedrooms: bedrooms ? String(bedrooms) : "",
+      bathrooms: bathrooms ? String(bathrooms) : "",
+
+      images: Array.isArray(images) ? images : [],
+      legalImages: Array.isArray(legalImages) ? legalImages : [],
+
+      contactName: p?.contactInfo?.name || p?.ownerName || f.contactName,
+      contactPhone: p?.contactInfo?.phone || p?.ownerPhone || f.contactPhone,
+
+      agreeOwnerPhone: true,
+      agreeLegalTruth: true,
+    }));
+  };
 
   const sortedProvinces = useMemo(() => {
     return provinces
@@ -215,7 +367,7 @@ const PostProperty: React.FC = () => {
   // chuyển File[] -> dataURL[]
   const filesToDataUrls = (files: File[]) =>
     Promise.all(
-      files.map(
+      Array.from(files).map(
         (f) =>
           new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -265,7 +417,7 @@ const PostProperty: React.FC = () => {
   /* ====== LIVE ERROR cho số điện thoại + chặn submit khi sai ====== */
   const phoneError = useMemo(() => {
     const v = form.contactPhone.trim();
-    if (!v) return ""; // chỉ báo lỗi khi đã nhập gì đó mà sai
+    if (!v) return "";
     const normalized = normalizeVNPhone(v);
     return isValidVNPhone(normalized)
       ? ""
@@ -273,7 +425,6 @@ const PostProperty: React.FC = () => {
   }, [form.contactPhone]);
 
   const canSubmit = useMemo(() => {
-    // Chặn Đăng tin nếu phone sai hoặc để trống, đồng thời không đang bận AI
     return !aiBusy && form.contactPhone.trim() !== "" && !phoneError;
   }, [aiBusy, form.contactPhone, phoneError]);
 
@@ -303,24 +454,7 @@ const PostProperty: React.FC = () => {
     return null;
   };
 
-  const onSubmit = async () => {
-    const err = validate();
-    if (err) {
-      alert(err);
-      return;
-    }
-    const current = StorageManager.getCurrentUser();
-    if (!current || !current.isLoggedIn) {
-      alert("Phiên đăng nhập đã hết. Vui lòng đăng nhập lại.");
-      navigate("/login");
-      return;
-    }
-
-    const id = StorageManager.generateId();
-    const now = new Date().toISOString();
-    const provinceName =
-      sortedProvinces.find((p) => p.provinceId === form.provinceId)?.provinceName || "";
-
+  const buildPropertyPayload = (id: string, nowISO: string, provinceName: string, keepCreatedAt?: string | null) => {
     const property: any = {
       id,
       title: form.title.trim(),
@@ -336,23 +470,36 @@ const PostProperty: React.FC = () => {
       mapUrl: form.mapUrl || undefined,
       contactInfo: {
         name: form.contactName.trim(),
-        phone: form.contactPhone.trim(), // giữ nguyên lưu trữ như bản cũ
-        // email: form.contactEmail?.trim() || undefined,
+        phone: form.contactPhone.trim(),
         ownerVerified: false,
-        // ▼ Thêm mốc xác minh rỗng để đồng nhất schema
         ownerVerifiedAt: undefined,
         owner_verified_at: undefined,
       },
-      // ▼ Trạng thái & mốc xác minh (rỗng khi mới đăng)
       verificationStatus: "pending",
       verifiedAt: undefined,
       verified_at: undefined,
 
       images: form.images,
-      userEmail: current.email,
-      createdAt: now,
-      updatedAt: now,
       listingType: form.listingType,
+
+      ward: form.ward,
+      province: provinceName,
+      address: form.address.trim(),
+
+      is_verified: false,
+      verified: false,
+      verification_status: "pending",
+
+      userEmail: StorageManager.getCurrentUser?.()?.email || undefined,
+      user_email: StorageManager.getCurrentUser?.()?.email || undefined,
+
+      property_type: form.propertyType,
+      listing_type: form.listingType,
+
+      updatedAt: nowISO,
+      updated_at: nowISO,
+      createdAt: keepCreatedAt || nowISO,
+      created_at: keepCreatedAt || nowISO,
     };
 
     if (form.listingType === "sell") {
@@ -365,47 +512,88 @@ const PostProperty: React.FC = () => {
 
     const bd = Number(form.bedrooms);
     const bt = Number(form.bathrooms);
-    if (isFinite(bd) && bd > 0) property.bedrooms = bd;
-    if (isFinite(bt) && bt > 0) property.bathrooms = bt;
-
-    // ===== ✅ BỔ SUNG ALIAS + TRẢI PHẲNG TRƯỜNG để Home/Admin đọc đồng nhất
     if (isFinite(bd) && bd > 0) {
+      property.bedrooms = bd;
       property.bedroom_count = bd;
       property.bed = bd;
     }
     if (isFinite(bt) && bt > 0) {
+      property.bathrooms = bt;
       property.bathroom_count = bt;
       property.bath = bt;
       property.wc = bt;
       property.WC = bt;
     }
-    property.ward = form.ward;
-    property.province = provinceName;
-    property.address = form.address.trim();
 
-    // cờ xác minh & timestamps (snake_case) + snake_case key phổ biến
-    property.is_verified = false;
-    property.verified = false;
-    property.verification_status = "pending";
-    property.created_at = now;
-    property.updated_at = now;
+    return property;
+  };
 
-    // snake_case mirrors for một số key phổ biến ở DB
-    property.listing_type = property.listingType;
-    property.property_type = property.propertyType;
-    property.user_email = property.userEmail;
+  const onSubmit = async () => {
+    const err = validate();
+    if (err) {
+      alert(err);
+      return;
+    }
+    const current = StorageManager.getCurrentUser?.();
+    if (!current || !current.isLoggedIn) {
+      alert("Phiên đăng nhập đã hết. Vui lòng đăng nhập lại.");
+      navigate("/login");
+      return;
+    }
 
-    // ===== Lưu LocalStorage (giữ nguyên hành vi cũ)
-    StorageManager.saveProperty(property);
-    StorageManager.saveLegalImages(id, form.legalImages);
+    const now = new Date().toISOString();
+    const provinceName =
+      sortedProvinces.find((p) => p.provinceId === form.provinceId)?.provinceName || "";
 
-    // ===== NEW: Đẩy lên Supabase để Admin thấy & Home truy vấn unified
-    try {
-      const { error } = await supabase.from("properties").insert([property]);
-      if (error) {
-        // log lỗi nhưng không chặn luồng người dùng
-        console.error("Supabase insert error:", error);
+    if (isEditMode && editId) {
+      // ====== UPDATE
+      const payload = buildPropertyPayload(editId, now, provinceName, originalCreatedAt);
+      // localStorage update (không thay id/createdAt)
+      const all = getAllLocalProperties();
+      const idx = all.findIndex((p) => String(p?.id) === String(editId));
+      if (idx >= 0) {
+        all[idx] = { ...all[idx], ...payload, id: editId, createdAt: originalCreatedAt || all[idx]?.createdAt, created_at: originalCreatedAt || all[idx]?.created_at };
+        localStorage.setItem("emyland_properties", JSON.stringify(all));
+      } else {
+        // nếu không thấy thì thêm mới để tránh mất dữ liệu
+        all.unshift(payload);
+        localStorage.setItem("emyland_properties", JSON.stringify(all));
       }
+      // ảnh pháp lý
+      try { StorageManager.saveLegalImages?.(editId, form.legalImages); } catch {}
+      try {
+        const { error } = await supabase.from("properties").upsert(payload, { onConflict: "id" });
+        if (error) console.error("Supabase upsert error:", error);
+      } catch (e) {
+        console.error("Supabase upsert exception:", e);
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
+        localStorage.setItem("emyland_properties_updated", String(Date.now()));
+      } catch {}
+      alert("Đã lưu thay đổi tin đăng.");
+      navigate("/dashboard");
+      return;
+    }
+
+    // ====== CREATE (giữ nguyên hành vi cũ)
+    const id = StorageManager.generateId?.() || String(Date.now());
+    const payload = buildPropertyPayload(id, now, provinceName);
+
+    // Lưu LocalStorage
+    try {
+      StorageManager.saveProperty?.(payload);
+    } catch {
+      const all = getAllLocalProperties();
+      all.unshift(payload);
+      localStorage.setItem("emyland_properties", JSON.stringify(all));
+    }
+    try { StorageManager.saveLegalImages?.(id, form.legalImages); } catch {}
+
+    // Đẩy lên Supabase (không chặn luồng nếu lỗi)
+    try {
+      const { error } = await supabase.from("properties").insert([payload]);
+      if (error) console.error("Supabase insert error:", error);
     } catch (e) {
       console.error("Supabase insert exception:", e);
     }
@@ -492,7 +680,9 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-4xl font-extrabold text-center mb-8">Đăng tin bất động sản</h1>
+      <h1 className="text-4xl font-extrabold text-center mb-8">
+        {isEditMode ? "Sửa tin bất động sản" : "Đăng tin bất động sản"}
+      </h1>
 
       <div className="mx-auto max-w-5xl rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         {/* Vị trí & địa chỉ */}
@@ -884,7 +1074,6 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
         {/* Thông tin liên hệ */}
         <section className="space-y-4 mt-10">
           <h2 className="text-xl font-bold">Thông tin liên hệ</h2>
-          {/* ✅ Hai ô cùng hàng, rộng bằng nhau; ghi chú dưới ô điện thoại */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Họ tên *</label>
@@ -940,7 +1129,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
             disabled={!canSubmit}
             className="rounded-xl bg-amber-400 px-6 py-3 font-semibold shadow-sm transition hover:bg-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Đăng tin
+            {isEditMode ? "Lưu thay đổi" : "Đăng tin"}
           </button>
         </div>
       </div>

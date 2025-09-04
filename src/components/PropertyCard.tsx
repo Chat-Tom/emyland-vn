@@ -1,10 +1,11 @@
-// src/components/PropertyCard.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Star, ShieldCheck, Hourglass, Share2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { renderPosted, verifiedDateLabel } from "../../utils/date";
+/* ++ thêm: Portal để vẽ popover ra ngoài thẻ Card */
+import { createPortal } from "react-dom";
 
 export interface PropertyCardProps {
   property?: {
@@ -303,7 +304,20 @@ function isMobileUA() {
   const ua = navigator.userAgent || "";
   return /android|iphone|ipad|ipod|mobile/i.test(ua);
 }
-
+function safeNavigate(url: string) {
+  try {
+    // ưu tiên chuyển hướng cùng tab
+    (window.location as any).href = url;
+  } catch {}
+  // nếu vẫn không rời trang (bị block), fallback mở tab mới
+  setTimeout(() => {
+    try {
+      if (document.visibilityState === "visible") {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } catch {}
+  }, 500);
+}
 /** ===== Zalo share (đa nền tảng) ===== */
 function openZaloShareSmart(title: string, urlForZalo: string, rawUrlForCopy?: string) {
   const isMobile = isMobileUA();
@@ -322,17 +336,83 @@ function openZaloShareSmart(title: string, urlForZalo: string, rawUrlForCopy?: s
   }
   copyText(rawUrlForCopy || urlForZalo);
   const contactsUrls = [
+    "https://chat.zalo.me/?login=true#/contacts", // ép login nếu chưa đăng nhập
     "https://chat.zalo.me/#/contacts",
     "https://chat.zalo.me/?page=contacts",
     "https://chat.zalo.me/#contacts",
     "https://chat.zalo.me/?contacts=1",
+    "https://chat.zalo.me/",
   ];
-  window.location.assign(contactsUrls[0]);
+  // dùng safeNavigate: cùng tab nếu được, nếu bị chặn sẽ tự mở tab mới
+  safeNavigate(contactsUrls[0]);
+
   setTimeout(() => {
     try {
       alert("Đã chép link. Chọn người nhận trong Danh bạ, dán (Ctrl+V) rồi Enter để gửi.");
     } catch {}
   }, 600);
+}
+
+/* ++ thêm: Portal popover để không bị cắt */
+function isMobileScreen() {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth <= 480;
+}
+function SharePopover({
+  anchorRef,
+  onClose,
+  children,
+}: {
+  anchorRef: React.RefObject<HTMLElement>;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const [style, setStyle] = useState<{ top: number; left: number; width: number; mobile: boolean }>();
+  useEffect(() => {
+    const update = () => {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const mobile = isMobileScreen();
+      if (mobile) {
+        setStyle({ top: vh - 190, left: 8, width: vw - 16, mobile: true });
+      } else {
+        const PANEL_W = 288;
+        const left = Math.min(Math.max(rect.right - PANEL_W, 8), vw - PANEL_W - 8);
+        const top = Math.min(rect.bottom + 8, vh - 170);
+        setStyle({ top, left, width: PANEL_W, mobile: false });
+      }
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [anchorRef]);
+
+  if (!style) return null;
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[998] bg-transparent emy-share-overlay" onClick={onClose} />
+      {style.mobile ? (
+        <div className="fixed z-[999] left-2 right-2 bottom-2 rounded-2xl border bg-white p-4 shadow-2xl emy-share-portal">
+          {children}
+        </div>
+      ) : (
+        <div
+          className="fixed z-[999] rounded-xl border bg-white p-3 shadow-xl emy-share-portal"
+          style={{ top: style.top, left: style.left, width: style.width }}
+        >
+          {children}
+        </div>
+      )}
+    </>,
+    document.body
+  );
 }
 
 /* ============ Component ============ */
@@ -373,6 +453,10 @@ export default function PropertyCard({ property }: PropertyCardProps) {
   /* ====== Chia sẻ tin ====== */
   const [shareOpen, setShareOpen] = useState(false);
   const shareWrapRef = useRef<HTMLDivElement>(null);
+  /* ++ thêm: ref cho nút để canh Portal */
+  const shareBtnRef = useRef<HTMLButtonElement>(null);
+  /* ++ cờ bật Portal (giữ popover cũ để “không xoá dòng nào”) */
+  const USE_PORTAL_SHARE = true;
 
   const PUBLIC_SHARE_ORIGIN =
     (import.meta as any)?.env?.VITE_PUBLIC_SHARE_ORIGIN || undefined;
@@ -417,8 +501,13 @@ export default function PropertyCard({ property }: PropertyCardProps) {
   // đóng popover khi click ra ngoài / bấm Esc
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      // nếu click trong portal thì bỏ qua (không đóng ngay)
+      if (target && (target.closest(".emy-share-portal") || target.closest(".emy-share-overlay"))) {
+        return;
+      }
       if (!shareWrapRef.current) return;
-      if (!shareWrapRef.current.contains(e.target as Node)) setShareOpen(false);
+      if (!shareWrapRef.current.contains(target as Node)) setShareOpen(false);
     };
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") setShareOpen(false);
@@ -551,6 +640,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
           {/* Popover: Zalo / FaceBook (gọn) */}
           <div className="relative" ref={shareWrapRef}>
             <button
+              ref={shareBtnRef}
               type="button"
               onClick={() => setShareOpen((v) => !v)}
               className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
@@ -560,8 +650,9 @@ export default function PropertyCard({ property }: PropertyCardProps) {
               Chia sẻ
             </button>
 
+            {/* ++ Popover cũ được giữ nguyên nhưng ẩn khi dùng Portal để đảm bảo 'không xoá dòng nào' */}
             {shareOpen && (
-              <div className="absolute right-0 z-40 mt-2 w-72 rounded-xl border bg-white p-3 shadow-xl">
+              <div className={`absolute right-0 z-40 mt-2 w-72 rounded-xl border bg-white p-3 shadow-xl ${USE_PORTAL_SHARE ? "hidden" : ""}`}>
                 <div className="mb-2 text-sm font-medium text-gray-700">
                   Chia sẻ tin
                 </div>
@@ -571,7 +662,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
                     type="button"
                     onClick={shareZalo}
                     className="inline-flex justify-center items-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow"
-                    title="Zalo (Mobile: mở Danh bạ app; Desktop/Local: Danh bạ web + đã copy link)"
+                    title="Nhấp và dán vào cuộc trò chuyện Zalo để chia sẻ tin đăng"
                   >
                     Zalo
                   </button>
@@ -586,6 +677,31 @@ export default function PropertyCard({ property }: PropertyCardProps) {
                   </button>
                 </div>
               </div>
+            )}
+
+            {/* ++ Popover mới bằng Portal: không bị cắt, auto canh vị trí */}
+            {shareOpen && USE_PORTAL_SHARE && (
+              <SharePopover anchorRef={shareBtnRef as React.RefObject<HTMLElement>} onClose={() => setShareOpen(false)}>
+                <div className="mb-2 text-sm font-medium text-gray-700">Chia sẻ tin</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={shareZalo}
+                    className="inline-flex justify-center items-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow"
+                    title="Nhấp và dán vào cuộc trò chuyện Zalo để chia sẻ tin đăng"
+                  >
+                    Zalo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={shareFacebook}
+                    className="inline-flex justify-center items-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow"
+                    title="FaceBook"
+                  >
+                    FaceBook
+                  </button>
+                </div>
+              </SharePopover>
             )}
           </div>
         </div>

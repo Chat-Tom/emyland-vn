@@ -169,6 +169,31 @@ const buildMapsLink = (p: Property, address: string) => {
   return undefined;
 };
 
+/* ---------- ✅ THÊM: CTA về trang chủ + ẩn "Quay lại" mà không xoá dòng ---------- */
+const CTA_HOME_URL =
+  (import.meta as any)?.env?.VITE_PUBLIC_SITE_URL ||
+  (import.meta as any)?.env?.VITE_PUBLIC_SHARE_ORIGIN ||
+  "/";
+
+function CTAHomeBar() {
+  return (
+    <div className="sticky top-0 z-40 bg-white/85 backdrop-blur border-b">
+      <div className="mx-auto max-w-6xl px-4 py-2">
+        <a
+          href={CTA_HOME_URL}
+          className="block w-full text-center rounded-xl px-4 py-2 font-semibold text-white
+                     bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500
+                     hover:from-indigo-600 hover:via-purple-600 hover:to-pink-600
+                     shadow-md hover:shadow-lg transition"
+          title="Xem thêm nhà đất chính chủ đang cần xả hàng"
+        >
+          Xem Nhà đất chính chủ cần xả hàng nhiều hơn →
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Page ---------- */
 export default function PropertyDetail() {
   const { id } = useParams<{ id: string }>();
@@ -209,6 +234,19 @@ export default function PropertyDetail() {
   const [active, setActive] = useState(0);
   useEffect(() => setActive(0), [property?.id]);
 
+  // ✅ THÊM: Ẩn nút "Quay lại" cũ (không xoá dòng) và giữ lại hành vi hiện có
+  useEffect(() => {
+    try {
+      const els = Array.from(document.querySelectorAll("button, a"));
+      els.forEach((el) => {
+        const txt = (el.textContent || "").trim().toLowerCase();
+        if (txt === "quay lại" || txt === "quay lai") {
+          (el as HTMLElement).style.display = "none";
+        }
+      });
+    } catch {}
+  }, []);
+
   if (!property || (isLoading && !stateProp)) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-10">
@@ -230,133 +268,138 @@ export default function PropertyDetail() {
   const mapsLink = buildMapsLink(property, address);
 
   return (
-    <div className="bg-white">
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        {/* Top actions – bỏ hẳn ô trống bên phải */}
-        <div className="mb-4">
-          <Button variant="ghost" onClick={() => navigate(-1)}>Quay lại</Button>
-        </div>
+    <>
+      {/* ✅ THÊM: thanh CTA dính trên cùng */}
+      <CTAHomeBar />
 
-        {/* Gallery */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="lg:col-span-2 rounded-xl overflow-hidden bg-gray-100">
-            <img
-              src={pics[active] || PLACEHOLDER}
-              onError={(e) => ((e.currentTarget as HTMLImageElement).src = PLACEHOLDER)}
-              className="w-full aspect-[16/9] object-cover"
-              alt={property.title}
-            />
+      <div className="bg-white">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          {/* Top actions – bỏ hẳn ô trống bên phải (giữ dòng cũ nhưng đã ẩn bằng useEffect) */}
+          <div className="mb-4">
+            <Button variant="ghost" onClick={() => navigate(-1)}>Quay lại</Button>
           </div>
 
-        {/* Chỉ render thumbnail khi có >1 ảnh */}
-          {pics.length > 1 ? (
-            <div className="flex lg:flex-col gap-3">
-              {pics.slice(0, 6).map((src, i) => (
-                <button
-                  key={src + i}
-                  onMouseEnter={() => setActive(i)}
-                  onFocus={() => setActive(i)}
-                  className={[
-                    "overflow-hidden rounded-lg border bg-gray-100",
-                    active === i ? "ring-2 ring-primary" : "opacity-90 hover:opacity-100",
-                    "h-24 w-32 lg:h-28 lg:w-auto",
-                  ].join(" ")}
-                  aria-label={`Ảnh ${i + 1}`}
-                >
-                  {/* eslint-disable-next-line jsx-a11y/alt-text */}
-                  <img
-                    src={src || PLACEHOLDER}
-                    onError={(e) => ((e.currentTarget as HTMLImageElement).src = PLACEHOLDER)}
-                    className="w-full h-full object-cover"
-                  />
-                </button>
-              ))}
+          {/* Gallery */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 rounded-xl overflow-hidden bg-gray-100">
+              <img
+                src={pics[active] || PLACEHOLDER}
+                onError={(e) => ((e.currentTarget as HTMLImageElement).src = PLACEHOLDER)}
+                className="w-full aspect-[16/9] object-cover"
+                alt={property.title}
+              />
             </div>
-          ) : (
-            <div className="hidden lg:block" />
-          )}
-        </div>
 
-        {/* Title & Price */}
-        <div className="mt-8 space-y-3">
-          <h1 className="text-3xl md:text-4xl font-extrabold leading-tight tracking-tight">
-            {property.title}
-          </h1>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge variant="secondary" className="text-base font-semibold">{priceText}</Badge>
-            {verifyBadge(property.verificationStatus)}
-            {property.listingType && (
-              <Badge className="bg-blue-600 text-white">
-                {property.listingType === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
-              </Badge>
+            {/* Chỉ render thumbnail khi có >1 ảnh */}
+            {pics.length > 1 ? (
+              <div className="flex lg:flex-col gap-3">
+                {pics.slice(0, 6).map((src, i) => (
+                  <button
+                    key={src + i}
+                    onMouseEnter={() => setActive(i)}
+                    onFocus={() => setActive(i)}
+                    className={[
+                      "overflow-hidden rounded-lg border bg-gray-100",
+                      active === i ? "ring-2 ring-primary" : "opacity-90 hover:opacity-100",
+                      "h-24 w-32 lg:h-28 lg:w-auto",
+                    ].join(" ")}
+                    aria-label={`Ảnh ${i + 1}`}
+                  >
+                    {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                    <img
+                      src={src || PLACEHOLDER}
+                      onError={(e) => ((e.currentTarget as HTMLImageElement).src = PLACEHOLDER)}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="hidden lg:block" />
             )}
-            {property.type && <Badge variant="outline">{property.type}</Badge>}
           </div>
 
-          {/* Summary row */}
-          <div className="text-gray-700 text-base leading-relaxed">
-            <div className="mb-1">{address}</div>
-            <div className="font-medium">
-              {(property.area ?? "--") + " m²"}
-              {typeof property.bedrooms === "number" ? ` • ${property.bedrooms} PN` : ""}
-              {typeof property.bathrooms === "number" ? ` • ${property.bathrooms} WC` : ""}
+          {/* Title & Price */}
+          <div className="mt-8 space-y-3">
+            <h1 className="text-3xl md:text-4xl font-extrabold leading-tight tracking-tight">
+              {property.title}
+            </h1>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge variant="secondary" className="text-base font-semibold">{priceText}</Badge>
+              {verifyBadge(property.verificationStatus)}
+              {property.listingType && (
+                <Badge className="bg-blue-600 text-white">
+                  {property.listingType === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
+                </Badge>
+              )}
+              {property.type && <Badge variant="outline">{property.type}</Badge>}
             </div>
-          </div>
-        </div>
 
-        {/* Contact card (2 cột desktop, 1 cột mobile) */}
-        {(property.ownerName || property.ownerPhone || mapsLink) && (
-          <div className="mt-6 rounded-xl border bg-gray-50">
-            <div className="p-4 md:p-5 grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 items-center">
-              {/* Left: info */}
-              <div className="md:col-span-2 space-y-1">
-                {property.ownerName && (
-                  <div>
-                    <span className="text-gray-600">Chủ tin: </span>
-                    <span className="font-semibold">{property.ownerName}</span>
-                  </div>
-                )}
-                {property.ownerPhone && (
-                  <div>
-                    <span className="text-gray-600">Điện thoại liên hệ: </span>
-                    <a className="text-primary font-semibold underline" href={`tel:${property.ownerPhone}`}>
-                      {property.ownerPhone}
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              {/* Right: actions */}
-              <div className="flex flex-wrap md:justify-end gap-2">
-                {property.ownerPhone && (
-                  <>
-                    <a href={`tel:${property.ownerPhone}`}>
-                      <Button className="bg-emerald-600 hover:bg-emerald-700">Gọi ngay</Button>
-                    </a>
-                    <a href={`sms:${property.ownerPhone}`}>
-                      <Button variant="outline">Nhắn tin</Button>
-                    </a>
-                  </>
-                )}
-                {mapsLink && (
-                  <a href={mapsLink} target="_blank" rel="noopener noreferrer">
-                    <Button variant="secondary">Mở Google Maps</Button>
-                  </a>
-                )}
+            {/* Summary row */}
+            <div className="text-gray-700 text-base leading-relaxed">
+              <div className="mb-1">{address}</div>
+              <div className="font-medium">
+                {(property.area ?? "--") + " m²"}
+                {typeof property.bedrooms === "number" ? ` • ${property.bedrooms} PN` : ""}
+                {typeof property.bathrooms === "number" ? ` • ${property.bathrooms} WC` : ""}
               </div>
             </div>
           </div>
-        )}
 
-        {/* Description */}
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-2">Mô tả chi tiết</h2>
-          <p className="text-gray-700 leading-relaxed">
-            {property.description || "Chưa có mô tả cho tin đăng này."}
-          </p>
+          {/* Contact card (2 cột desktop, 1 cột mobile) */}
+          {(property.ownerName || property.ownerPhone || mapsLink) && (
+            <div className="mt-6 rounded-xl border bg-gray-50">
+              <div className="p-4 md:p-5 grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 items-center">
+                {/* Left: info */}
+                <div className="md:col-span-2 space-y-1">
+                  {property.ownerName && (
+                    <div>
+                      <span className="text-gray-600">Chủ tin: </span>
+                      <span className="font-semibold">{property.ownerName}</span>
+                    </div>
+                  )}
+                  {property.ownerPhone && (
+                    <div>
+                      <span className="text-gray-600">Điện thoại liên hệ: </span>
+                      <a className="text-primary font-semibold underline" href={`tel:${property.ownerPhone}`}>
+                        {property.ownerPhone}
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: actions */}
+                <div className="flex flex-wrap md:justify-end gap-2">
+                  {property.ownerPhone && (
+                    <>
+                      <a href={`tel:${property.ownerPhone}`}>
+                        <Button className="bg-emerald-600 hover:bg-emerald-700">Gọi ngay</Button>
+                      </a>
+                      <a href={`sms:${property.ownerPhone}`}>
+                        <Button variant="outline">Nhắn tin</Button>
+                      </a>
+                    </>
+                  )}
+                  {mapsLink && (
+                    <a href={mapsLink} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary">Mở Google Maps</Button>
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          <div className="mt-8">
+            <h2 className="text-xl font-semibold mb-2">Mô tả chi tiết</h2>
+            <p className="text-gray-700 leading-relaxed">
+              {property.description || "Chưa có mô tả cho tin đăng này."}
+            </p>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
