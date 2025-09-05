@@ -72,6 +72,67 @@ function isValidVNPhone(v: string) {
   return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 }
 
+/* ===== (NEW) SEO/PWA head helpers (idempotent) ===== */
+function ensureMeta(attr: Partial<HTMLMetaElement>, id?: string) {
+  const head = document.head;
+  let el: HTMLMetaElement | null = id ? (head.querySelector(`#${id}`) as HTMLMetaElement | null) : null;
+  if (!el) {
+    // tìm theo name/property nếu không có id
+    const selector =
+      (attr as any).name ? `meta[name="${(attr as any).name}"]` :
+      (attr as any).property ? `meta[property="${(attr as any).property}"]` : "";
+    el = selector ? (head.querySelector(selector) as HTMLMetaElement | null) : null;
+  }
+  if (!el) {
+    el = document.createElement("meta");
+    if (id) el.id = id;
+    head.appendChild(el);
+  }
+  Object.entries(attr).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) el!.setAttribute(k, String(v));
+  });
+  return el!;
+}
+function ensureLink(rel: string, href: string, id?: string) {
+  const head = document.head;
+  let el: HTMLLinkElement | null = id ? (head.querySelector(`#${id}`) as HTMLLinkElement | null) : null;
+  if (!el) el = head.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
+  if (!el) {
+    el = document.createElement("link");
+    el.rel = rel;
+    if (id) el.id = id;
+    head.appendChild(el);
+  }
+  el.href = href;
+  return el;
+}
+function ensureJSONLD(id: string, data: any) {
+  const head = document.head;
+  let el = head.querySelector(`#${id}`) as HTMLScriptElement | null;
+  if (!el) {
+    el = document.createElement("script");
+    el.type = "application/ld+json";
+    el.id = id;
+    head.appendChild(el);
+  }
+  el.textContent = JSON.stringify(data);
+  return el;
+}
+/** (NEW) Mở tab an toàn: chặn access window.opener */
+function openInNewTabSafe(url: string) {
+  try {
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (w) w.opener = null;
+  } catch {
+    // fallback
+    const w = window.open();
+    if (w) {
+      w.opener = null;
+      w.location.href = url;
+    }
+  }
+}
+
 /* ===== Read helpers ===== */
 function getAllLocalProperties(): any[] {
   try {
@@ -230,6 +291,62 @@ const PostProperty: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, isEditMode, editId]);
+
+  // ====== (NEW) SEO/PWA dynamic head ======
+  useEffect(() => {
+    const site = `Nền tảng "Nhà đất chính chủ"`;
+    const page = isEditMode ? "Sửa tin bất động sản" : "Đăng tin bất động sản";
+    const provinceName =
+      sortedProvinces.find((p) => p.provinceId === form.provinceId)?.provinceName || "Việt Nam";
+    const title =
+      form.title?.trim()
+        ? `${page}: ${form.title.trim()} | ${site}`
+        : `${page} | ${site}`;
+    const desc =
+      (form.description && form.description.trim().slice(0, 150)) ||
+      `Đăng tin nhà đất chính chủ tại ${provinceName} trên EmyLand. Xác minh minh bạch, tiếp cận đúng khách hàng.`;
+
+    // Title
+    document.title = title;
+
+    // theme-color
+    ensureMeta({ name: "theme-color", content: "#d70000" });
+
+    // canonical + og:url
+    const url = window.location.origin + window.location.pathname + window.location.search;
+    ensureLink("canonical", url, "pp-canonical");
+    ensureMeta({ property: "og:url", content: url }, "pp-og-url");
+
+    // description + og/twitter
+    ensureMeta({ name: "description", content: desc }, "pp-desc");
+    ensureMeta({ property: "og:type", content: "website" }, "pp-og-type");
+    ensureMeta({ property: "og:site_name", content: "EmyLand" }, "pp-og-site");
+    ensureMeta({ property: "og:title", content: title }, "pp-og-title");
+    ensureMeta({ property: "og:description", content: desc }, "pp-og-desc");
+    ensureMeta({ name: "twitter:card", content: "summary" }, "pp-tw-card");
+    ensureMeta({ name: "twitter:title", content: title }, "pp-tw-title");
+    ensureMeta({ name: "twitter:description", content: desc }, "pp-tw-desc");
+    ensureMeta({ name: "apple-mobile-web-app-title", content: site }, "pp-apple-title");
+
+    // JSON-LD Website
+    ensureJSONLD("pp-jsonld", {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": site,
+      "url": window.location.origin + "/",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": window.location.origin + "/?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    });
+  }, [
+    isEditMode,
+    form.title,
+    form.description,
+    form.provinceId,
+    form.listingType,
+  ]);
 
   // ====== nạp dữ liệu tin để sửa (bao gồm ảnh pháp lý) ======
   const loadPropertyForEdit = (id: string) => {
@@ -628,7 +745,7 @@ Hãy viết giúp tôi một đoạn mô tả ngắn gọn (120–180 từ), sú
 - Yêu cầu: trình bày tự nhiên, có bullet ngắn gọn nếu hợp lý, có lời kêu gọi hành động nhẹ nhàng.
 Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ, không chèn số điện thoại.`;
     const url = `https://copilot.microsoft.com/?q=${encodeURIComponent(seed)}`;
-    window.open(url, "_blank");
+    openInNewTabSafe(url);
   };
 
   const openAiImageEditor = async () => {
@@ -637,20 +754,20 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
       return;
     }
     setAiBusy(true);
-    const win = window.open("about:blank", "_blank");
+    const win = window.open("about:blank", "_blank", "noopener,noreferrer");
 
     try {
       const src = form.images[0];
 
       if (isValidUrl(src)) {
         const pp = `https://www.photopea.com/#iurl=${encodeURIComponent(src)}`;
-        if (win) win.location.href = pp; else window.open(pp, "_blank");
+        if (win) { win.opener = null; win.location.href = pp; } else openInNewTabSafe(pp);
         return;
       }
       if (src.startsWith("data:") && src.length < 1_600_000) {
         const cfg = { files: [src] };
         const pp = `https://www.photopea.com/#${encodeURIComponent(JSON.stringify(cfg))}`;
-        if (win) win.location.href = pp; else window.open(pp, "_blank");
+        if (win) { win.opener = null; win.location.href = pp; } else openInNewTabSafe(pp);
         return;
       }
       if (src.startsWith("data:")) {
@@ -664,15 +781,15 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
         const { data } = supabase.storage.from(AI_TMP_BUCKET).getPublicUrl(key);
         const publicUrl = data.publicUrl;
         const pp = `https://www.photopea.com/#iurl=${encodeURIComponent(publicUrl)}`;
-        if (win) win.location.href = pp; else window.open(pp, "_blank");
+        if (win) { win.opener = null; win.location.href = pp; } else openInNewTabSafe(pp);
         return;
       }
       const fallback = "https://pixlr.com/vn/editor/";
-      if (win) win.location.href = fallback; else window.open(fallback, "_blank");
+      if (win) { win.opener = null; win.location.href = fallback; } else openInNewTabSafe(fallback);
     } catch (e) {
       if (win) win.close();
       alert("Không thể chuẩn bị ảnh tự động. Mình sẽ mở trình sửa ảnh, bạn hãy dán ảnh thủ công (Ctrl+V) nhé.");
-      window.open("https://pixlr.com/vn/editor/", "_blank");
+      openInNewTabSafe("https://pixlr.com/vn/editor/");
     } finally {
       setAiBusy(false);
     }
@@ -697,6 +814,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 value={form.provinceId}
                 onChange={(e) => setForm((f) => ({ ...f, provinceId: e.target.value, ward: "" }))}
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="address-level1"
               >
                 <option value="" disabled hidden>
                   Chọn Tỉnh/Thành
@@ -717,6 +835,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("ward")}
                 disabled={!form.provinceId}
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="address-level2"
               >
                 <option value="" disabled hidden>
                   Chọn Phường/Xã
@@ -737,6 +856,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("address")}
                 placeholder="VD: Số nhà, đường, khu/ấp (không ghi Xã/Phường)"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="street-address"
+                inputMode="text"
               />
             </div>
 
@@ -749,11 +870,13 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                   onChange={onChange("mapUrl")}
                   placeholder="https://maps.google.com/..."
                   className="flex-1 rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoComplete="url"
+                  inputMode="url"
                 />
                 <button
                   type="button"
                   disabled={!isValidUrl(form.mapUrl)}
-                  onClick={() => window.open(form.mapUrl, "_blank")}
+                  onClick={() => openInNewTabSafe(form.mapUrl)}
                   className="px-4 rounded-lg border bg-amber-400 text-black hover:bg-amber-500 disabled:opacity-50 shadow whitespace-nowrap"
                 >
                   Mở bản đồ
@@ -802,6 +925,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 value={form.propertyType}
                 onChange={onChange("propertyType")}
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="on"
               >
                 <option value="" disabled hidden>
                   Chọn loại nhà đất
@@ -825,6 +949,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("area")}
                 placeholder="VD: 56"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                inputMode="numeric"
+                autoComplete="off"
               />
             </div>
 
@@ -839,6 +965,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("bedrooms")}
                 placeholder="VD: 3  → hiển thị 3N"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                inputMode="numeric"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -851,6 +979,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("bathrooms")}
                 placeholder="VD: 2  → hiển thị 2WC"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                inputMode="numeric"
+                autoComplete="off"
               />
             </div>
 
@@ -866,6 +996,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                   onChange={onChange("priceTy")}
                   placeholder="VD: 3.2"
                   className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  inputMode="decimal"
+                  autoComplete="off"
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Giá nhập theo <strong>tỷ VND</strong>. • Ước tính:{" "}
@@ -883,6 +1015,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                   onChange={onChange("rentMil")}
                   placeholder="VD: 12"
                   className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  inputMode="decimal"
+                  autoComplete="off"
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Nhập theo <strong>triệu/tháng</strong>.
@@ -898,6 +1032,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("title")}
                 placeholder="VD: Căn góc, 3N 2WC, mặt đường"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="on"
+                inputMode="text"
               />
             </div>
 
@@ -910,6 +1046,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("description")}
                 placeholder="Mô tả thêm tiện ích xung quanh (nếu cần)...Nhấp AI mô tả cuốn hút người đọc"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="on"
               />
               <div className="absolute -bottom-3 right-0 translate-y-full mt-2 flex items-center gap-2">
                 <em className="text-xs text-gray-500 hidden sm:block">
@@ -965,7 +1102,13 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
               <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                 {form.images.map((src, idx) => (
                   <div key={idx} className="relative">
-                    <img src={src} alt={`img-${idx}`} className="h-28 w-full object-cover rounded-md border" />
+                    <img
+                      src={src}
+                      alt={`img-${idx}`}
+                      className="h-28 w-full object-cover rounded-md border"
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <button
                       type="button"
                       onClick={removeImage("images", idx)}
@@ -1042,7 +1185,13 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
                   {form.legalImages.map((src, idx) => (
                     <div key={idx} className="relative">
-                      <img src={src} alt={`legal-${idx}`} className="h-24 w-full object-cover rounded-md border" />
+                      <img
+                        src={src}
+                        alt={`legal-${idx}`}
+                        className="h-24 w-full object-cover rounded-md border"
+                        loading="lazy"
+                        decoding="async"
+                      />
                       <button
                         type="button"
                         onClick={removeImage("legalImages", idx)}
@@ -1082,6 +1231,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 onChange={onChange("contactName")}
                 placeholder="VD: Nguyễn Văn A"
                 className="w-full rounded-lg border p-3 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="name"
+                inputMode="text"
               />
             </div>
             <div>
@@ -1096,6 +1247,8 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
                 }`}
                 aria-invalid={!!phoneError}
                 aria-describedby={phoneError ? "contact-phone-error" : undefined}
+                autoComplete="tel"
+                inputMode="tel"
               />
               {phoneError ? (
                 <p id="contact-phone-error" className="mt-1 text-sm text-red-500">{phoneError}</p>
