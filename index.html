@@ -1,41 +1,68 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- Chặn Google Translate tự dịch -->
-    <meta name="google" content="notranslate" />
+    <!-- Sửa tiêu đề tab -->
+    <title>Nền tảng "Nhà đất chính chủ"</title>
 
-    <!-- SEO & Meta mặc định -->
-    <title>EmyLand Real Estate Platform</title>
-    <meta name="description" content="Nền tảng bất động sản EmyLand - chính chủ, đa nền tảng, tra cứu dễ dàng." />
-    <link rel="icon" type="image/png" href="/emyland-logo.png" />
+    <!-- Giữ icon cũ nếu có -->
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
 
-    <!-- ✅ Thêm canonical để trình duyệt/SEO cố định đúng origin -->
-    <link rel="canonical" href="https://emyland.vn" />
+    <!-- ───── SEO cơ bản (thêm) ───── -->
+    <meta name="description" content="Đăng tin nhà đất chính chủ miễn phí trên EmyLand. Xác minh minh bạch, tối ưu hiển thị và tiếp cận người mua/thuê phù hợp." />
+    <link id="canonical-link" rel="canonical" href="/" />
 
-    <!-- ✅ Cố định base về gốc để mọi đường dẫn tương đối là /... -->
-    <base href="/" />
+    <!-- ───── PWA (thêm) ───── -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#d70000" />
+    <meta name="apple-mobile-web-app-title" content='Nền tảng "Nhà đất chính chủ"' />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <!-- Open Graph (Facebook, Zalo, LinkedIn...) -->
-    <meta property="og:title" content="EmyLand Real Estate Platform" />
-    <meta property="og:description" content="Nền tảng bất động sản EmyLand - chính chủ, đa nền tảng, tra cứu dễ dàng." />
+    <!-- ───── Open Graph / Twitter (thêm) ───── -->
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="/og.jpg" />
-    <!-- ❗ Sửa về domain thật -->
-    <meta property="og:url" content="https://emyland.vn" />
+    <meta property="og:site_name" content="EmyLand" />
+    <meta property="og:title" content='Nền tảng "Nhà đất chính chủ"' />
+    <meta property="og:description" content="Đăng tin nhà đất chính chủ miễn phí trên EmyLand. Xác minh minh bạch, tối ưu hiển thị và tiếp cận người mua/thuê phù hợp." />
+    <meta id="og-url" property="og:url" content="/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content='Nền tảng "Nhà đất chính chủ"' />
+    <meta name="twitter:description" content="Đăng tin nhà đất chính chủ miễn phí trên EmyLand. Xác minh minh bạch, tối ưu hiển thị và tiếp cận người mua/thuê phù hợp." />
 
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="/og.jpg" />
+    <!-- ───── JSON-LD Website (thêm) ───── -->
+    <script id="jsonld-website" type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Nền tảng \"Nhà đất chính chủ\"",
+        "url": "/",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "/?q={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+    </script>
+
+    <!-- Cập nhật canonical & og:url theo URL thật khi chạy (không ảnh hưởng logic app) -->
+    <script>
+      (function () {
+        try {
+          var u = location.origin + location.pathname + location.search;
+          var c = document.getElementById("canonical-link");
+          if (c) c.setAttribute("href", u);
+          var o = document.getElementById("og-url");
+          if (o) o.setAttribute("content", u);
+        } catch (e) {}
+      })();
+    </script>
   </head>
 
   <body>
+    <!-- Giữ nguyên mount của ứng dụng -->
     <div id="root"></div>
-
-    <!-- Vite dev sẽ dùng /src/main.tsx; khi build, Vite tự viết lại /assets/*.js -->
-    <!-- Thêm crossorigin để đảm bảo module fetch theo CORS anonymous -->
-    <script type="module" crossorigin src="/src/main.tsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
