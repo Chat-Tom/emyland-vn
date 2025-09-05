@@ -409,8 +409,20 @@ const PostProperty: React.FC = () => {
       images: Array.isArray(images) ? images : [],
       legalImages: Array.isArray(legalImages) ? legalImages : [],
 
-      contactName: p?.contactInfo?.name || p?.ownerName || f.contactName,
-      contactPhone: p?.contactInfo?.phone || p?.ownerPhone || f.contactPhone,
+      // 🔁 GIỮ NGUYÊN, CHỈ BỔ SUNG CÁC FALLBACK SNAKE_CASE
+      contactName:
+        p?.contactInfo?.name ||
+        p?.ownerName ||
+        (p?.contact_info && (p as any).contact_info?.name) ||
+        f.contactName,
+      contactPhone:
+        p?.contactInfo?.phone ||
+        // ++ thêm fallback cho snake_case & các cột mới
+        (p as any)?.contact_phone ||
+        (p as any)?.owner_phone ||
+        (p?.contact_info && (p as any).contact_info?.phone) ||
+        p?.ownerPhone ||
+        f.contactPhone,
 
       agreeOwnerPhone: true,
       agreeLegalTruth: true,
@@ -592,6 +604,18 @@ const PostProperty: React.FC = () => {
         ownerVerifiedAt: undefined,
         owner_verified_at: undefined,
       },
+      // ++ THÊM: bản snake_case cho DB (giữ nguyên contactInfo cũ)
+      contact_info: {
+        name: form.contactName.trim(),
+        phone: form.contactPhone.trim(),
+        ownerVerified: false,
+        ownerVerifiedAt: undefined,
+        owner_verified_at: undefined,
+      },
+      // ++ THÊM: 2 cột phẳng để tối ưu tra cứu/đồng bộ với trigger
+      owner_phone: form.contactPhone.trim(),
+      contact_phone: form.contactPhone.trim(),
+
       verificationStatus: "pending",
       verifiedAt: undefined,
       verified_at: undefined,

@@ -287,7 +287,7 @@ function openFacebookShare(shareUrl: string) {
   window.open(
     `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
     "_blank",
-    "noopener"
+    "noopener,noreferrer"
   );
 }
 function isLocalOrPrivate(urlStr: string) {
@@ -306,10 +306,8 @@ function isMobileUA() {
 }
 function safeNavigate(url: string) {
   try {
-    // ưu tiên chuyển hướng cùng tab
-    (window.location as any).href = url;
+    (window.location as any).href = url; // ưu tiên cùng tab
   } catch {}
-  // nếu vẫn không rời trang (bị block), fallback mở tab mới
   setTimeout(() => {
     try {
       if (document.visibilityState === "visible") {
@@ -318,37 +316,36 @@ function safeNavigate(url: string) {
     } catch {}
   }, 500);
 }
-/** ===== Zalo share (đa nền tảng) ===== */
-function openZaloShareSmart(title: string, urlForZalo: string, rawUrlForCopy?: string) {
-  const isMobile = isMobileUA();
-  const local = isLocalOrPrivate(urlForZalo) || (rawUrlForCopy ? isLocalOrPrivate(rawUrlForCopy) : false);
 
-  if (isMobile && !local) {
-    const zaloShare = `https://zalo.me/share?url=${encodeURIComponent(urlForZalo)}&title=${encodeURIComponent(
-      title || "EmyLand"
-    )}`;
-    window.location.assign(zaloShare);
-    return;
-  }
-  if (isMobile && local && (navigator as any)?.share) {
-    (navigator as any).share({ title: title || "EmyLand", url: rawUrlForCopy || urlForZalo }).catch(() => {});
-    return;
-  }
-  copyText(rawUrlForCopy || urlForZalo);
+/** ===== Zalo share (đã sửa: thống nhất mở chat.zalo.me để dán link) ===== */
+function openZaloShareSmart(title: string, urlForZalo: string, rawUrlForCopy?: string) {
+  const toCopy = rawUrlForCopy || urlForZalo;
+
+  // 1) Luôn sao chép link trước
+  copyText(toCopy);
+
+  // 2) Điều hướng tới Zalo Web Chat (Danh bạ) để người dùng dán và gửi
+  //    Cách này hoạt động giống nhau trên Desktop & Mobile, tránh bị đẩy sang CH Play/App Store.
   const contactsUrls = [
-    "https://chat.zalo.me/?login=true#/contacts", // ép login nếu chưa đăng nhập
+    "https://chat.zalo.me/?login=true#/contacts",
     "https://chat.zalo.me/#/contacts",
     "https://chat.zalo.me/?page=contacts",
     "https://chat.zalo.me/#contacts",
-    "https://chat.zalo.me/?contacts=1",
     "https://chat.zalo.me/",
   ];
-  // dùng safeNavigate: cùng tab nếu được, nếu bị chặn sẽ tự mở tab mới
+
+  // Trên mobile vẫn dùng cùng tab; nếu bị chặn sẽ fallback mở tab mới nhờ safeNavigate
   safeNavigate(contactsUrls[0]);
 
+  // 3) Nhắc người dùng dán
   setTimeout(() => {
     try {
-      alert("Đã chép link. Chọn người nhận trong Danh bạ, dán (Ctrl+V) rồi Enter để gửi.");
+      const mobile = isMobileUA();
+      alert(
+        mobile
+          ? "Đã chép link. Chọn người nhận trong Zalo rồi nhấn giữ để dán liên kết và gửi."
+          : "Đã chép link. Chọn người nhận trong Danh bạ, dán (Ctrl+V) rồi Enter để gửi."
+      );
     } catch {}
   }, 600);
 }
@@ -650,7 +647,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
               Chia sẻ
             </button>
 
-            {/* ++ Popover cũ được giữ nguyên nhưng ẩn khi dùng Portal để đảm bảo 'không xoá dòng nào' */}
+            {/* ++ Popover cũ (ẩn khi dùng Portal để đảm bảo “không xoá dòng nào”) */}
             {shareOpen && (
               <div className={`absolute right-0 z-40 mt-2 w-72 rounded-xl border bg-white p-3 shadow-xl ${USE_PORTAL_SHARE ? "hidden" : ""}`}>
                 <div className="mb-2 text-sm font-medium text-gray-700">
