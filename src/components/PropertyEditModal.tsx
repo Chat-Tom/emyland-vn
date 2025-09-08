@@ -391,7 +391,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
           owner_phone: next.owner_phone,
           verification_status: next.verificationStatus,
           is_verified: next.is_verified,
-          images: Array.isArray(next.images) ? next.images : [],
+          images: (Array.isArray(next.images) ? JSON.stringify(next.images) : (typeof next.images==='string' ? next.images : '[]')),
           map_url: next.mapUrl || next.map_link || next.google_map_link,
           updated_at: next.updatedAt,
         };
