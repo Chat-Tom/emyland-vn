@@ -1,17 +1,8 @@
-
-cat > utils/log.ts <<'TS'
 /** Lightweight change-log for user & property actions (localStorage) */
 export type LogTarget = "user" | "property" | "system";
 export type LogAction =
-  | "create"
-  | "update"
-  | "delete"
-  | "verify"
-  | "unverify"
-  | "login"
-  | "logout"
-  | "role_change"
-  | "other";
+  | "create" | "update" | "delete" | "verify" | "unverify"
+  | "login" | "logout" | "role_change" | "other";
 
 export interface ChangeLog {
   id: string;
@@ -28,16 +19,14 @@ const KEY = "emyland_logs";
 const MAX_LOGS = 2000;
 
 export const genId = () =>
-  `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
 export function getLogs(): ChangeLog[] {
   try {
     const raw = localStorage.getItem(KEY) || "[]";
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 export function clearLogs() {
@@ -67,10 +56,9 @@ export function getActorEmail(StorageManager?: any): string | undefined {
     if (cur?.email) return cur.email;
   } catch {}
   try {
-    const sessionRaw = localStorage.getItem("emyland_active_session");
-    const s = sessionRaw ? JSON.parse(sessionRaw) : null;
+    const sRaw = localStorage.getItem("emyland_active_session");
+    const s = sRaw ? JSON.parse(sRaw) : null;
     return s?.email || undefined;
   } catch {}
   return undefined;
 }
-TS
