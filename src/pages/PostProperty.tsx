@@ -585,7 +585,7 @@ const PostProperty: React.FC = () => {
       verifiedAt: undefined,
       verified_at: undefined,
 
-      images: form.images,
+      images: Array.isArray(form.images) ? JSON.stringify(form.images) : (typeof form.images==="string" ? form.images : "[]"),
       listingType: form.listingType,
 
       ward: form.ward,
@@ -655,7 +655,7 @@ const PostProperty: React.FC = () => {
       // ====== UPDATE
       const payload = buildPropertyPayload(editId, now, provinceName, originalCreatedAt);
   const rowUpdate = {
-    id: editId,
+
     title: payload.title,
     description: payload.description,
     listing_type: payload.listingType,
