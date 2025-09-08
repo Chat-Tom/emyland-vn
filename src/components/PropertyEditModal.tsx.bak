@@ -391,12 +391,11 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
           owner_phone: next.owner_phone,
           verification_status: next.verificationStatus,
           is_verified: next.is_verified,
-          images: (Array.isArray(next.images) ? JSON.stringify(next.images) : (typeof next.images==='string' ? next.images : '[]')),
+          images: Array.isArray(next.images) ? next.images : [],
           map_url: next.mapUrl || next.map_link || next.google_map_link,
-    legal_images: Array.isArray(legalImages) ? legalImages : (typeof legalImages === "string" ? (JSON.parse(legalImages||"[]")) : []),
           updated_at: next.updatedAt,
         };
-        await supabase.from("properties").upsert(row, { onConflict: 'id', returning: 'minimal' });
+        await supabase.from("properties").upsert(row, { onConflict: "id" });
       } catch (e: any) {
         console.error("Supabase upsert error:", e);
         // Không chặn UI: chỉ cảnh báo nhẹ

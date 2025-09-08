@@ -585,7 +585,7 @@ const PostProperty: React.FC = () => {
       verifiedAt: undefined,
       verified_at: undefined,
 
-      images: form.images,
+      images: Array.isArray(form.images) ? JSON.stringify(form.images) : (typeof form.images==="string" ? form.images : "[]"),
       listingType: form.listingType,
 
       ward: form.ward,
@@ -654,6 +654,28 @@ const PostProperty: React.FC = () => {
     if (isEditMode && editId) {
       // ====== UPDATE
       const payload = buildPropertyPayload(editId, now, provinceName, originalCreatedAt);
+  const rowUpdate = {
+
+    title: payload.title,
+    description: payload.description,
+    listing_type: payload.listingType,
+    property_type: payload.propertyType || payload.property_type,
+    area: payload.area,
+    price: payload.price ?? null,
+    rent_per_month: payload.rent_per_month ?? null,
+    price_per_m2: payload.price_per_m2 ?? null,
+    province: provinceName,
+    ward: form.ward,
+    address: form.address.trim(),
+    user_email: StorageManager.getCurrentUser?.()?.email || null,
+    owner_phone: payload?.contactInfo?.phone || form.contactPhone.trim(),
+    verification_status: payload.verificationStatus || "pending",
+    is_verified: !!payload.is_verified,
+    images: Array.isArray(payload.images) ? payload.images : [],
+    map_url: payload.mapUrl || null,
+    updated_at: now,
+    created_at: originalCreatedAt || payload.created_at || payload.createdAt,
+  };
       // localStorage update (không thay id/createdAt)
       const all = getAllLocalProperties();
       const idx = all.findIndex((p) => String(p?.id) === String(editId));
@@ -666,7 +688,7 @@ const PostProperty: React.FC = () => {
       }
       try { StorageManager.saveLegalImages?.(editId, form.legalImages); } catch {}
       try {
-        const { error } = await supabase.from("properties").upsert(payload, { onConflict: "id" });
+        const { error } = await supabase.from("properties").upsert(rowUpdate, { onConflict: "id" });
         if (error) console.error("Supabase upsert error:", error);
       } catch (e) {
         console.error("Supabase upsert exception:", e);
@@ -684,6 +706,28 @@ const PostProperty: React.FC = () => {
     // ====== CREATE
     const id = StorageManager.generateId?.() || String(Date.now());
     const payload = buildPropertyPayload(id, now, provinceName);
+  const row = {
+    id,
+    title: payload.title,
+    description: payload.description,
+    listing_type: payload.listingType,
+    property_type: payload.propertyType || payload.property_type,
+    area: payload.area,
+    price: payload.price ?? null,
+    rent_per_month: payload.rent_per_month ?? null,
+    price_per_m2: payload.price_per_m2 ?? null,
+    province: provinceName,
+    ward: form.ward,
+    address: form.address.trim(),
+    user_email: StorageManager.getCurrentUser?.()?.email || null,
+    owner_phone: form.contactPhone.trim(),
+    verification_status: "pending",
+    is_verified: false,
+    images: Array.isArray(payload.images) ? payload.images : [],
+    map_url: payload.mapUrl || null,
+    updated_at: now,
+    created_at: now,
+  };
 
     // Lưu LocalStorage
     try {
@@ -697,7 +741,7 @@ const PostProperty: React.FC = () => {
 
     // Đẩy lên Supabase (không chặn luồng nếu lỗi)
     try {
-      const { error } = await supabase.from("properties").insert([payload]);
+      const { error } = await supabase.from("properties").insert([row]);
       if (error) console.error("Supabase insert error:", error);
     } catch (e) {
       console.error("Supabase insert exception:", e);
