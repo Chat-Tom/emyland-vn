@@ -1,5 +1,4 @@
 
-cat > src/components/PropertyEditModal.tsx <<'TSX'
 // src/components/PropertyEditModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";

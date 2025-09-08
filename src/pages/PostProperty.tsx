@@ -1,5 +1,4 @@
 
-cat > src/pages/PostProperty.tsx <<'TSX'
 // src/pages/PostProperty.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";

@@ -508,7 +508,6 @@ export class StorageManager {
     }
   }
 }
-cat >> utils/storage.ts <<'TS'
 
 // ======================
 // >>> Added: change-log patch (non-breaking)
@@ -599,4 +598,3 @@ import { appendLog, getLogs, clearLogs, getActorEmail } from "./log";
     // no-op
   }
 })();
-TS
