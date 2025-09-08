@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 // 🔧 storage ở GỐC dự án (ngoài /src) → đi ra 2 cấp
 import { StorageManager } from "../../utils/storage";
-import { appendLog, getActorEmail } from "../../utils/log";
+import { appendLog, getActorEmail } from '../../utils/log';
 
 // 🔧 data nằm TRONG /src → dùng alias "@/..." (alias @ trỏ tới src)
 import { PROPERTY_TYPES } from "@/data/property-types";

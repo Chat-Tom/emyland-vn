@@ -13,7 +13,7 @@ import { toast } from "@/hooks/use-toast";
 import { StorageManager, type PropertyListing } from "@utils/storage";
 import { provinces as PROVINCES, wardsByProvince } from "@/data/vietnam-locations";
 import { PROPERTY_TYPES } from "@/data/property-types";
-import { appendLog, getActorEmail } from "../../utils/log";
+import { appendLog, getActorEmail } from '../../utils/log';
 
 /* >>> Added: Supabase (chỉ thêm, không đổi cấu trúc cũ) */
 import { supabase } from "@/lib/supabase";

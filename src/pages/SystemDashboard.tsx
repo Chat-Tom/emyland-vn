@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StorageManager, type UserAccount, type PropertyListing } from "@utils/storage";
-import { appendLog, getActorEmail } from "../../utils/log";
+import { appendLog, getActorEmail } from '../../utils/log';
 import {
   Users,
   Home,
