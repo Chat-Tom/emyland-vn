@@ -1280,5 +1280,3 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
 };
 
 export default PostProperty;
-TSX
-
