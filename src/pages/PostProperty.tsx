@@ -77,7 +77,6 @@ function ensureMeta(attr: Partial<HTMLMetaElement>, id?: string) {
   const head = document.head;
   let el: HTMLMetaElement | null = id ? (head.querySelector(`#${id}`) as HTMLMetaElement | null) : null;
   if (!el) {
-    // tìm theo name/property nếu không có id
     const selector =
       (attr as any).name ? `meta[name="${(attr as any).name}"]` :
       (attr as any).property ? `meta[property="${(attr as any).property}"]` : "";
@@ -124,7 +123,6 @@ function openInNewTabSafe(url: string) {
     const w = window.open(url, "_blank", "noopener,noreferrer");
     if (w) w.opener = null;
   } catch {
-    // fallback
     const w = window.open();
     if (w) {
       w.opener = null;
@@ -147,14 +145,12 @@ function getPropertyByIdLocal(id: string): any | null {
   return all.find((p) => String(p?.id) === String(id)) || null;
 }
 function getLegalImagesByIdLocal(id: string): string[] {
-  // Ưu tiên API của StorageManager nếu có
   try {
     if (typeof (StorageManager as any).getLegalImages === "function") {
       const arr = (StorageManager as any).getLegalImages(id);
       if (Array.isArray(arr)) return arr.filter(Boolean);
     }
   } catch {}
-  // Fallback quét localStorage theo nhiều khoá có thể có
   const out: string[] = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
@@ -194,13 +190,13 @@ type FormState = {
 
   propertyType: string;
   area: string;
-  priceTy: string;    // Bán: tỷ VND
-  rentMil: string;    // Thuê: triệu/tháng
+  priceTy: string;
+  rentMil: string;
   title: string;
   description: string;
 
-  bedrooms: string;   // hiển thị N
-  bathrooms: string;  // hiển thị WC
+  bedrooms: string;
+  bathrooms: string;
 
   images: string[];
   legalImages: string[];
@@ -254,11 +250,10 @@ const PostProperty: React.FC = () => {
   const isEditMode = !!editId;
   const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null);
 
-  // ===== Hydrate user (kể cả khi mất emyland_user nhưng còn session cục bộ)
+  // ===== Hydrate user
   useEffect(() => {
     let cur = StorageManager.getCurrentUser?.();
     if (!cur || !cur.isLoggedIn) {
-      // cố gắng lấy từ active session nếu có
       try {
         const sessionRaw = localStorage.getItem("emyland_active_session");
         if (sessionRaw) {
@@ -279,13 +274,11 @@ const PostProperty: React.FC = () => {
       navigate(`/login?next=/post-property${editId ? `?id=${encodeURIComponent(editId)}` : ""}`);
       return;
     }
-    // seed tên/điện thoại từ tài khoản
     setForm((f) => ({
       ...f,
       contactName: cur.fullName || "",
       contactPhone: cur.phone || "",
     }));
-    // nếu đang sửa, nạp dữ liệu tin
     if (isEditMode && editId) {
       loadPropertyForEdit(editId);
     }
@@ -306,18 +299,14 @@ const PostProperty: React.FC = () => {
       (form.description && form.description.trim().slice(0, 150)) ||
       `Đăng tin nhà đất chính chủ tại ${provinceName} trên EmyLand. Xác minh minh bạch, tiếp cận đúng khách hàng.`;
 
-    // Title
     document.title = title;
 
-    // theme-color
     ensureMeta({ name: "theme-color", content: "#d70000" });
 
-    // canonical + og:url
     const url = window.location.origin + window.location.pathname + window.location.search;
     ensureLink("canonical", url, "pp-canonical");
     ensureMeta({ property: "og:url", content: url }, "pp-og-url");
 
-    // description + og/twitter
     ensureMeta({ name: "description", content: desc }, "pp-desc");
     ensureMeta({ property: "og:type", content: "website" }, "pp-og-type");
     ensureMeta({ property: "og:site_name", content: "EmyLand" }, "pp-og-site");
@@ -328,7 +317,6 @@ const PostProperty: React.FC = () => {
     ensureMeta({ name: "twitter:description", content: desc }, "pp-tw-desc");
     ensureMeta({ name: "apple-mobile-web-app-title", content: site }, "pp-apple-title");
 
-    // JSON-LD Website
     ensureJSONLD("pp-jsonld", {
       "@context": "https://schema.org",
       "@type": "WebSite",
@@ -501,7 +489,6 @@ const PostProperty: React.FC = () => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
 
-      // Lọc theo kích thước ≤ 8MB/ảnh
       const all = Array.from(files);
       const accepted = all.filter((f) => f.size <= MAX_IMAGE_BYTES);
       const rejectedCount = all.length - accepted.length;
@@ -672,11 +659,9 @@ const PostProperty: React.FC = () => {
         all[idx] = { ...all[idx], ...payload, id: editId, createdAt: originalCreatedAt || all[idx]?.createdAt, created_at: originalCreatedAt || all[idx]?.created_at };
         localStorage.setItem("emyland_properties", JSON.stringify(all));
       } else {
-        // nếu không thấy thì thêm mới để tránh mất dữ liệu
         all.unshift(payload);
         localStorage.setItem("emyland_properties", JSON.stringify(all));
       }
-      // ảnh pháp lý
       try { StorageManager.saveLegalImages?.(editId, form.legalImages); } catch {}
       try {
         const { error } = await supabase.from("properties").upsert(payload, { onConflict: "id" });
@@ -693,7 +678,7 @@ const PostProperty: React.FC = () => {
       return;
     }
 
-    // ====== CREATE (giữ nguyên hành vi cũ)
+    // ====== CREATE
     const id = StorageManager.generateId?.() || String(Date.now());
     const payload = buildPropertyPayload(id, now, provinceName);
 
