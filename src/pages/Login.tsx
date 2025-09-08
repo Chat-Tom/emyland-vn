@@ -12,9 +12,8 @@ import { getOrCreateDeviceId } from "@utils/device";
 /* ✅ THÊM: Supabase + token helpers (đa thiết bị) */
 import { supabase } from "@/lib/supabase";
 const ACCESS_TOKEN_KEY = "emy_access_token";
-const saveAccessToken = (t: string) => {
-  try { if (t) localStorage.setItem(ACCESS_TOKEN_KEY, t); } catch {}
-};
+const saveAccessToken = (t: string) => { try { if (t) localStorage.setItem(ACCESS_TOKEN_KEY, t); } catch {} };
+const readAccessToken = () => { try { return localStorage.getItem(ACCESS_TOKEN_KEY) || ""; } catch { return ""; } };
 
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
@@ -43,6 +42,28 @@ function getUserByEmailCI(email: string) {
   return (
     StorageManager.getAllUsers().find((u) => (u.email || "").toLowerCase() === low) || null
   );
+}
+
+/* ✅ THÊM: đồng bộ hồ sơ từ Cloud về Local sau khi có token */
+async function syncProfileFromCloud() {
+  const token = readAccessToken();
+  if (!token) return;
+
+  try {
+    const { data, error } = await supabase.rpc("rpc_me", { p_access_token: token });
+    if (!error && data?.[0]) {
+      const me = data[0] as any;
+      const mapped = {
+        id: me.id || me.user_id || me.uuid || me.phone || me.email,
+        fullName: me.full_name || me.name || "",
+        email: me.email || null,
+        phone: me.phone || null,
+        isAdmin: !!me.is_admin,
+      };
+      try { StorageManager.saveUser(mapped as any); } catch {}
+      try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
+    }
+  } catch {}
 }
 
 const Login: React.FC = () => {
@@ -133,7 +154,7 @@ const Login: React.FC = () => {
         p_device_id: deviceId,
       });
       if (!error && data?.[0]?.access_token) {
-        saveAccessToken(data[0].access_token);
+        saveAccessToken(data[0].access_token as string);
         return true;
       }
 
@@ -160,7 +181,7 @@ const Login: React.FC = () => {
             p_device_id: deviceId,
           });
           if (!e2 && d2?.[0]?.access_token) {
-            saveAccessToken(d2[0].access_token);
+            saveAccessToken(d2[0].access_token as string);
             return true;
           }
         }
@@ -191,6 +212,7 @@ const Login: React.FC = () => {
       const idTrim = identifier.trim();
       const loginId = isEmail(idTrim) ? idTrim : normalizeVNPhone(idTrim);
 
+      // 🔒 Đăng nhập cục bộ (giữ nguyên logic cũ)
       const ok = await loginByEmailOrPhone(loginId, password);
       if (!ok) {
         setErrors({ general: "Thông tin đăng nhập không đúng" });
@@ -225,7 +247,10 @@ const Login: React.FC = () => {
       }
 
       // ✅ THÊM: tạo phiên Supabase (đa thiết bị) + migrate user cũ nếu cần
-      await tryCloudLoginOrMigrate(loginId, password, deviceId);
+      const cloudOK = await tryCloudLoginOrMigrate(loginId, password, deviceId);
+      if (cloudOK) {
+        await syncProfileFromCloud(); // kéo hồ sơ chuẩn từ cloud về local
+      }
 
       // Phát tín hiệu để chỗ khác sync UI (nếu có lắng nghe)
       try {
