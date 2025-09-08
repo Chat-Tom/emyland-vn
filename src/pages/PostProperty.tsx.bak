@@ -1,4 +1,8 @@
+git fetch origin
+git switch main
+git pull --rebase origin main
 
+# Ghi đè file bằng here-doc (không BOM)
 cat > src/pages/PostProperty.tsx <<'TSX'
 // src/pages/PostProperty.tsx
 import React, { useEffect, useMemo, useState } from "react";
@@ -1280,3 +1284,6 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
 export default PostProperty;
 TSX
 
+git add src/pages/PostProperty.tsx
+git commit -m "feat(post): PostProperty — giữ cấu trúc cũ, bổ sung SEO/PWA head, AI sửa ảnh, kiểm tra SĐT, giới hạn ảnh, edit-mode giữ createdAt, và đồng bộ Supabase (insert/upsert)"
+git push origin main

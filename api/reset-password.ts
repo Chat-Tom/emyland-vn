@@ -1,4 +1,5 @@
 // /api/reset-password.ts
+import 'dotenv/config'
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { createClient } from "@supabase/supabase-js";
@@ -18,21 +19,31 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // ⇨ NEW: Hỗ trợ trường hợp body là string (Vercel/Fetch đôi khi truyền raw)
+  const __parsed =
+    typeof req.body === "string" ? JSON.parse(req.body || "{}") : null;
+
   const { token, newPassword } = (req.body || {}) as {
     token?: string;
     newPassword?: string;
   };
 
-  if (!token || typeof token !== "string") {
+  // ⇨ NEW: Dùng giá trị đã parse nếu biến trên không có
+  const _token = (token ?? __parsed?.token) as string | undefined;
+  const _newPassword = (newPassword ?? __parsed?.newPassword) as
+    | string
+    | undefined;
+
+  if (!_token || typeof _token !== "string") {
     return res.status(400).json({ error: "Thiếu token" });
   }
-  if (!newPassword || newPassword.length < 6) {
+  if (!_newPassword || _newPassword.length < 6) {
     return res.status(400).json({ error: "Mật khẩu tối thiểu 6 ký tự" });
   }
 
   try {
     // Hash lại token từ link để so với DB
-    const token_hash = crypto.createHash("sha256").update(token).digest("hex");
+    const token_hash = crypto.createHash("sha256").update(_token).digest("hex");
 
     // Tìm token còn hạn & chưa dùng
     const { data: row, error } = await supabase
@@ -57,9 +68,9 @@ export default async function handler(req: any, res: any) {
     }
 
     // Băm mật khẩu bằng bcryptjs (12 rounds tuỳ nhu cầu)
-    const password_hash = await bcrypt.hash(newPassword, 10);
+    const password_hash = await bcrypt.hash(_newPassword, 10);
 
-    // Cập nhật mật khẩu user
+    // Cập nhật mật khẩu user (giữ nguyên logic gốc)
     const { error: upErr } = await supabase
       .from("users")
       .update({ password_hash })
@@ -70,11 +81,38 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: "Không cập nhật được mật khẩu" });
     }
 
+    // ⇨ NEW (không phá logic cũ): Nếu có auth_user_id thì đổi mật khẩu ở Supabase Auth luôn
+    try {
+      const { data: urow } = await supabase
+        .from("users")
+        .select("auth_user_id")
+        .eq("email", row.email)
+        .maybeSingle();
+      if (urow?.auth_user_id) {
+        const { error: adminErr } = await supabase.auth.admin.updateUserById(
+          urow.auth_user_id,
+          { password: _newPassword }
+        );
+        if (adminErr) {
+          console.warn("auth admin update password warn:", adminErr.message);
+        }
+      }
+    } catch (e: any) {
+      console.warn("auth admin update password catch:", e?.message || e);
+    }
+
     // Đánh dấu token đã dùng
     await supabase
       .from("password_reset_tokens")
       .update({ used: true, used_at: new Date().toISOString() })
       .eq("id", row.id);
+
+    // ⇨ NEW: Dọn token cũ cùng email (không bắt buộc)
+    await supabase
+      .from("password_reset_tokens")
+      .delete()
+      .eq("email", row.email)
+      .neq("id", row.id);
 
     return res.status(200).json({ message: "Đổi mật khẩu thành công!" });
   } catch (e: any) {

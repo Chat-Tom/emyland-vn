@@ -1,4 +1,8 @@
+git fetch origin
+git switch main
+git pull --rebase origin main
 
+# Ghi đè file bằng here-doc (an toàn, không thêm ký tự BOM)
 cat > src/pages/SystemDashboard.tsx <<'TSX'
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -1125,3 +1129,6 @@ const SystemDashboard = () => {
 export default SystemDashboard;
 TSX
 
+git add src/pages/SystemDashboard.tsx
+git commit -m "feat(admin): cloud-first Supabase (+merge local), upsert khi sửa, xoá liên đới trên cloud, audit log nhẹ; giữ nguyên cấu trúc cũ"
+git push origin main

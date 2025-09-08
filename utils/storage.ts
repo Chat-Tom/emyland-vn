@@ -508,3 +508,95 @@ export class StorageManager {
     }
   }
 }
+cat >> utils/storage.ts <<'TS'
+
+// ======================
+// >>> Added: change-log patch (non-breaking)
+// ======================
+import { appendLog, getLogs, clearLogs, getActorEmail } from "./log";
+
+(() => {
+  try {
+    const SM: any = (exports as any).StorageManager ?? (module as any).exports?.StorageManager ?? (globalThis as any).StorageManager;
+    if (!SM || SM.__logPatched) return;
+    SM.__logPatched = true;
+
+    const actor = () => getActorEmail(SM);
+
+    const wrap = (fnName: string, makeLog?: (...args: any[]) => any) => {
+      const orig = SM[fnName];
+      if (typeof orig !== "function") return;
+      SM[fnName] = (...args: any[]) => {
+        const result = orig.apply(SM, args);
+        try {
+          if (makeLog) {
+            const payload = makeLog(...args);
+            appendLog({ actorEmail: actor(), ...payload });
+          }
+        } catch {}
+        return result;
+      };
+    };
+
+    // Users
+    wrap("saveUser", (u: any) => ({
+      target: "user",
+      targetId: u?.email,
+      action: "update",
+      summary: `Lưu người dùng ${u?.fullName || u?.email || "unknown"}`,
+    }));    
+    wrap("deleteUser", (email: string) => ({
+      target: "user",
+      targetId: email,
+      action: "delete",
+      summary: `Xoá người dùng ${email}`,
+    }));
+    wrap("logout", () => ({
+      target: "user",
+      action: "logout",
+      summary: "Đăng xuất",
+    }));
+
+    // Properties
+    wrap("saveProperty", (p: any) => ({
+      target: "property",
+      targetId: p?.id,
+      action: p?.id ? "update" : "create",
+      summary: `Lưu tin đăng ${p?.id || ""} (${p?.title || "no-title"})`,
+    }));
+    wrap("upsertProperty", (p: any) => ({
+      target: "property",
+      targetId: p?.id,
+      action: p?.id ? "update" : "create",
+      summary: `Upsert tin đăng ${p?.id || ""} (${p?.title || "no-title"})`,
+    }));
+    wrap("updateProperty", (id: string) => ({
+      target: "property",
+      targetId: id,
+      action: "update",
+      summary: `Cập nhật tin đăng ${id}`,
+    }));
+    wrap("deleteProperty", (id: string) => ({
+      target: "property",
+      targetId: id,
+      action: "delete",
+      summary: `Xoá tin đăng ${id}`,
+    }));
+    wrap("saveLegalImages", (id: string, imgs: any[]) => ({
+      target: "property",
+      targetId: id,
+      action: "update",
+      summary: `Cập nhật ảnh pháp lý cho ${id} (n=${Array.isArray(imgs) ? imgs.length : 0})`,
+    }));
+
+    // Expose log helpers qua StorageManager (để LogsContent dùng)
+    SM.getLogs = getLogs;
+    SM.clearLogs = clearLogs;
+    // Phát sự kiện để Dashboard có thể auto-refresh
+    try { window.dispatchEvent(new CustomEvent("emyland:storage-log-ready")); } catch {}
+
+  } catch (e) {
+    // no-op
+  }
+})();
+TS

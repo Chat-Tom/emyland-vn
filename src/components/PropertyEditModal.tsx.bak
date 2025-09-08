@@ -1,3 +1,6 @@
+git fetch origin
+git switch main
+git pull --rebase origin main
 
 cat > src/components/PropertyEditModal.tsx <<'TSX'
 // src/components/PropertyEditModal.tsx
@@ -638,3 +641,6 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
 export default PropertyEditModal;
 TSX
 
+git add src/components/PropertyEditModal.tsx
+git commit -m "feat(admin): PropertyEditModal – giữ logic cũ, thêm upsert Supabase sau khi lưu local"
+git push origin main

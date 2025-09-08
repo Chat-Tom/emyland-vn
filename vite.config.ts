@@ -17,8 +17,8 @@ export default defineConfig({
   base: '/',
 
   // Dev/preview thống nhất cổng & mở trên LAN/IPv6
-  server: { host: '::', port: 8080, strictPort: true },
-  preview: { host: '::', port: 8080, strictPort: true },
+  server: { host: '::', port: 8081, strictPort: true },
+  preview: { host: '::', port: 8081, strictPort: true },
 
   // Bật sourcemap để debug lỗi production (React minified #xxx)
   build: {
