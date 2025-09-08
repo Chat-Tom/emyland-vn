@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StorageManager, type UserAccount, type PropertyListing } from "@utils/storage";
+import { appendLog, getActorEmail } from "../../utils/log";
 import {
   Users,
   Home,
@@ -366,14 +367,8 @@ function EditPropertyModal({
 
     // --- Local cache (giữ nguyên logic cũ)
     StorageManager.saveProperty(updated);
-    StorageManager.saveLegalImages(property.id, legalImages);
-
-    // --- >>> Added: Upsert lên Supabase (không chặn UI nếu lỗi)
-    try {
-      await supabase.from("properties").upsert(updated, { onConflict: "id" });
-    } catch (e) {
-      console.error("supabase upsert error:", e);
-    }
+/* disabled: verify/unverify log (missing wasVerified)
+*/
 
     try {
       window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
@@ -660,6 +655,7 @@ const SystemDashboard = () => {
   const handleDeleteUser = async (email: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) {
       StorageManager.deleteUser(email);
+    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "user", targetId: email, action: "delete", summary: "Xóa người dùng " + email }); } catch {}
       // >>> Added: cascade xoá tin của user ở Supabase
       try { await supabase.from("properties").delete().eq("user_email", email.toLowerCase()); } catch (e) { console.error(e); }
       logEvent("user_delete", { email });
@@ -671,6 +667,7 @@ const SystemDashboard = () => {
   const handleDeleteProperty = async (propertyId: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) {
       StorageManager.deleteProperty(propertyId);
+    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "property", targetId: propertyId, action: "delete", summary: "Xóa tin đăng " + propertyId }); } catch {}
       // >>> Added: xoá trên Supabase
       try { await supabase.from("properties").delete().eq("id", propertyId); } catch (e) { console.error(e); }
       logEvent("property_delete", { id: propertyId });
@@ -683,6 +680,7 @@ const SystemDashboard = () => {
     const msg = next ? `Cấp quyền Quản trị cho ${u.fullName || u.email}?` : `Gỡ quyền Quản trị của ${u.fullName || u.email}?`;
     if (!window.confirm(msg)) return;
     StorageManager.saveUser({ ...u, isAdmin: next });
+    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "user", targetId: u.email, action: "role_change", summary: (next ? "Cấp quyền Admin cho " : "Gỡ quyền Admin của ") + (u.fullName || u.email) }); } catch {}
     logEvent(next ? "user_grant_admin" : "user_revoke_admin", { email: u.email });
 
     const cur = StorageManager.getCurrentUser();

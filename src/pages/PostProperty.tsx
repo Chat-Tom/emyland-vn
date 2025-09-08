@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 // 🔧 storage ở GỐC dự án (ngoài /src) → đi ra 2 cấp
 import { StorageManager } from "../../utils/storage";
+import { appendLog, getActorEmail } from "../../utils/log";
 
 // 🔧 data nằm TRONG /src → dùng alias "@/..." (alias @ trỏ tới src)
 import { PROPERTY_TYPES } from "@/data/property-types";
@@ -676,6 +677,7 @@ const PostProperty: React.FC = () => {
         localStorage.setItem("emyland_properties_updated", String(Date.now()));
       } catch {}
       alert("Đã lưu thay đổi tin đăng.");
+    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "property", targetId: editId, action: "update", summary: "Cập nhật tin " + (payload?.title || editId) }); } catch {}
       navigate("/dashboard");
       return;
     }
@@ -708,6 +710,7 @@ const PostProperty: React.FC = () => {
     } catch {}
 
     alert("Đăng tin thành công! Tin của bạn đang ở trạng thái 'Đang xác nhận chính chủ'.");
+    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "property", targetId: id, action: "create", summary: "Đăng tin mới " + (payload?.title || id) }); } catch {}
     navigate("/dashboard");
   };
 
