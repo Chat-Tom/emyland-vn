@@ -13,6 +13,9 @@ import { postDateLabel, renderVerifiedAt } from "@utils/date";
 import { StorageManager } from "@utils/storage";
 import type { UserAccount, PropertyListing } from "@utils/storage";
 
+/* ✅ THÊM: đọc cloud */
+import { supabase } from "@/lib/supabase";
+
 const AVATAR_FALLBACK =
   "https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754146152775_21c04ef8.png";
 
@@ -65,18 +68,14 @@ const priceText = (p: any) => {
 
 type Verify = "verified" | "pending";
 const verifyStatusOf = (p: any): Verify => {
-  // Ưu tiên verificationStatus
-  const vs = String(p?.verificationStatus || "").toLowerCase();
+  const vs = String(p?.verificationStatus || p?.verification_status || "").toLowerCase();
   if (vs.includes("verified") || vs.includes("đã xác nhận")) return "verified";
   if (vs.includes("pending") || vs.includes("đang xác nhận")) return "pending";
-
-  // Fallback theo ownerVerified
-  if (p?.contactInfo?.ownerVerified === true) return "verified";
-  // Mặc định: nếu chưa verified => pending
+  if (p?.contactInfo?.ownerVerified === true || p?.is_verified === true) return "verified";
   return "pending";
 };
 
-// Việt hoá loại BĐS (chỉ hiển thị, không đổi dữ liệu gốc)
+// Việt hoá loại BĐS (chỉ hiển thị)
 const TYPE_LABELS: Record<string, string> = {
   apartment: "Căn hộ",
   house: "Nhà phố",
@@ -86,7 +85,7 @@ const TYPE_LABELS: Record<string, string> = {
   social: "Nhà ở xã hội",
 };
 
-// Ép & suy luận số phòng (để đảm bảo luôn có “N/WC” nếu có trong text)
+// Ép & suy luận số phòng
 const toPosInt = (v: any): number | undefined => {
   if (typeof v === "number" && v > 0) return Math.round(v);
   if (typeof v === "string") {
@@ -129,22 +128,20 @@ const listMyProperties = (u: UserAccount): PropertyListing[] => {
   const email = normalizeEmail(u.email);
   const phone = normalizePhone(u.phone);
 
-  // Đọc toàn bộ kho tin (ưu tiên API của StorageManager; fallback localStorage)
   const all: any[] =
     (typeof (StorageManager as any).getAllProperties === "function"
       ? (StorageManager as any).getAllProperties()
       : JSON.parse(localStorage.getItem("emyland_properties") || "[]")) || [];
 
   const mine = all.filter((p: any) => {
-    const pe = normalizeEmail(p.userEmail || p.ownerEmail || p.contactInfo?.email);
+    const pe = normalizeEmail(p.userEmail || p.ownerEmail || p.contactInfo?.email || p.user_email);
     const pp = normalizePhone(p.userPhone || p.ownerPhone || p.contactInfo?.phone);
     return (email && pe === email) || (phone && pp === phone);
   });
 
-  // Sắp xếp mới nhất trước
   mine.sort((a, b) => {
-    const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
-    const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
+    const ta = new Date(a?.createdAt || a?.updatedAt || a?.created_at || a?.updated_at || 0).getTime();
+    const tb = new Date(b?.createdAt || b?.updatedAt || b?.created_at || b?.updated_at || 0).getTime();
     return tb - ta;
   });
 
@@ -170,15 +167,13 @@ function getLegalImagesById(id?: string): string[] {
 /** 🔧 Ẩn checkbox “Đánh dấu Nổi bật” trong modal Sửa (không sửa modal) */
 function hideFeaturedFieldInModal() {
   try {
-    // đợi modal render
     setTimeout(() => {
       const containers = Array.from(document.querySelectorAll<HTMLElement>(".fixed, [role='dialog'], .ReactModal__Content"));
       containers.forEach((root) => {
         const all = Array.from(root.querySelectorAll<HTMLElement>("label, div, span, p"));
         for (const el of all) {
           const txt = (el.textContent || "").trim();
-          if (/^đánh dấu\s*nổi bật$/i.test(txt) || /nổi bật/i.test(txt) && /đánh dấu/i.test(txt)) {
-            // Ẩn cả block chứa input + label
+          if (/^đánh dấu\s*nổi bật$/i.test(txt) || (/nổi bật/i.test(txt) && /đánh dấu/i.test(txt))) {
             const wrapper = el.closest("div") || el.parentElement;
             if (wrapper) (wrapper as HTMLElement).style.display = "none";
           }
@@ -187,6 +182,80 @@ function hideFeaturedFieldInModal() {
     }, 0);
   } catch {}
 }
+
+/* ====================== THÊM: Cloud helpers ======================= */
+/** Map dòng DB → shape FE đang dùng (giữ nguyên field cũ để UI không đổi) */
+function mapDbRow(row: any): any {
+  return {
+    ...row,
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    images: Array.isArray(row.images) ? row.images : [],
+    area: row.area ?? row.size,
+    propertyType: row.property_type ?? row.propertyType,
+    listingType: row.listing_type ?? row.listingType,
+    price: row.price ?? row.sale_price,
+    rent_per_month: row.rent_per_month,
+    bedrooms: row.bedrooms ?? row.bedroom_count,
+    bathrooms: row.bathrooms ?? row.bathroom_count ?? row.wc,
+    province: row.province,
+    ward: row.ward,
+    address: row.address,
+    verificationStatus: row.verification_status ?? row.verificationStatus ?? "pending",
+    is_verified: row.is_verified ?? false,
+    createdAt: row.created_at ?? row.createdAt,
+    updatedAt: row.updated_at ?? row.updatedAt,
+  };
+}
+
+/** Lấy tin của tôi từ Supabase theo user_email */
+async function fetchCloudByEmail(email?: string): Promise<any[]> {
+  const em = normalizeEmail(email);
+  if (!em) return [];
+  try {
+    const { data, error } = await supabase
+      .from("properties")
+      .select("*")
+      .eq("user_email", em)
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error("Supabase select error:", error);
+      return [];
+    }
+    return (data || []).map(mapDbRow);
+  } catch (e) {
+    console.error("Supabase select exception:", e);
+    return [];
+  }
+}
+
+/** Hợp nhất danh sách local + cloud theo id; ưu tiên bản có updatedAt mới hơn */
+function mergeByIdPreferNewer(localList: any[], cloudList: any[]) {
+  const pick = new Map<string, any>();
+  const push = (arr: any[]) => {
+    for (const it of arr) {
+      const id = String(it?.id || "");
+      if (!id) continue;
+      const prev = pick.get(id);
+      if (!prev) {
+        pick.set(id, it);
+      } else {
+        const ta = new Date(prev.updatedAt || prev.createdAt || 0).getTime();
+        const tb = new Date(it.updatedAt || it.createdAt || 0).getTime();
+        pick.set(id, tb >= ta ? { ...prev, ...it } : prev);
+      }
+    }
+  };
+  push(localList);
+  push(cloudList);
+  return Array.from(pick.values()).sort((a, b) => {
+    const ta = new Date(a.createdAt || a.updatedAt || 0).getTime();
+    const tb = new Date(b.createdAt || b.updatedAt || 0).getTime();
+    return tb - ta;
+  });
+}
+/* ==================== END Cloud helpers ==================== */
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -199,6 +268,13 @@ const Dashboard = () => {
 
   // input ẩn để up avatar
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 🔁 THÊM: hàm refresh cloud-first (gọi được ở nhiều nơi)
+  const refreshMine = async (u: UserAccount) => {
+    const localMine = listMyProperties(u);
+    const cloudMine = await fetchCloudByEmail(u.email);
+    setProperties(mergeByIdPreferNewer(localMine, cloudMine));
+  };
 
   // Load user + tin đăng
   useEffect(() => {
@@ -215,13 +291,17 @@ const Dashboard = () => {
       }
       setUser(parsedUser);
 
-      // 🔧 FIX: không dùng getUserProperties (dễ bỏ sót/giới hạn),
-      // dùng listMyProperties để lấy đúng toàn bộ tin theo email/phone
+      // ⛳ Giữ logic cũ: hiển thị ngay dữ liệu local
       setProperties(listMyProperties(parsedUser));
+
+      // ✅ THÊM: sau đó tải cloud và hợp nhất (không chặn UI)
+      refreshMine(parsedUser).finally(() => setLoading(false));
+      return;
     } catch (error) {
       console.error("Error loading dashboard data:", error);
       navigate("/login");
     } finally {
+      // nếu đã gọi refreshMine, phần này chỉ để an toàn khi lỗi parse
       setLoading(false);
     }
   }, [navigate]);
@@ -234,8 +314,8 @@ const Dashboard = () => {
         try {
           const u = JSON.parse(data) as UserAccount;
           setUser(u);
-          // Đồng bộ lại danh sách tin (phòng trường hợp đổi phone/email)
-          setProperties(listMyProperties(u));
+          // Đồng bộ lại danh sách tin
+          refreshMine(u);
         } catch {}
       }
     };
@@ -245,21 +325,33 @@ const Dashboard = () => {
 
   // Tự refresh danh sách tin khi có sự kiện thay đổi hệ thống
   useEffect(() => {
-    const refreshMine = () => {
-      if (!user) return;
-      setProperties(listMyProperties(user));
-    };
-    window.addEventListener("emyland:properties-changed", refreshMine as EventListener);
+    const onChanged = () => { if (user) refreshMine(user); };
+    window.addEventListener("emyland:properties-changed", onChanged as EventListener);
     window.addEventListener("storage", (e: any) => {
-      if (e?.key === "emyland_properties") refreshMine();
+      if (e?.key === "emyland_properties_updated" || e?.key === "emyland_properties") {
+        if (user) refreshMine(user);
+      }
     });
-    return () => window.removeEventListener("emyland:properties-changed", refreshMine as EventListener);
+    return () => window.removeEventListener("emyland:properties-changed", onChanged as EventListener);
   }, [user]);
 
-  const handleDeleteProperty = (propertyId: string) => {
+  const handleDeleteProperty = async (propertyId: string) => {
+    if (!propertyId) return;
     if (window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) {
+      // Giữ logic cũ: xoá local
       StorageManager.deleteProperty(propertyId);
       if (user) setProperties(listMyProperties(user));
+
+      // ✅ THÊM: xoá trên Supabase (không chặn luồng nếu lỗi)
+      try {
+        const { error } = await supabase.from("properties").delete().eq("id", propertyId);
+        if (error) console.error("Supabase delete error:", error);
+      } catch (e) {
+        console.error("Supabase delete exception:", e);
+      }
+
+      // Sau xoá: refresh cloud-first để đồng bộ
+      if (user) refreshMine(user);
     }
   };
 
@@ -277,15 +369,21 @@ const Dashboard = () => {
   }, [isEditModalOpen, editingProperty?.id]);
 
   const handleSaveProperty = () => {
-    if (user) setProperties(listMyProperties(user));
+    // Giữ cũ + THÊM refresh cloud
+    if (user) refreshMine(user);
   };
 
   const handleSaveUser = () => {
     const userData = localStorage.getItem("emyland_user");
-    if (userData) setUser(JSON.parse(userData) as UserAccount);
+    if (userData) {
+      const u = JSON.parse(userData) as UserAccount;
+      setUser(u);
+      if (u) refreshMine(u);
+    }
   };
 
   // ==== Avatar: click ảnh để đổi (bỏ nút riêng) ====
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const onAvatarClick = () => fileInputRef.current?.click();
 
   const onAvatarSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
@@ -310,7 +408,7 @@ const Dashboard = () => {
         } catch {}
 
         localStorage.setItem("emyland_user_updated", String(Date.now()));
-        window.dispatchEvent(new Event("emyland:userUpdated")); // 🔔 báo toàn app
+        window.dispatchEvent(new Event("emyland:userUpdated"));
         alert("Đã cập nhật ảnh đại diện!");
       }
     } catch (err) {
@@ -325,7 +423,6 @@ const Dashboard = () => {
   const renderPosted = (dateString: string) => {
     const label = postDateLabel(dateString);
     return label ? `Đăng: ${label}` : "";
-    // (múi giờ VN đã xử lý trong utils/date.ts)
   };
 
   if (loading) {
@@ -434,7 +531,6 @@ const Dashboard = () => {
                                     {vStatus === "verified" ? (
                                       <Badge className="bg-emerald-600 inline-flex items-center gap-1.5">
                                         <ShieldCheck className="w-3.5 h-3.5" />
-                                        {/* Hiển thị kèm ngày xác nhận theo giờ VN */}
                                         {renderVerifiedAt(property) || "Đã xác nhận chính chủ"}
                                       </Badge>
                                     ) : (
@@ -454,7 +550,7 @@ const Dashboard = () => {
                                 <span>Diện tích: {property.area ?? "--"}m²</span>
                                 {typeof bedrooms === "number" && <span>• {bedrooms}N</span>}
                                 {typeof bathrooms === "number" && <span>• {bathrooms}WC</span>}
-                                <span>• {renderPosted(property.createdAt)}</span>
+                                <span>• {renderPosted((property as any).createdAt || (property as any).created_at)}</span>
                               </div>
 
                               <div className="flex justify-between items-center">
