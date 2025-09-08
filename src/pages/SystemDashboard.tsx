@@ -1120,5 +1120,4 @@ const SystemDashboard = () => {
 };
 
 export default SystemDashboard;
-TSX
 
