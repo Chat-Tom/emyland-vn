@@ -1,4 +1,3 @@
-
 // src/pages/PostProperty.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -60,6 +59,30 @@ function dataURLtoBlob(dataUrl: string): Blob {
   return new Blob([u8], { type: mime || "image/jpeg" });
 }
 
+/* ===== (NEW) Upload dataURL -> Supabase Storage (return public URLs) ===== */
+async function ensureStorageUrls(id: string, images: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (let i = 0; i < images.length; i++) {
+    const src = images[i];
+    try {
+      if (typeof src === "string" && src.startsWith("data:")) {
+        const blob = dataURLtoBlob(src);
+        const path = `properties/${id}/${Date.now()}_${i}.jpg`;
+        const { error } = await supabase.storage.from(AI_TMP_BUCKET).upload(path, blob, { upsert: false });
+        if (!error) {
+          const { data } = supabase.storage.from(AI_TMP_BUCKET).getPublicUrl(path);
+          if (data?.publicUrl) out.push(data.publicUrl);
+        }
+      } else if (typeof src === "string" && src) {
+        out.push(src);
+      }
+    } catch {}
+  }
+  // unique + cap 10
+  return Array.from(new Set(out)).slice(0, 10);
+}
+
+
 /* ===== Phone helpers (giống Login/Đăng ký) ===== */
 function sanitizePhone(v: string) {
   return v.replace(/\D/g, "");
@@ -73,6 +96,35 @@ function normalizeVNPhone(input: string) {
 function isValidVNPhone(v: string) {
   return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 }
+
+/* ===== (NEW) UUID helper an toàn cho cột id::uuid ===== */
+function makeUUID(): string {
+  try {
+    const c = (globalThis as any).crypto;
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  } catch {}
+  // Fallback UUID v4
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0;
+    const v = ch === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/* ===== (NEW) Ảnh: ép kiểu an toàn ===== */
+function asImages(x: any): string[] {
+  if (Array.isArray(x)) return x.filter(Boolean);
+  if (typeof x === "string") {
+    try {
+      const arr = JSON.parse(x);
+      if (Array.isArray(arr)) return arr.filter(Boolean);
+    } catch {}
+    if (isValidUrl(x) || x.startsWith("data:")) return [x];
+  }
+  return [];
+}
+const uniqueStrings = (arr: string[]) =>
+  Array.from(new Set((arr || []).filter(Boolean)));
 
 /* ===== (NEW) SEO/PWA head helpers (idempotent) ===== */
 function ensureMeta(attr: Partial<HTMLMetaElement>, id?: string) {
@@ -361,10 +413,10 @@ const PostProperty: React.FC = () => {
     const bathrooms =
       p?.bathrooms ?? p?.bathroom_count ?? p?.wc ?? p?.rooms?.bathrooms ?? "";
 
-    const images = (p?.images || p?.photos || p?.gallery || []) as string[];
+    const images = asImages(p?.images || p?.photos || p?.gallery || []);
     const legalImages =
       getLegalImagesByIdLocal(id) ||
-      (p?.legalImages || p?.legal_images || p?.legal_docs || p?.attachments || []);
+      asImages(p?.legalImages || p?.legal_images || p?.legal_docs || p?.attachments);
 
     const priceTy =
       lt === "sell" && Number(p?.price)
@@ -396,8 +448,8 @@ const PostProperty: React.FC = () => {
       bedrooms: bedrooms ? String(bedrooms) : "",
       bathrooms: bathrooms ? String(bathrooms) : "",
 
-      images: Array.isArray(images) ? images : [],
-      legalImages: Array.isArray(legalImages) ? legalImages : [],
+      images: uniqueStrings(images),
+      legalImages: uniqueStrings(legalImages),
 
       contactName: p?.contactInfo?.name || p?.ownerName || f.contactName,
       contactPhone: p?.contactInfo?.phone || p?.ownerPhone || f.contactPhone,
@@ -505,7 +557,7 @@ const PostProperty: React.FC = () => {
 
       const urls = await filesToDataUrls(accepted);
       setForm((f) => {
-        const merged = [...f[field], ...urls].slice(0, limit);
+        const merged = uniqueStrings([...f[field], ...urls]).slice(0, limit);
         return { ...f, [field]: merged };
       });
       e.target.value = "";
@@ -585,7 +637,8 @@ const PostProperty: React.FC = () => {
       verifiedAt: undefined,
       verified_at: undefined,
 
-      images: Array.isArray(form.images) ? JSON.stringify(form.images) : (typeof form.images==="string" ? form.images : "[]"),
+      // ⚠️ GIỮ LÀ MẢNG trong FE/localStorage
+      images: uniqueStrings(form.images),
       listingType: form.listingType,
 
       ward: form.ward,
@@ -654,28 +707,34 @@ const PostProperty: React.FC = () => {
     if (isEditMode && editId) {
       // ====== UPDATE
       const payload = buildPropertyPayload(editId, now, provinceName, originalCreatedAt);
-  const rowUpdate = {
+      // (NEW) Upload images to Storage & use URLs
+      const imageUrls = await ensureStorageUrls(editId, form.images);
+      (payload as any).images = imageUrls;
 
-    title: payload.title,
-    description: payload.description,
-    listing_type: payload.listingType,
-    property_type: payload.propertyType || payload.property_type,
-    area: payload.area,
-    price: payload.price ?? null,
-    rent_per_month: payload.rent_per_month ?? null,
-    price_per_m2: payload.price_per_m2 ?? null,
-    province: provinceName,
-    ward: form.ward,
-    address: form.address.trim(),
-    user_email: StorageManager.getCurrentUser?.()?.email || null,
-    owner_phone: payload?.contactInfo?.phone || form.contactPhone.trim(),
-    verification_status: payload.verificationStatus || "pending",
-    is_verified: !!payload.is_verified,
-    images: (Array.isArray(payload.images) ? JSON.stringify(payload.images) : (typeof payload.images==='string' ? payload.images : '[]')),
-    map_url: payload.mapUrl || null,
-    updated_at: now,
-    created_at: originalCreatedAt || payload.created_at || payload.createdAt,
-  };
+      const rowUpdate = {
+        id: editId, // (NEW) cần id cho upsert theo onConflict: 'id'
+        title: payload.title,
+        description: payload.description,
+        listing_type: payload.listingType,
+        property_type: payload.propertyType || payload.property_type,
+        area: payload.area,
+        price: payload.price ?? null,
+        rent_per_month: payload.rent_per_month ?? null,
+        price_per_m2: payload.price_per_m2 ?? null,
+        province: provinceName,
+        ward: form.ward,
+        address: form.address.trim(),
+        user_email: StorageManager.getCurrentUser?.()?.email || null,
+        owner_phone: payload?.contactInfo?.phone || form.contactPhone.trim(),
+        verification_status: payload.verificationStatus || "pending",
+        is_verified: !!payload.is_verified,
+        // >> chỉ stringify khi ghi DB
+        images: JSON.stringify(Array.isArray(payload.images) ? payload.images : []),
+        map_url: payload.mapUrl || null,
+        updated_at: now,
+        created_at: originalCreatedAt || payload.created_at || payload.createdAt,
+      };
+
       // localStorage update (không thay id/createdAt)
       const all = getAllLocalProperties();
       const idx = all.findIndex((p) => String(p?.id) === String(editId));
@@ -698,38 +757,43 @@ const PostProperty: React.FC = () => {
         localStorage.setItem("emyland_properties_updated", String(Date.now()));
       } catch {}
       alert("Đã lưu thay đổi tin đăng.");
-    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "property", targetId: editId, action: "update", summary: "Cập nhật tin " + (payload?.title || editId) }); } catch {}
+      try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "property", targetId: editId, action: "update", summary: "Cập nhật tin " + (payload?.title || editId) }); } catch {}
       navigate("/dashboard");
       return;
     }
 
     // ====== CREATE
-    const id = StorageManager.generateId?.() || String(Date.now());
+    const id = makeUUID() || String(Date.now());
     const payload = buildPropertyPayload(id, now, provinceName);
-  const row = {
-    id,
-    title: payload.title,
-    description: payload.description,
-    listing_type: payload.listingType,
-    property_type: payload.propertyType || payload.property_type,
-    area: payload.area,
-    price: payload.price ?? null,
-    rent_per_month: payload.rent_per_month ?? null,
-    price_per_m2: payload.price_per_m2 ?? null,
-    province: provinceName,
-    ward: form.ward,
-    address: form.address.trim(),
-    user_email: StorageManager.getCurrentUser?.()?.email || null,
-    owner_phone: form.contactPhone.trim(),
-    verification_status: "pending",
-    is_verified: false,
-    images: (Array.isArray(payload.images) ? JSON.stringify(payload.images) : (typeof payload.images==='string' ? payload.images : '[]')),
-    map_url: payload.mapUrl || null,
-    updated_at: now,
-    created_at: now,
-  };
+    // (NEW) Upload images to Storage & use URLs
+    const imageUrls = await ensureStorageUrls(id, form.images);
+    (payload as any).images = imageUrls;
 
-    // Lưu LocalStorage
+    const row = {
+      id,
+      title: payload.title,
+      description: payload.description,
+      listing_type: payload.listingType,
+      property_type: payload.propertyType || payload.property_type,
+      area: payload.area,
+      price: payload.price ?? null,
+      rent_per_month: payload.rent_per_month ?? null,
+      price_per_m2: payload.price_per_m2 ?? null,
+      province: provinceName,
+      ward: form.ward,
+      address: form.address.trim(),
+      user_email: StorageManager.getCurrentUser?.()?.email || null,
+      owner_phone: form.contactPhone.trim(),
+      verification_status: "pending",
+      is_verified: false,
+      // >> chỉ stringify khi ghi DB
+      images: JSON.stringify(Array.isArray(payload.images) ? payload.images : []),
+      map_url: payload.mapUrl || null,
+      updated_at: now,
+      created_at: now,
+    };
+
+    // Lưu LocalStorage (giữ ảnh là MẢNG)
     try {
       StorageManager.saveProperty?.(payload);
     } catch {
@@ -1324,4 +1388,3 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
 };
 
 export default PostProperty;
-
