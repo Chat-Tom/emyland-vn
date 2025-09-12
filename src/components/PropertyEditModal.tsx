@@ -240,10 +240,12 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       const files = e.target.files;
       if (!files || files.length === 0) return;
       const urls = await filesToDataUrls(files);
-      if (field === "images") setImages((cur) => [...cur, ...urls].slice(0, limit));
-      else setLegalImages((cur) => [...cur, ...urls].slice(0, limit));
+      const uniq = (arr: string[]) => Array.from(new Set(arr)).slice(0, limit);
+      if (field === "images") setImages((cur) => uniq([...cur, ...urls]));
+      else setLegalImages((cur) => uniq([...cur, ...urls]));
       e.target.value = "";
     };
+
   const removeImage =
     (field: "images" | "legalImages", idx: number) => () => {
       if (field === "images") setImages((arr) => arr.filter((_, i) => i !== idx));
