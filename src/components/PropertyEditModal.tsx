@@ -203,6 +203,46 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [property]);
 
+  /* >>> Added: Fallback nạp ảnh BĐS cũ nếu prop.images trống
+     (đọc từ StorageManager / localStorage giống cách đang làm cho ảnh pháp lý) */
+  useEffect(() => {
+    (async () => {
+      if (images.length > 0) return;
+      try {
+        const id = (property as any)?.id;
+        if (!id) return;
+
+        const cand = [
+          (StorageManager as any).loadImages,
+          (StorageManager as any).getImages,
+          (StorageManager as any).getPropertyImages,
+        ].filter(Boolean);
+
+        for (const fn of cand) {
+          try {
+            const arr = await (fn as any)(id);
+            if (Array.isArray(arr) && arr.length) {
+              setImages(arr.filter(Boolean));
+              return;
+            }
+          } catch {}
+        }
+
+        // localStorage fallback (không thay đổi khoá cũ nào)
+        try {
+          const raw =
+            localStorage.getItem(`emyland_property_images_${id}`) ||
+            localStorage.getItem(`emyland_images_${id}`);
+          if (raw) {
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr) && arr.length) setImages(arr.filter(Boolean));
+          }
+        } catch {}
+      } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [property]);
+
   // ==== Derived ====
   const wardOptions = useMemo(() => wardListByProvinceId(provinceId), [provinceId]);
 
@@ -395,7 +435,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
           is_verified: next.is_verified,
           images: (Array.isArray(next.images) ? JSON.stringify(next.images) : (typeof next.images==='string' ? next.images : '[]')),
           map_url: next.mapUrl || next.map_link || next.google_map_link,
-    legal_images: Array.isArray(legalImages) ? legalImages : (typeof legalImages === "string" ? (JSON.parse(legalImages||"[]")) : []),
+          legal_images: Array.isArray(legalImages) ? legalImages : (typeof legalImages === "string" ? (JSON.parse(legalImages||"[]")) : []),
           updated_at: next.updatedAt,
         };
         await supabase.from("properties").upsert(row, { onConflict: 'id', returning: 'minimal' });

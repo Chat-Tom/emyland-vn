@@ -120,10 +120,28 @@ function inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
   return { bedrooms, bathrooms };
 }
 
-/* ========= FIX CAP 4 TIN: đọc toàn bộ rồi lọc theo email/phone ========= */
+/* ========= FIX: chuẩn hoá ảnh ========= */
 const normalizePhone = (s?: string) => (s || "").replace(/\D+/g, "");
 const normalizeEmail = (s?: string) => (s || "").trim().toLowerCase();
 
+const isValidUrl = (u?: string) => {
+  if (!u) return false;
+  try { const x = new URL(u); return x.protocol === "http:" || x.protocol === "https:"; }
+  catch { return false; }
+};
+const asImages = (x: any): string[] => {
+  if (Array.isArray(x)) return x.filter(Boolean);
+  if (typeof x === "string") {
+    try {
+      const arr = JSON.parse(x);
+      if (Array.isArray(arr)) return arr.filter(Boolean);
+    } catch {}
+    if (isValidUrl(x) || x.startsWith("data:")) return [x];
+  }
+  return [];
+};
+
+/* ========= Đọc toàn bộ rồi lọc theo email/phone ========= */
 const listMyProperties = (u: UserAccount): PropertyListing[] => {
   const email = normalizeEmail(u.email);
   const phone = normalizePhone(u.phone);
@@ -137,7 +155,11 @@ const listMyProperties = (u: UserAccount): PropertyListing[] => {
     const pe = normalizeEmail(p.userEmail || p.ownerEmail || p.contactInfo?.email || p.user_email);
     const pp = normalizePhone(p.userPhone || p.ownerPhone || p.contactInfo?.phone);
     return (email && pe === email) || (phone && pp === phone);
-  });
+  }).map((p: any) => ({
+    ...p,
+    // ép ảnh trong dữ liệu local cũ về mảng
+    images: asImages(p?.images),
+  }));
 
   mine.sort((a, b) => {
     const ta = new Date(a?.createdAt || a?.updatedAt || a?.created_at || a?.updated_at || 0).getTime();
@@ -162,6 +184,39 @@ function getLegalImagesById(id?: string): string[] {
   } catch {
     return [];
   }
+}
+
+/* >>> THÊM: Helper lấy ảnh BĐS theo id (prefill khi sửa) */
+function getImagesById(id?: string): string[] {
+  if (!id) return [];
+  try {
+    const loaders = [
+      (StorageManager as any).loadImages,
+      (StorageManager as any).getImages,
+      (StorageManager as any).getPropertyImages,
+    ].filter(Boolean);
+    for (const fn of loaders) {
+      try {
+        const arr = awaitMaybe(fn as any, id);
+        if (Array.isArray(arr) && arr.length) return arr.filter(Boolean);
+      } catch {}
+    }
+  } catch {}
+  try {
+    const raw =
+      localStorage.getItem(`emyland_property_images_${id}`) ||
+      localStorage.getItem(`emyland_images_${id}`);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+/* helper sync-await wrapper */
+function awaitMaybe(fn: (...args: any[]) => any, ...args: any[]) {
+  const r = fn?.(...args);
+  if (r && typeof r.then === "function") return r;
+  return Promise.resolve(r);
 }
 
 /** 🔧 Ẩn checkbox “Đánh dấu Nổi bật” trong modal Sửa (không sửa modal) */
@@ -191,7 +246,7 @@ function mapDbRow(row: any): any {
     id: row.id,
     title: row.title,
     description: row.description,
-    images: Array.isArray(row.images) ? row.images : [],
+    images: asImages(row.images), // << parse TEXT → mảng
     area: row.area ?? row.size,
     propertyType: row.property_type ?? row.propertyType,
     listingType: row.listing_type ?? row.listingType,
@@ -217,7 +272,8 @@ async function fetchCloudByEmail(email?: string): Promise<any[]> {
     const { data, error } = await supabase
       .from("properties")
       .select("*")
-      .eq("user_email", em)
+      /* >>> SỬA: so khớp email không phân biệt hoa/thường */
+      .ilike("user_email", em)
       .order("created_at", { ascending: false });
     if (error) {
       console.error("Supabase select error:", error);
@@ -301,7 +357,6 @@ const Dashboard = () => {
       console.error("Error loading dashboard data:", error);
       navigate("/login");
     } finally {
-      // nếu đã gọi refreshMine, phần này chỉ để an toàn khi lỗi parse
       setLoading(false);
     }
   }, [navigate]);
@@ -358,7 +413,15 @@ const Dashboard = () => {
   const handleEditProperty = (property: PropertyListing) => {
     // ✅ Prefill ảnh pháp lý khi mở sửa
     const legalImages = getLegalImagesById(property.id);
-    const merged: any = { ...property, legalImages: Array.isArray(legalImages) ? legalImages : [] };
+    /* >>> THÊM: Prefill ảnh BĐS nếu prop hiện tại chưa có (để modal hiển thị đúng ảnh cũ) */
+    const baseImages = Array.isArray((property as any).images) ? (property as any).images : asImages((property as any).images);
+    const images = baseImages.length ? baseImages : getImagesById(property.id);
+
+    const merged: any = {
+      ...property,
+      images: images,
+      legalImages: Array.isArray(legalImages) ? legalImages : [],
+    };
     setEditingProperty(merged);
     setIsEditModalOpen(true);
   };
@@ -383,7 +446,6 @@ const Dashboard = () => {
   };
 
   // ==== Avatar: click ảnh để đổi (bỏ nút riêng) ====
-//   const fileInputRef = useRef<HTMLInputElement>(null);
   const onAvatarClick = () => fileInputRef.current?.click();
 
   const onAvatarSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
