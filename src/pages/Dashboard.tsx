@@ -842,5 +842,11 @@ const Dashboard = () => {
     </AppLayout>
   );
 };
-
+const avatarUrl =
+  (user as any)?.avatarUrl ||
+  (user as any)?.avatar ||
+  (user as any)?.avatar_url ||
+  (user as any)?.photoUrl ||
+  (user as any)?.photo_url ||
+  AVATAR_FALLBACK;
 export default Dashboard;
