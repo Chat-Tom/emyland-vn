@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+cache-control: public, max-age=0, must-revalidate
+server: Vercel
+x-vercel-id: dev1::dev1::6q54g-1757822657339-5670a84157df
+x-vercel-cache: MISS
+connection: close
+content-length: 698
+content-type: application/json; charset=utf-8
+date: Sun, 14 Sep 2025 04:04:19 GMT
+etag: W/"2ba-NW2TNy7WRtNbxKU6aWjOz0N03mA"
+

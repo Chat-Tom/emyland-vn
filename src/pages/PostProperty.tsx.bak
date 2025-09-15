@@ -208,7 +208,6 @@ function getLegalImagesByIdLocal(id: string): string[] {
       if (Array.isArray(arr)) return arr.filter(Boolean);
     }
   } catch {}
-
   const out: string[] = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
@@ -218,14 +217,30 @@ function getLegalImagesByIdLocal(id: string): string[] {
         const v = localStorage.getItem(k);
         try {
           const arr = JSON.parse(v || "[]");
-          if (Array.isArray(arr)) out.push(...arr.filter(Boolean)); // ✅ spread đúng
+          if (Array.isArray(arr)) out.push(...arr.filter(Boolean));
         } catch {}
       }
     }
   } catch {}
-
-  // ✅ khử trùng lặp & chỉ giữ giá trị truthy
+  // de-dup
   return Array.from(new Set(out.filter(Boolean)));
+}
+  } catch {}
+  const out: string[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || "";
+      if (!k) continue;
+      if (k.includes("legal") && k.includes(id)) {
+        const v = localStorage.getItem(k);
+        try {
+          const arr = JSON.parse(v || "[]");
+          if (Array.isArray(arr)) out.push(...arr.filter(Boolean));
+        } catch {}
+      }
+    }
+  } catch {}
+  return out;
 }
 
 /* ===== (NEW) Helper: lấy ảnh BĐS theo id từ localStorage (prefill/sync) ===== */

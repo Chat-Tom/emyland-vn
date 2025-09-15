@@ -1,4 +1,3 @@
-// src/components/PropertyEditModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -79,6 +78,54 @@ const filesToDataUrls = (files: FileList) =>
         })
     )
   );
+
+/* ===== Helpers: URL & upload to Supabase Storage (giữ giống PostProperty) ===== */
+const AI_TMP_BUCKET =
+  (import.meta as any)?.env?.VITE_SUPABASE_BUCKET_PUBLIC || "public";
+
+function isValidUrl(u: string) {
+  try {
+    const url = new URL(u);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+function dataURLtoBlob(dataUrl: string): Blob {
+  const [header, data] = dataUrl.split(",");
+  const isBase64 = /;base64$/i.test(header);
+  const mime = (header.match(/^data:(.*?)(;|$)/i)?.[1] || "image/jpeg").trim();
+  if (isBase64) {
+    const binStr = atob(data);
+    const len = binStr.length;
+    const u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) u8[i] = binStr.charCodeAt(i);
+    return new Blob([u8], { type: mime || "image/jpeg" });
+  }
+  const u8 = new Uint8Array(unescape(data).split("").map((c) => c.charCodeAt(0)));
+  return new Blob([u8], { type: mime || "image/jpeg" });
+}
+async function ensureStorageUrls(id: string, images: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (let i = 0; i < images.length; i++) {
+    const src = images[i];
+    try {
+      if (typeof src === "string" && src.startsWith("data:")) {
+        const blob = dataURLtoBlob(src);
+        const path = `properties/${id}/${Date.now()}_${i}.jpg`;
+        const { error } = await supabase.storage.from(AI_TMP_BUCKET).upload(path, blob, { upsert: false });
+        if (!error) {
+          const { data } = supabase.storage.from(AI_TMP_BUCKET).getPublicUrl(path);
+          if (data?.publicUrl) out.push(data.publicUrl);
+        }
+      } else if (typeof src === "string" && src) {
+        out.push(src);
+      }
+    } catch {}
+  }
+  // unique + cap 10
+  return Array.from(new Set(out)).slice(0, 10);
+}
 
 /* ---------------- Component ---------------- */
 interface PropertyEditModalProps {
@@ -167,9 +214,13 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
   // Ảnh
   const [images, setImages] = useState<string[]>(normalizeImages((property as any).images));
 
-  // ⬅ Prefill ảnh pháp lý từ prop (nếu Dashboard truyền vào), fallback load từ StorageManager
+  // ⬅ Prefill ảnh pháp lý: ưu tiên prop.legalImages/legal_images/attachments
   const [legalImages, setLegalImages] = useState<string[]>(
-    normalizeImages((property as any).legalImages)
+    normalizeImages(
+      (property as any).legalImages ??
+        (property as any).legal_images ??
+        (property as any).attachments
+    )
   );
 
   // Thông số thêm
@@ -188,7 +239,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       ((property as any).is_verified ? "verified" : "pending")
   );
 
-  // Load ảnh pháp lý từ kho nếu prop chưa có
+  // Load ảnh pháp lý từ kho nếu prop chưa có; fallback localStorage
   useEffect(() => {
     (async () => {
       if (legalImages.length > 0) return; // đã có từ prop
@@ -196,8 +247,17 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
         const fn: any = (StorageManager as any).loadLegalImages || (StorageManager as any).getLegalImages;
         if (typeof fn === "function") {
           const arr = await fn((property as any).id);
-          if (Array.isArray(arr)) setLegalImages(arr.filter(Boolean));
+          if (Array.isArray(arr) && arr.length) {
+            setLegalImages(arr.filter(Boolean));
+            return;
+          }
         }
+      } catch {}
+      // Fallback localStorage (không thay key cũ)
+      try {
+        const raw = localStorage.getItem(`emyland_property_legal_${(property as any).id}`);
+        const arr = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(arr) && arr.length) setLegalImages(arr.filter(Boolean));
       } catch {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,6 +302,35 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [property]);
+
+  /* >>> THÊM NHẸ: nếu cả local đều trống, thử lấy từ Supabase theo id (KHÔNG thay dòng cũ) */
+  useEffect(() => {
+    (async () => {
+      const id = (property as any)?.id;
+      if (!id) return;
+      if (images.length > 0 && legalImages.length > 0) return;
+
+      try {
+        const { data, error } = await supabase
+          .from("properties")
+          .select("images, legal_images")
+          .eq("id", id)
+          .limit(1);
+        const row = !error && Array.isArray(data) && data[0] ? data[0] : null;
+        if (row) {
+          if (images.length === 0) {
+            const arr = normalizeImages(row.images);
+            if (arr.length) setImages(Array.from(new Set(arr)).slice(0, 10));
+          }
+          if (legalImages.length === 0) {
+            const leg = normalizeImages(row.legal_images);
+            if (leg.length) setLegalImages(Array.from(new Set(leg)).slice(0, 5));
+          }
+        }
+      } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [property, images.length, legalImages.length]);
 
   // ==== Derived ====
   const wardOptions = useMemo(() => wardListByProvinceId(provinceId), [provinceId]);
@@ -308,6 +397,40 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       if (legalImages.length === 0) throw new Error("Vui lòng tải ảnh pháp lý (sổ đỏ/HĐMB).");
 
       const areaNum = Number(area) || 0;
+
+      // (NEW) Chuẩn bị để tránh ghi đè mất ảnh đang có trên Supabase
+      const _id = String((property as any).id || "");
+      let existingDbImages: string[] = [];
+      let existingDbLegal: string[] = [];
+      try {
+        if (_id) {
+          const { data, error } = await supabase
+            .from("properties")
+            .select("images, legal_images")
+            .eq("id", _id)
+            .limit(1);
+          if (!error && Array.isArray(data) && data[0]) {
+            existingDbImages = normalizeImages((data[0] as any).images);
+            existingDbLegal = normalizeImages((data[0] as any).legal_images);
+          }
+        }
+      } catch {}
+
+      // (NEW) Chuẩn hoá ảnh: upload dataURL → Supabase Storage để dùng public URL thống nhất
+      let finalImages: string[] = images;
+      try {
+        if (_id) {
+          finalImages = await ensureStorageUrls(_id, images);
+          if ((!finalImages || finalImages.length === 0) && images && images.length) {
+            finalImages = images.slice(0, 10);
+          }
+        }
+      } catch {}
+
+      // (NEW) Gộp với ảnh đã có ở DB để không làm mất ảnh cũ
+      finalImages = Array.from(new Set([...(existingDbImages || []), ...(finalImages || [])])).slice(0, 10);
+      const finalLegal = Array.from(new Set([...(existingDbLegal || []), ...(legalImages || [])])).slice(0, 5);
+
       const typeLabel = TYPE_LABEL_BY_VALUE[propertyType] || "Nhà đất";
 
       const next: PropertyListing & any = {
@@ -350,7 +473,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
         google_map_link: mapUrl?.trim(),
 
         // ảnh
-        images,
+        images: finalImages,
 
         // đồng bộ loại BĐS
         type: propertyType,
@@ -411,8 +534,13 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       // Lưu ảnh pháp lý nếu có API
       try {
         const fn: any = (StorageManager as any).saveLegalImages;
-        if (typeof fn === "function") await fn((property as any).id, legalImages);
+        if (typeof fn === "function") await fn((property as any).id, finalLegal);
       } catch {}
+
+      // Đồng bộ bộ ảnh vào localStorage / StorageManager (để Home/Dashboard/Admin đọc đúng)
+      try { if (_id) localStorage.setItem(`emyland_property_images_${_id}`, JSON.stringify(finalImages)); } catch {}
+      try { (StorageManager as any).saveImages?.(_id, finalImages); } catch {}
+      try { if (_id) localStorage.setItem(`emyland_property_legal_${_id}`, JSON.stringify(finalLegal)); } catch {}
 
       /* >>> Added: Upsert lên Supabase (cloud), KHÔNG thay đổi flow cũ */
       try {
@@ -433,9 +561,10 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
           owner_phone: next.owner_phone,
           verification_status: next.verificationStatus,
           is_verified: next.is_verified,
-          images: (Array.isArray(next.images) ? JSON.stringify(next.images) : (typeof next.images==='string' ? next.images : '[]')),
+          images: (Array.isArray(finalImages) ? JSON.stringify(finalImages) : (typeof finalImages==='string' ? finalImages : '[]')),
           map_url: next.mapUrl || next.map_link || next.google_map_link,
-          legal_images: Array.isArray(legalImages) ? legalImages : (typeof legalImages === "string" ? (JSON.parse(legalImages||"[]")) : []),
+          // ✅ luôn stringify để khớp schema TEXT hiện dùng
+          legal_images: JSON.stringify(finalLegal),
           updated_at: next.updatedAt,
         };
         await supabase.from("properties").upsert(row, { onConflict: 'id', returning: 'minimal' });

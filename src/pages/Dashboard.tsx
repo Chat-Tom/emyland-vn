@@ -141,7 +141,7 @@ const asImages = (x: any): string[] => {
   return [];
 };
 
-/* ========= Đọc toàn bộ rồi lọc theo email/phone ========= */
+/* ========= Đọc toàn bộ rồi lọc theo email/phone (khử trùng lặp theo id) ========= */
 const listMyProperties = (u: UserAccount): PropertyListing[] => {
   const email = normalizeEmail(u.email);
   const phone = normalizePhone(u.phone);
@@ -151,23 +151,37 @@ const listMyProperties = (u: UserAccount): PropertyListing[] => {
       ? (StorageManager as any).getAllProperties()
       : JSON.parse(localStorage.getItem("emyland_properties") || "[]")) || [];
 
-  const mine = all.filter((p: any) => {
-    const pe = normalizeEmail(p.userEmail || p.ownerEmail || p.contactInfo?.email || p.user_email);
-    const pp = normalizePhone(p.userPhone || p.ownerPhone || p.contactInfo?.phone);
-    return (email && pe === email) || (phone && pp === phone);
-  }).map((p: any) => ({
-    ...p,
-    // ép ảnh trong dữ liệu local cũ về mảng
-    images: asImages(p?.images),
-  }));
+  const mine = all
+    .filter((p: any) => {
+      const pe = normalizeEmail(p.userEmail || p.ownerEmail || p.contactInfo?.email || p.user_email);
+      const pp = normalizePhone(p.userPhone || p.ownerPhone || p.contactInfo?.phone);
+      return (email && pe === email) || (phone && pp === phone);
+    })
+    .map((p: any) => ({
+      ...p,
+      // ép ảnh trong dữ liệu local cũ về mảng
+      images: asImages(p?.images),
+    }));
 
-  mine.sort((a, b) => {
+  // ❗ Khử trùng lặp theo id, giữ bản mới hơn
+  const pick = new Map<string, any>();
+  for (const it of mine) {
+    const id = String(it?.id || "");
+    if (!id) continue;
+    const prev = pick.get(id);
+    if (!prev) pick.set(id, it);
+    else {
+      const ta = new Date(prev?.updatedAt || prev?.createdAt || prev?.updated_at || prev?.created_at || 0).getTime();
+      const tb = new Date(it?.updatedAt || it?.createdAt || it?.updated_at || it?.created_at || 0).getTime();
+      pick.set(id, tb >= ta ? { ...prev, ...it } : prev);
+    }
+  }
+
+  return Array.from(pick.values()).sort((a, b) => {
     const ta = new Date(a?.createdAt || a?.updatedAt || a?.created_at || a?.updated_at || 0).getTime();
     const tb = new Date(b?.createdAt || b?.updatedAt || b?.created_at || b?.updated_at || 0).getTime();
     return tb - ta;
-  });
-
-  return mine as PropertyListing[];
+  }) as PropertyListing[];
 };
 
 /** 🔧 Helper: lấy ảnh pháp lý đã lưu cho tin */
@@ -186,7 +200,7 @@ function getLegalImagesById(id?: string): string[] {
   }
 }
 
-/* >>> THÊM: Helper lấy ảnh BĐS theo id (prefill khi sửa) */
+/* >>> THÊM: Helper lấy ảnh BĐS theo id (prefill khi sửa) — sync */
 function getImagesById(id?: string): string[] {
   if (!id) return [];
   try {
@@ -197,12 +211,18 @@ function getImagesById(id?: string): string[] {
     ].filter(Boolean);
     for (const fn of loaders) {
       try {
-        const arr = awaitMaybe(fn as any, id);
-        if (Array.isArray(arr) && arr.length) return arr.filter(Boolean);
+        const r = (fn as any)?.(id);
+        if (Array.isArray(r) && r.length) return r.filter(Boolean);
       } catch {}
     }
   } catch {}
   try {
+    // 1) tìm trong mảng properties tổng thể
+    const all = JSON.parse(localStorage.getItem("emyland_properties") || "[]");
+    const hit = Array.isArray(all) ? all.find((p: any) => String(p?.id) === String(id)) : null;
+    if (hit) return asImages(hit.images);
+
+    // 2) các key riêng theo id (nếu được lưu)
     const raw =
       localStorage.getItem(`emyland_property_images_${id}`) ||
       localStorage.getItem(`emyland_images_${id}`);
@@ -410,20 +430,50 @@ const Dashboard = () => {
     }
   };
 
-  const handleEditProperty = (property: PropertyListing) => {
-    // ✅ Prefill ảnh pháp lý khi mở sửa
-    const legalImages = getLegalImagesById(property.id);
-    /* >>> THÊM: Prefill ảnh BĐS nếu prop hiện tại chưa có (để modal hiển thị đúng ảnh cũ) */
-    const baseImages = Array.isArray((property as any).images) ? (property as any).images : asImages((property as any).images);
-    const images = baseImages.length ? baseImages : getImagesById(property.id);
+  // >>> SỬA: hàm mở Sửa tin — bổ sung fallback đọc ảnh từ Supabase nếu local trống
+  const handleEditProperty = async (property: PropertyListing) => {
+    const id = property.id;
+
+    // ✅ Prefill ảnh pháp lý khi mở sửa (local trước)
+    let legalImages = getLegalImagesById(id) || [];
+
+    // ✅ Prefill ảnh BĐS: ưu tiên từ prop → local
+    const baseImages = Array.isArray((property as any).images)
+      ? (property as any).images
+      : asImages((property as any).images);
+    let images = baseImages.length ? baseImages : getImagesById(id);
+
+    // 🔁 Fallback cloud nếu thiếu ảnh ở local
+    if (!images.length || !legalImages.length) {
+      try {
+        const { data, error } = await supabase
+          .from("properties")
+          .select("images, legal_images")
+          .eq("id", id)
+          .limit(1);
+        const row = !error && Array.isArray(data) && data[0] ? data[0] : null;
+        if (row) {
+          if (!images.length && row.images) images = asImages(row.images);
+          if (!legalImages.length && row.legal_images) legalImages = asImages(row.legal_images);
+        }
+      } catch (e) {
+        console.error("Supabase prefill failed:", e);
+      }
+    }
 
     const merged: any = {
       ...property,
-      images: images,
+      images,
       legalImages: Array.isArray(legalImages) ? legalImages : [],
     };
     setEditingProperty(merged);
     setIsEditModalOpen(true);
+
+    // >>> ADD: sync images & legalImages để PropertyEditModal luôn đọc được
+    try { (StorageManager as any).saveImages?.(id, images); } catch {}
+    try { localStorage.setItem(`emyland_property_images_${id}`, JSON.stringify(images)); } catch {}
+    try { (StorageManager as any).saveLegalImages?.(id, merged.legalImages || []); } catch {}
+    try { localStorage.setItem(`emyland_property_legal_${id}`, JSON.stringify(merged.legalImages || [])); } catch {}
   };
 
   // ✅ Khi mở modal: ẩn trường "Đánh dấu Nổi bật"
@@ -486,6 +536,40 @@ const Dashboard = () => {
     const label = postDateLabel(dateString);
     return label ? `Đăng: ${label}` : "";
   };
+
+  // >>> ADD: nâng z-index cho toast + ẩn chữ “Không có tệp nào được chọn”
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.id = "dashboard-hotfix-toast-fileinput";
+    style.textContent = `
+      /* --- Toast/Toaster: luôn nổi trên mọi card, neo góc phải dưới --- */
+  [data-sonner-toaster],
+  .sonner-toaster,
+  #sonner-toaster,
+  [data-radix-toast-viewport],
+  .ToastViewport,
+  .Toastify__toast-container {
+    position: fixed !important;
+    right: 16px !important;
+    bottom: 16px !important;
+    z-index: 2147483647 !important; /* max */
+    pointer-events: auto !important;
+  }
+
+      /* Ẩn chuỗi "Không có tệp nào được chọn" trong input file của modal Sửa */
+      [role="dialog"] input[type="file"],
+      .ReactModal__Content input[type="file"] {
+        font-size: 0 !important;        /* ẩn text phụ */
+        min-width: 0 !important;
+      }
+      [role="dialog"] input[type="file"]::file-selector-button,
+      .ReactModal__Content input[type="file"]::file-selector-button {
+        font-size: 14px !important;     /* giữ chữ trên nút "Chọn tệp" */
+      }
+    `;
+    document.head.appendChild(style);
+    return () => document.getElementById("dashboard-hotfix-toast-fileinput")?.remove();
+  }, []);
 
   if (loading) {
     return (
