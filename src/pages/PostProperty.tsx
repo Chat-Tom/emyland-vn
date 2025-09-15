@@ -1,4 +1,4 @@
-// src/pages/PostProperty.tsx
+// src/pages/PostProperty.tsx 
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -76,7 +76,10 @@ async function ensureStorageUrls(id: string, images: string[]): Promise<string[]
       } else if (typeof src === "string" && src) {
         out.push(src);
       }
-    } catch {}
+    } catch (e) {
+      // 👇 chỉ log cảnh báo, không chặn luồng (giữ fallback ảnh local)
+      console.warn("storage upload failed:", e);
+    }
   }
   // unique + cap 10
   return Array.from(new Set(out)).slice(0, 10);
@@ -220,6 +223,19 @@ function getLegalImagesByIdLocal(id: string): string[] {
     }
   } catch {}
   return out;
+}
+
+/* ===== (NEW) Helper: lấy ảnh BĐS theo id từ localStorage (prefill/sync) ===== */
+function getImagesByIdLocalKey(id: string): string[] {
+  try {
+    const raw =
+      localStorage.getItem(`emyland_property_images_${id}`) ||
+      localStorage.getItem(`emyland_images_${id}`);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
 }
 
 /* ===== Province name → id ===== */
@@ -391,11 +407,48 @@ const PostProperty: React.FC = () => {
   ]);
 
   // ====== nạp dữ liệu tin để sửa (bao gồm ảnh pháp lý) ======
-  const loadPropertyForEdit = (id: string) => {
-    const p =
+  const loadPropertyForEdit = async (id: string) => {
+    let p =
       (typeof (StorageManager as any).getPropertyById === "function"
         ? (StorageManager as any).getPropertyById(id)
         : null) || getPropertyByIdLocal(id);
+
+    /* ✅ NEW: Nếu local không có, fallback lấy từ Supabase theo id */
+    if (!p) {
+      try {
+        const { data, error } = await supabase
+          .from("properties")
+          .select("*")
+          .eq("id", id)
+          .limit(1);
+        const row = !error && Array.isArray(data) && data[0] ? data[0] : null;
+        if (row) {
+          p = {
+            ...row,
+            images: asImages(row.images),
+            propertyType: row.property_type,
+            listingType: row.listing_type,
+            province: row.province,
+            ward: row.ward,
+            address: row.address,
+            location: {
+              province: row.province,
+              ward: row.ward,
+              address: row.address,
+            },
+            mapUrl: row.map_url,
+            contactInfo: {
+              name: "",
+              phone: row.owner_phone,
+            },
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          };
+        }
+      } catch (e) {
+        console.error("Supabase fallback load error:", e);
+      }
+    }
 
     if (!p) return;
 
@@ -413,7 +466,8 @@ const PostProperty: React.FC = () => {
     const bathrooms =
       p?.bathrooms ?? p?.bathroom_count ?? p?.wc ?? p?.rooms?.bathrooms ?? "";
 
-    const images = asImages(p?.images || p?.photos || p?.gallery || []);
+    const __lsImgs = getImagesByIdLocalKey(id);
+    const images = uniqueStrings(__lsImgs.length ? __lsImgs : asImages(p?.images || p?.photos || p?.gallery || []));
     const legalImages =
       getLegalImagesByIdLocal(id) ||
       asImages(p?.legalImages || p?.legal_images || p?.legal_docs || p?.attachments);
@@ -709,9 +763,16 @@ const PostProperty: React.FC = () => {
       const payload = buildPropertyPayload(editId, now, provinceName, originalCreatedAt);
       // (NEW) Upload images to Storage & use URLs
       const imageUrls = await ensureStorageUrls(editId, form.images);
-      (payload as any).images = imageUrls;
+      const finalImages = (imageUrls && imageUrls.length)
+        ? imageUrls
+        : uniqueStrings(form.images).slice(0, 10);
+      (payload as any).images = finalImages;
 
-      const rowUpdate = {
+      
+      // (NEW) Đồng bộ ảnh vào localStorage / StorageManager để Home/Dashboard/Admin lấy đúng
+      try { localStorage.setItem(`emyland_property_images_${editId}`, JSON.stringify(finalImages)); } catch {}
+      try { (StorageManager as any).saveImages?.(editId, finalImages); } catch {}
+const rowUpdate = {
         id: editId, // (NEW) cần id cho upsert theo onConflict: 'id'
         title: payload.title,
         description: payload.description,
@@ -746,6 +807,7 @@ const PostProperty: React.FC = () => {
         localStorage.setItem("emyland_properties", JSON.stringify(all));
       }
       try { StorageManager.saveLegalImages?.(editId, form.legalImages); } catch {}
+      try { localStorage.setItem(`emyland_property_legal_${editId}`, JSON.stringify(form.legalImages)); } catch {}
       try {
         const { error } = await supabase.from("properties").upsert(rowUpdate, { onConflict: "id" });
         if (error) console.error("Supabase upsert error:", error);
@@ -767,9 +829,18 @@ const PostProperty: React.FC = () => {
     const payload = buildPropertyPayload(id, now, provinceName);
     // (NEW) Upload images to Storage & use URLs
     const imageUrls = await ensureStorageUrls(id, form.images);
-    (payload as any).images = imageUrls;
+    const finalImages = (imageUrls && imageUrls.length)
+      ? imageUrls
+      : uniqueStrings(form.images).slice(0, 10);
+    (payload as any).images = finalImages;
 
-    const row = {
+    
+    // (NEW) Đồng bộ ảnh vào localStorage / StorageManager để các trang dùng chung hiển thị đúng
+    try { localStorage.setItem(`emyland_property_images_${id}`, JSON.stringify(finalImages)); } catch {}
+    try { (StorageManager as any).saveImages?.(id, finalImages); } catch {}
+    // Lưu bản gốc (nếu cần khôi phục khi edit)
+    try { localStorage.setItem(`emyland_property_images_original_${id}`, JSON.stringify(form.images || [])); } catch {}
+const row = {
       id,
       title: payload.title,
       description: payload.description,
@@ -803,6 +874,7 @@ const PostProperty: React.FC = () => {
     }
     try { StorageManager.saveLegalImages?.(id, form.legalImages); } catch {}
 
+    try { localStorage.setItem(`emyland_property_legal_${id}`, JSON.stringify(form.legalImages)); } catch {}
     // Đẩy lên Supabase (không chặn luồng nếu lỗi)
     try {
       const { error } = await supabase.from("properties").insert([row]);
