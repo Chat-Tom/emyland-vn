@@ -59,9 +59,12 @@ async function syncProfileFromCloud() {
         email: me.email || null,
         phone: me.phone || null,
         isAdmin: !!me.is_admin,
+        /* 🔧 THÊM: nhận avatar từ nhiều field phổ biến để đồng bộ ảnh đại diện mặc định */
+        avatarUrl: me.avatar_url || me.photo_url || me.avatar || me.photo || me.picture || me.image_url || null,
       };
       try { StorageManager.saveUser(mapped as any); } catch {}
       try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
+      try { window.dispatchEvent(new Event("emyland:userUpdated")); } catch {} // 🔔 THÊM: thông báo UI cập nhật ngay
     }
   } catch {}
 }
@@ -192,6 +195,33 @@ const Login: React.FC = () => {
     return false;
   };
 
+  /* ✅ THÊM: đảm bảo có user Local sau khi Cloud login */
+  const ensureLocalUserAfterCloud = (loginId: string, pwd: string) => {
+    const phoneKey = sanitizePhone(loginId);
+    const byEmail = isEmail(loginId) ? getUserByEmailCI(loginId) : null;
+    const byPhone = StorageManager.getUserByPhone(phoneKey);
+    let u: any = byEmail || byPhone || null;
+
+    if (!u) {
+      const isMail = isEmail(loginId);
+      const email = isMail ? loginId : undefined;
+      const phone = isMail ? undefined : phoneKey;
+      StorageManager.saveUser({
+        id: phone || (email as string),
+        fullName: "",
+        email,
+        phone,
+        password: pwd,
+        isAdmin: false,
+        registeredAt: new Date().toISOString(),
+      } as any);
+      u = isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey);
+    } else if (!u.password) {
+      StorageManager.saveUser({ ...u, password: pwd });
+    }
+    return u;
+  };
+
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (isLoading) return;
@@ -211,8 +241,35 @@ const Login: React.FC = () => {
       // Chuẩn hoá identifier để đăng nhập chuẩn xác
       const idTrim = identifier.trim();
       const loginId = isEmail(idTrim) ? idTrim : normalizeVNPhone(idTrim);
+      const deviceId = getOrCreateDeviceId();
 
-      // 🔒 Đăng nhập cục bộ (giữ nguyên logic cũ)
+      /* 🌐 Cloud-first */
+      const cloudOK = await tryCloudLoginOrMigrate(loginId, password, deviceId);
+      if (cloudOK) {
+        await syncProfileFromCloud(); // kéo hồ sơ chuẩn từ cloud về local (bao gồm avatar)
+
+        // đảm bảo có user local + tạo session để AuthContext nhận diện
+        const u = ensureLocalUserAfterCloud(loginId, password);
+        if (u) {
+          try {
+            StorageManager.markDeviceForUser(u.phone || sanitizePhone(loginId), deviceId);
+            StorageManager.setActiveSession({
+              userId: u.id,
+              phone: u.phone || sanitizePhone(loginId),
+              deviceId,
+              loggedInAt: new Date().toISOString(),
+            });
+          } catch {}
+          // gọi login local để cập nhật trạng thái context
+          try { await loginByEmailOrPhone(loginId, password); } catch {}
+        }
+
+        try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
+        // không điều hướng ở đây: effect isAuthenticated sẽ lo
+        return;
+      }
+
+      /* 🧰 Fallback Local (giữ nguyên luồng cũ) */
       const ok = await loginByEmailOrPhone(loginId, password);
       if (!ok) {
         setErrors({ general: "Thông tin đăng nhập không đúng" });
@@ -220,9 +277,6 @@ const Login: React.FC = () => {
       }
 
       // ✅ Nhớ thiết bị + tạo ActiveSession cho auto-login lần sau
-      const deviceId = getOrCreateDeviceId();
-
-      // Tìm user để lưu phone chính xác (kể cả đăng nhập bằng email)
       let u =
         (isEmail(loginId) && StorageManager.getUserByEmail(loginId)) ||
         StorageManager.getUserByPhone(sanitizePhone(loginId));
@@ -244,12 +298,6 @@ const Login: React.FC = () => {
           deviceId,
           loggedInAt: new Date().toISOString(),
         });
-      }
-
-      // ✅ THÊM: tạo phiên Supabase (đa thiết bị) + migrate user cũ nếu cần
-      const cloudOK = await tryCloudLoginOrMigrate(loginId, password, deviceId);
-      if (cloudOK) {
-        await syncProfileFromCloud(); // kéo hồ sơ chuẩn từ cloud về local
       }
 
       // Phát tín hiệu để chỗ khác sync UI (nếu có lắng nghe)

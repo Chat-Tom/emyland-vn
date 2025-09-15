@@ -581,7 +581,14 @@ const Dashboard = () => {
     );
   }
 
-  const avatarUrl = (user as any)?.avatarUrl || AVATAR_FALLBACK;
+  // ✅ TÍNH BÊN TRONG COMPONENT (không dùng biến user ngoài scope)
+  const avatarUrl =
+    (user as any)?.avatarUrl ||
+    (user as any)?.avatar ||
+    (user as any)?.avatar_url ||
+    (user as any)?.photoUrl ||
+    (user as any)?.photo_url ||
+    AVATAR_FALLBACK;
 
   return (
     <AppLayout>

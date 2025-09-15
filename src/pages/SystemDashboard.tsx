@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
@@ -22,6 +21,8 @@ import {
   Pencil,
   Newspaper,              // >>> Added: icon cho tab Tin tức
 } from "lucide-react";
+/* ✅ THÊM: icon Ban */
+import { Ban } from "lucide-react";
 import LogsContent from "@/components/LogsContent";
 import { PROPERTY_TYPES } from "@/data/property-types";
 import { provinces, wardsByProvince } from "@/data/vietnam-locations";
@@ -170,6 +171,31 @@ function logEvent(event: string, detail: any = {}) {
     });
     localStorage.setItem("emyland_logs", JSON.stringify(logs.slice(0, 500)));
     window.dispatchEvent?.(new Event("emyland:logs-updated"));
+  } catch {}
+}
+
+/* ✅ THÊM: siêu admin + danh sách bị chặn (email/sđt) */
+const SUPER_ADMIN_EMAIL = "chat301277@gmail.com";
+const BANNED_EMAILS_KEY = "emyland_banned_emails";
+const BANNED_PHONES_KEY = "emyland_banned_phones";
+const normEmail = (s?: string) => (s || "").trim().toLowerCase();
+const normPhone = (s?: string) => (s || "").replace(/\D+/g, "");
+function readBanned() {
+  try {
+    return {
+      emails: JSON.parse(localStorage.getItem(BANNED_EMAILS_KEY) || "[]") as string[],
+      phones: JSON.parse(localStorage.getItem(BANNED_PHONES_KEY) || "[]") as string[],
+    };
+  } catch {
+    return { emails: [], phones: [] };
+  }
+}
+function writeBanned(b: { emails: string[]; phones: string[] }) {
+  try {
+    localStorage.setItem(BANNED_EMAILS_KEY, JSON.stringify(Array.from(new Set(b.emails))));
+    localStorage.setItem(BANNED_PHONES_KEY, JSON.stringify(Array.from(new Set(b.phones))));
+    localStorage.setItem("emyland_banned_updated", String(Date.now()));
+    window.dispatchEvent?.(new Event("emyland:banned-updated"));
   } catch {}
 }
 
@@ -754,6 +780,55 @@ const SystemDashboard = () => {
     setLegalImages(imgs);
   };
 
+  /* ✅ THÊM: state & helpers ban */
+  const [banned, setBanned] = useState<{ emails: string[]; phones: string[] }>(readBanned());
+  const isSuperAdmin = normEmail(StorageManager.getCurrentUser()?.email) === SUPER_ADMIN_EMAIL;
+  const reloadBanned = () => setBanned(readBanned());
+
+  const banEmail = async (email: string) => {
+    const b = readBanned();
+    b.emails.push(normEmail(email));
+    writeBanned(b);
+    setBanned(b);
+    try { await supabase.from("bans").upsert({ email: normEmail(email) }); } catch {}
+  };
+  const unbanEmail = (email: string) => {
+    const b = readBanned();
+    b.emails = b.emails.filter((x) => x !== normEmail(email));
+    writeBanned(b);
+    setBanned(b);
+  };
+
+  const banPhone = async (phone: string) => {
+    const b = readBanned();
+    b.phones.push(normPhone(phone));
+    writeBanned(b);
+    setBanned(b);
+    try { await supabase.from("bans").upsert({ phone: normPhone(phone) }); } catch {}
+  };
+  const unbanPhone = (phone: string) => {
+    const b = readBanned();
+    b.phones = b.phones.filter((x) => x !== normPhone(phone));
+    writeBanned(b);
+    setBanned(b);
+  };
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (
+        e.key === "emyland_banned_updated" ||
+        e.key === BANNED_EMAILS_KEY ||
+        e.key === BANNED_PHONES_KEY
+      ) reloadBanned();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("emyland:banned-updated", reloadBanned as EventListener);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("emyland:banned-updated", reloadBanned as EventListener);
+    };
+  }, []);
+
   if (loading) {
     return (
       <AppLayout>
@@ -887,6 +962,13 @@ const SystemDashboard = () => {
                         <Badge variant={user.isLoggedIn ? "default" : "secondary"}>
                           {user.isLoggedIn ? "Đang online" : "Offline"}
                         </Badge>
+                        {/* ✅ THÊM: hiện trạng bị chặn */}
+                        {banned.emails.includes(normEmail(user.email)) && (
+                          <Badge className="bg-red-600 text-white">Email bị chặn</Badge>
+                        )}
+                        {user.phone && banned.phones.includes(normPhone(user.phone)) && (
+                          <Badge className="bg-red-600 text-white">SĐT bị chặn</Badge>
+                        )}
                       </div>
                       <p className="text-gray-600">{user.email}</p>
                       {user.phone && <p className="text-gray-600">{user.phone}</p>}
@@ -913,6 +995,68 @@ const SystemDashboard = () => {
                           </>
                         )}
                       </Button>
+
+                      {/* ✅ THÊM: Sửa / Chặn (chỉ siêu admin) */}
+                      {isSuperAdmin && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const fullName = window.prompt("Họ tên", user.fullName || "") ?? user.fullName;
+                              const phone = window.prompt("SĐT", user.phone || "") ?? user.phone;
+                              const email = window.prompt("Email", user.email || "") ?? user.email;
+                              StorageManager.saveUser({
+                                ...user,
+                                fullName: (fullName || "").trim() || user.fullName,
+                                phone: (phone || "").trim() || user.phone,
+                                email: (email || "").trim() || user.email,
+                              });
+                              logEvent("user_update_admin", { from: user.email, to: email });
+                              refreshUsers();
+                            }}
+                          >
+                            <Pencil className="h-4 w-4 mr-1" />
+                            Sửa
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={banned.emails.includes(normEmail(user.email)) ? "text-emerald-600" : "text-red-600"}
+                            onClick={() => {
+                              if (banned.emails.includes(normEmail(user.email))) {
+                                unbanEmail(user.email);
+                              } else if (window.confirm(`Chặn VĨNH VIỄN email ${user.email}?`)) {
+                                banEmail(user.email);
+                              }
+                            }}
+                            title="Chặn/Bỏ chặn theo Email"
+                          >
+                            <Ban className="h-4 w-4 mr-1" />
+                            {banned.emails.includes(normEmail(user.email)) ? "Bỏ chặn email" : "Chặn email"}
+                          </Button>
+
+                          {user.phone && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={banned.phones.includes(normPhone(user.phone)) ? "text-emerald-600" : "text-red-600"}
+                              onClick={() => {
+                                if (banned.phones.includes(normPhone(user.phone))) {
+                                  unbanPhone(user.phone);
+                                } else if (window.confirm(`Chặn VĨNH VIỄN số ${user.phone}?`)) {
+                                  banPhone(user.phone);
+                                }
+                              }}
+                              title="Chặn/Bỏ chặn theo SĐT"
+                            >
+                              <Ban className="h-4 w-4 mr-1" />
+                              {banned.phones.includes(normPhone(user.phone)) ? "Bỏ chặn SĐT" : "Chặn SĐT"}
+                            </Button>
+                          )}
+                        </>
+                      )}
 
                       <Button
                         variant="outline"
@@ -1120,4 +1264,3 @@ const SystemDashboard = () => {
 };
 
 export default SystemDashboard;
-
