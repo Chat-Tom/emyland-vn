@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 // dữ liệu thật + fallback local
 import { PropertyService } from "@/services/propertyService";
 import { StorageManager, type PropertyListing } from "@utils/storage";
+/* >>> added: gọi trực tiếp Supabase để tránh lỗi 400/406 */
+import { supabase } from "@/lib/supabase";
 
 type ListingType = "sell" | "rent";
 type Verify = "verified" | "pending" | "unverified";
@@ -49,7 +51,28 @@ const FALLBACK_SVG = encodeURIComponent(
 );
 const PLACEHOLDER = `data:image/svg+xml;charset=UTF-8,${FALLBACK_SVG}`;
 
-// ===== helpers =====
+/* ===== helpers ===== */
+/* >>> added: ép số an toàn */
+const toNum = (v: any): number | undefined => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+/* >>> added: chuẩn hoá mảng ảnh */
+const normalizeImages = (images: any): string[] => {
+  try {
+    if (Array.isArray(images)) return images.filter(Boolean);
+    if (typeof images === "string") {
+      try {
+        const arr = JSON.parse(images);
+        if (Array.isArray(arr)) return arr.filter(Boolean);
+      } catch {
+        return images.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+    }
+  } catch {}
+  return [];
+};
+
 function formatPriceVn(price?: number, listingType?: ListingType) {
   if (!price || price <= 0) return "Thoả thuận";
   if (listingType === "rent")
@@ -80,7 +103,9 @@ function normalizeProperty(raw: any): Property {
   if (!raw) return { id: "", title: "Tin bất động sản" };
 
   const images: string[] =
-    raw.images ?? raw.photos ?? (raw.imageUrl ? [raw.imageUrl] : []) ?? [];
+    normalizeImages(raw.images) ||
+    normalizeImages(raw.photos) ||
+    (raw.imageUrl ? [raw.imageUrl] : []);
 
   const latitude =
     raw.latitude ?? raw.lat ?? (typeof raw.location === "object" ? raw.location?.lat : undefined);
@@ -93,7 +118,8 @@ function normalizeProperty(raw: any): Property {
   return {
     id: raw.id ?? raw._id ?? raw.uuid ?? "",
     title: raw.title ?? raw.name ?? raw.heading ?? "Tin bất động sản",
-    price: raw.price ?? raw.priceVnd ?? raw.sellPrice ?? raw.rentPrice ?? raw.amount,
+    /* >>> changed: ép về number */
+    price: toNum(raw.price ?? raw.priceVnd ?? raw.sellPrice ?? raw.rentPrice ?? raw.amount),
     listingType:
       raw.listingType ?? (raw.rentPrice || raw.isRent ? "rent" : raw.isSell ? "sell" : undefined),
 
@@ -103,9 +129,10 @@ function normalizeProperty(raw: any): Property {
     province: raw.province ?? raw.city ?? raw.provinceName,
     location: typeof raw.location === "string" ? raw.location : raw.fullAddress,
 
-    area: raw.area ?? raw.acreage ?? raw.size ?? raw.square,
-    bedrooms: raw.bedrooms ?? raw.bedroom ?? raw.bed ?? raw.rooms?.bedrooms,
-    bathrooms: raw.bathrooms ?? raw.bathroom ?? raw.rooms?.bathrooms,
+    /* >>> changed: ép số để hiện PN/WC */
+    area: toNum(raw.area ?? raw.acreage ?? raw.size ?? raw.square),
+    bedrooms: toNum(raw.bedrooms ?? raw.bedroom ?? raw.bed ?? raw.rooms?.bedrooms),
+    bathrooms: toNum(raw.bathrooms ?? raw.bathroom ?? raw.rooms?.bathrooms),
 
     images,
     description: raw.description ?? raw.desc ?? raw.content,
@@ -155,9 +182,10 @@ function normalizeFromLocal(p: PropertyListing | null): Property | null {
     province: p.location?.province,
     location: [p.location?.address, p.location?.ward, p.location?.province].filter(Boolean).join(", "),
     area: Number(p.area || 0),
-    bedrooms: (p as any).bedrooms,
-    bathrooms: (p as any).bathrooms,
-    images: Array.isArray(p.images) ? p.images : [],
+    /* >>> changed: ép số để luôn hiện PN/WC */
+    bedrooms: toNum((p as any).bedrooms),
+    bathrooms: toNum((p as any).bathrooms),
+    images: normalizeImages((p as any).images),
     description: p.description,
     verificationStatus,
     ownerName: p.contactInfo?.name,
@@ -215,6 +243,18 @@ export default function PropertyDetail() {
     queryFn: async () => {
       if (!id) return null;
 
+      /* >>> added: gọi trực tiếp Supabase, tránh 400/406 */
+      try {
+        const { data, error } = await supabase
+          .from("properties")
+          .select("*")
+          .eq("id", id)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) return normalizeProperty(data);
+      } catch {}
+
+      // Giữ logic cũ: service (nếu đang dùng) rồi mới tới local
       const db = await PropertyService.getPropertyById(id);
       if (db) return normalizeProperty(db);
 

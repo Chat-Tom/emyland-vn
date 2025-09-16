@@ -772,11 +772,10 @@ const PostProperty: React.FC = () => {
         : uniqueStrings(form.images).slice(0, 10);
       (payload as any).images = finalImages;
 
-      
       // (NEW) Đồng bộ ảnh vào localStorage / StorageManager để Home/Dashboard/Admin lấy đúng
       try { localStorage.setItem(`emyland_property_images_${editId}`, JSON.stringify(finalImages)); } catch {}
       try { (StorageManager as any).saveImages?.(editId, finalImages); } catch {}
-const rowUpdate = {
+      const rowUpdate = {
         id: editId, // (NEW) cần id cho upsert theo onConflict: 'id'
         title: payload.title,
         description: payload.description,
@@ -839,13 +838,12 @@ const rowUpdate = {
       : uniqueStrings(form.images).slice(0, 10);
     (payload as any).images = finalImages;
 
-    
     // (NEW) Đồng bộ ảnh vào localStorage / StorageManager để các trang dùng chung hiển thị đúng
     try { localStorage.setItem(`emyland_property_images_${id}`, JSON.stringify(finalImages)); } catch {}
     try { (StorageManager as any).saveImages?.(id, finalImages); } catch {}
     // Lưu bản gốc (nếu cần khôi phục khi edit)
     try { localStorage.setItem(`emyland_property_images_original_${id}`, JSON.stringify(form.images || [])); } catch {}
-const row = {
+    const row = {
       id,
       title: payload.title,
       description: payload.description,

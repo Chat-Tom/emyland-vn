@@ -69,6 +69,11 @@ function normalizeImages(v: any): string[] {
 
 const LS_KEY = "emyland_properties";
 
+/* ✅ Added: helper nhận diện UUID để tránh query sai kiểu id */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (s?: string) => !!s && UUID_RE.test(String(s));
+
 /** Bỏ tiền tố “Thành phố”, “Tỉnh”, “TP.” để so sánh/tìm kiếm */
 const normalizeProvince = (raw?: string): string =>
   (raw ?? "")
@@ -411,14 +416,19 @@ export class PropertyService {
   /** Lấy chi tiết 1 tin (ưu tiên Supabase, fallback local) */
   static async getPropertyById(id: string): Promise<Property | null> {
     try {
+      /* ✅ Nếu id KHÔNG phải UUID (id local) → không gọi Supabase, trả local luôn */
+      if (!isUuid(id)) {
+        const localOnly = readLocal().find((x) => String(x.id) === String(id));
+        return localOnly ?? null;
+      }
+
       const { data, error, status } = await supabase
         .from("properties")
         .select("*")
         .eq("id", id)
-        .maybeSingle(); // ✅ tránh 406 khi không có bản ghi
+        .maybeSingle(); // tránh 406 khi không có bản ghi
 
       if (status === 406) {
-        // Không có dòng khớp → trả về local nếu có
         const found406 = readLocal().find((x) => String(x.id) === String(id));
         return found406 ?? null;
       }
