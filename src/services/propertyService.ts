@@ -411,13 +411,23 @@ export class PropertyService {
   /** Lấy chi tiết 1 tin (ưu tiên Supabase, fallback local) */
   static async getPropertyById(id: string): Promise<Property | null> {
     try {
-      const { data, error } = await supabase
+      const { data, error, status } = await supabase
         .from("properties")
         .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle(); // ✅ tránh 406 khi không có bản ghi
 
-      if (!error && data) {
+      if (status === 406) {
+        // Không có dòng khớp → trả về local nếu có
+        const found406 = readLocal().find((x) => String(x.id) === String(id));
+        return found406 ?? null;
+      }
+
+      if (error) {
+        console.error("Supabase error(getPropertyById):", error?.message ?? error, error);
+      }
+
+      if (data) {
         return {
           ...data,
           created_at: String((data as any).created_at ?? new Date().toISOString()),
