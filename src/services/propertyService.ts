@@ -266,6 +266,12 @@ export class PropertyService {
   private static buildQuery(filters?: PropertyFilters) {
     let q = supabase.from("properties").select("*", { count: "exact" });
 
+    /* ✅ THÊM: chuẩn hoá feed công khai giống nhau giữa các domain */
+    q = q
+      .is("deleted_at", null)
+      .eq("is_public", true)
+      .not("published_at", "is", null);
+
     if (!filters) return q.order("created_at", { ascending: false });
 
     const { province, ward, minPrice, maxPrice, minArea, maxArea, listingType } = filters;
