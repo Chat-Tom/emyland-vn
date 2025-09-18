@@ -1,5 +1,5 @@
 // src/pages/Login.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,10 @@ import { supabase } from "@/lib/supabase";
 const ACCESS_TOKEN_KEY = "emy_access_token";
 const saveAccessToken = (t: string) => { try { if (t) localStorage.setItem(ACCESS_TOKEN_KEY, t); } catch {} };
 const readAccessToken = () => { try { return localStorage.getItem(ACCESS_TOKEN_KEY) || ""; } catch { return ""; } };
+
+/* ✅ reCAPTCHA v2 checkbox */
+import ReCAPTCHA from "react-google-recaptcha";
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string;
 
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
@@ -85,48 +89,6 @@ async function trySupabasePasswordLogin(loginId: string, pwd: string) {
   }
 }
 
-/* >>> Added: migrate local-only user lên Supabase khi cloud chưa có */
-async function migrateLocalToCloud(loginId: string, pwd: string) {
-  try {
-    const isMail = isEmail(loginId);
-    const phoneKey = sanitizePhone(loginId);
-    const localU =
-      (isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey)) || null;
-
-    // Chỉ migrate khi có bản local và (nếu lưu password local) khớp
-    if (!localU) return false;
-    if (localU.password && String(localU.password) !== String(pwd)) return false;
-
-    const regParams = {
-      p_email: isMail ? loginId : (localU?.email || null),
-      p_phone: isMail ? (localU?.phone || null) : phoneKey,
-      p_password: pwd,
-      p_full_name: localU?.fullName || null,
-    };
-
-    // Thử đăng ký "best-effort" (nếu đã tồn tại cũng coi như ok)
-    const { error: regErr } = await supabase.rpc("rpc_register_user", regParams as any);
-    if (regErr && !/already exists|unique/i.test(regErr.message || "")) {
-      console.warn("register fallback failed:", regErr.message);
-    }
-
-    // Đăng nhập lại để lấy access_token
-    const { data: d2, error: e2 } = await supabase.rpc("rpc_login", {
-      p_email_or_phone: loginId,
-      p_password: pwd,
-      p_device_id: getOrCreateDeviceId(),
-    } as any);
-
-    if (!e2 && d2?.[0]?.access_token) {
-      saveAccessToken(d2[0].access_token as string);
-      return true;
-    }
-  } catch (e) {
-    console.error("migrateLocalToCloud error:", e);
-  }
-  return false;
-}
-
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
@@ -138,6 +100,11 @@ const Login: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  /* ✅ reCAPTCHA state */
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaOk, setCaptchaOk] = useState(false);
+  const recaptchaRef = useRef<ReCAPTCHA | null>(null);
 
   // ✅ Điều hướng sau đăng nhập
   const DEFAULT_NEXT = "/post-property";
@@ -186,10 +153,6 @@ const Login: React.FC = () => {
 
   /* ──────────────────────────────────────────────────────────────
      ✅ THÊM: Kiểm tra “đã đăng ký / trùng” với Cloud (Supabase)
-     - Debounce ~450ms mỗi khi người dùng gõ
-     - existsCloud: đã đăng ký (hiển thị ✅ info)
-     - dupCloudError: trùng nhiều tài khoản → CHẶN SUBMIT
-     Không phá logic cũ.
   ────────────────────────────────────────────────────────────── */
   const [existsCloud, setExistsCloud] = useState(false);
   const [dupCloudError, setDupCloudError] = useState("");
@@ -198,6 +161,10 @@ const Login: React.FC = () => {
     let alive = true;
     setExistsCloud(false);
     setDupCloudError("");
+    // Reset captcha khi người dùng đổi identifier để tránh token cũ
+    setCaptchaOk(false);
+    setCaptchaToken(null);
+    try { recaptchaRef.current?.reset(); } catch {}
 
     const v = identifier.trim();
     if (!v || liveIdentifierError) return;
@@ -207,7 +174,6 @@ const Login: React.FC = () => {
     const phone = !email ? sanitizePhone(id) : null;
 
     const timer = setTimeout(async () => {
-      // helper: thử nhiều RPC tên phổ biến; dừng ở cái đầu thành công
       async function tryRpc(name: string, args: Record<string, any>) {
         try {
           const { data, error } = await supabase.rpc(name as any, args as any);
@@ -219,7 +185,6 @@ const Login: React.FC = () => {
       }
 
       let data: any = null;
-      // Ưu tiên một RPC tên “chuẩn”; fallback sang tên khác nếu project dùng tên khác
       data = await tryRpc("rpc_check_identifier", { p_email: email, p_phone: phone });
       if (data == null) data = await tryRpc("rpc_exists_identifier", { p_email: email, p_phone: phone });
       if (data == null) data = await tryRpc("rpc_lookup_user", { p_email_or_phone: email ?? phone });
@@ -227,7 +192,6 @@ const Login: React.FC = () => {
       let exists = false;
       let dup = false;
 
-      // Cố gắng diễn giải kết quả RPC linh hoạt (count/exist/dup/dup_count…)
       if (Array.isArray(data)) {
         const row = data[0] ?? {};
         const cnt =
@@ -247,7 +211,6 @@ const Login: React.FC = () => {
         dup = data > 1;
       }
 
-      // Fallback cuối: nếu có view công khai (users_public) cho phép đếm
       if (data == null) {
         try {
           const col = email ? "email" : "phone";
@@ -277,15 +240,16 @@ const Login: React.FC = () => {
   }, [identifier, liveIdentifierError]);
 
   const canSubmit = useMemo(() => {
-    // Chỉ cho phép submit khi: identifier hợp lệ + có password + không đang loading + KHÔNG bị trùng trên Cloud
+    // ✅ Thêm điều kiện captchaOk
     return (
       !liveIdentifierError &&
       !dupCloudError &&
       identifier.trim() !== "" &&
       password.trim() !== "" &&
+      captchaOk &&
       !isLoading
     );
-  }, [identifier, password, liveIdentifierError, dupCloudError, isLoading]);
+  }, [identifier, password, liveIdentifierError, dupCloudError, isLoading, captchaOk]);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -297,8 +261,9 @@ const Login: React.FC = () => {
       if (!isValidVNPhone(identifier))
         e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
     }
-    if (dupCloudError) e.identifier = dupCloudError; // ✅ chặn ngay khi trùng Cloud
+    if (dupCloudError) e.identifier = dupCloudError;
     if (!password) e.password = "Vui lòng nhập mật khẩu";
+    if (!captchaOk) e.captcha = "Vui lòng xác nhận 'Tôi không phải người máy'.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -315,7 +280,6 @@ const Login: React.FC = () => {
         saveAccessToken(data[0].access_token as string);
         return true;
       }
-
       if (error?.message?.includes("EMAIL_OR_PHONE_NOT_FOUND")) {
         const isMail = isEmail(loginId);
         const localU =
@@ -366,7 +330,7 @@ const Login: React.FC = () => {
         isAdmin: false,
         registeredAt: new Date().toISOString(),
       } as any);
-        u = isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey);
+      u = isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey);
     } else if (!u.password) {
       StorageManager.saveUser({ ...u, password: pwd });
     }
@@ -378,7 +342,6 @@ const Login: React.FC = () => {
     if (isLoading) return;
     setSubmitted(true);
 
-    // Lỗi định dạng hoặc trùng Cloud → chặn ngay
     if (liveIdentifierError || dupCloudError) {
       setErrors((p) => ({ ...p, identifier: liveIdentifierError || dupCloudError }));
       return;
@@ -389,22 +352,35 @@ const Login: React.FC = () => {
     setErrors((p) => ({ ...p, general: "" }));
 
     try {
+      /* ✅ Verify captcha server-side trước khi login */
+      const verifyRes = await fetch("/api/verify-recaptcha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: captchaToken }),
+      });
+      const verifyJson = await verifyRes.json();
+      if (!verifyRes.ok || !verifyJson.success) {
+        setErrors((p) => ({
+          ...p,
+          captcha: "Xác minh captcha thất bại. Vui lòng tick lại ô 'Tôi không phải người máy'.",
+        }));
+        setIsLoading(false);
+        try { recaptchaRef.current?.reset(); } catch {}
+        setCaptchaOk(false);
+        setCaptchaToken(null);
+        return;
+      }
+
       const idTrim = identifier.trim();
       const loginId = isEmail(idTrim) ? idTrim : normalizeVNPhone(idTrim);
       const deviceId = getOrCreateDeviceId();
 
-      /* ✅ Ưu tiên Supabase email/password nếu là email; nếu không thì RPC cũ */
       let cloudOK = false;
       if (isEmail(loginId)) {
         cloudOK = await trySupabasePasswordLogin(loginId, password);
       }
       if (!cloudOK) {
         cloudOK = await tryCloudLoginOrMigrate(loginId, password, deviceId);
-      }
-
-      /* >>> Added: nếu cloud vẫn chưa OK, thử migrate local → cloud rồi login lại */
-      if (!cloudOK) {
-        cloudOK = await migrateLocalToCloud(loginId, password);
       }
 
       if (cloudOK) {
@@ -426,7 +402,6 @@ const Login: React.FC = () => {
         return; // effect isAuthenticated sẽ điều hướng
       }
 
-      /* 🧰 Fallback Local (giữ nguyên luồng cũ) */
       const ok = await loginByEmailOrPhone(loginId, password);
       if (!ok) {
         setErrors({ general: "Thông tin đăng nhập không đúng" });
@@ -460,7 +435,7 @@ const Login: React.FC = () => {
     }
   };
 
-  // ✅ Quên mật khẩu: chỉ cho đi nếu ĐÚNG & ĐÃ ĐĂNG KÝ
+  // ✅ Quên mật khẩu…
   const handleForgotClick = () => {
     const id = identifier.trim();
 
@@ -551,19 +526,14 @@ const Login: React.FC = () => {
                   ? "border-red-500 focus:border-red-500 focus-visible:ring-red-500"
                   : ""}
               />
-              {/* Gợi ý/nhắc dưới ô nhập */}
               {mode === "phone" ? (
                 <p className="text-xs text-gray-500">Chấp nhận số Việt Nam 10 số (đầu 03/05/07/08/09).</p>
               ) : (
                 <p className="text-xs text-gray-500">Ví dụ: {ADMIN_EMAIL}</p>
               )}
-
-              {/* ✅ Đã đăng ký trên Cloud */}
               {!liveIdentifierError && existsCloud && !dupCloudError && (
                 <p className="text-xs text-green-600">✅ Thông tin này đã đăng ký trên hệ thống.</p>
               )}
-
-              {/* ❌ Trùng nhiều tài khoản (Cloud) */}
               {(errors.identifier || liveIdentifierError || dupCloudError) && (
                 <p id="identifier-error" className="text-red-500 text-sm">
                   {errors.identifier || dupCloudError || liveIdentifierError}
@@ -608,7 +578,23 @@ const Login: React.FC = () => {
                 </p>
               )}
 
-              {/* ✅ Quên mật khẩu: CHỈ cho đi nếu tài khoản tồn tại */}
+              {/* ✅ Captcha */}
+              <div className="mt-2">
+                <ReCAPTCHA
+                  ref={recaptchaRef}
+                  sitekey={RECAPTCHA_SITE_KEY}
+                  onChange={(tok) => {
+                    setCaptchaToken(tok);
+                    setCaptchaOk(!!tok);
+                    if (tok && errors.captcha) setErrors((p) => ({ ...p, captcha: "" }));
+                  }}
+                />
+                {errors.captcha && (
+                  <p className="text-red-500 text-sm mt-2">{errors.captcha}</p>
+                )}
+              </div>
+
+              {/* ✅ Quên mật khẩu */}
               <div className="flex justify-end">
                 <button type="button" onClick={handleForgotClick} className="text-sm text-blue-600 hover:text-blue-700">
                   Quên mật khẩu?
