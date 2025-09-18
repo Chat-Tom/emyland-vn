@@ -16,7 +16,7 @@ import type { UserAccount, PropertyListing } from "@utils/storage";
 /* ✅ THÊM: đọc cloud */
 import { supabase } from "@/lib/supabase";
 
-/* ✅ THÊM: đọc access_token giống Login.tsx để sync hồ sơ Cloud */
+/* ✅ THÊM: token để truy vấn rpc_me → lấy user_id cho bộ lọc created_by */
 const ACCESS_TOKEN_KEY = "emy_access_token";
 const readAccessToken = () => {
   try { return localStorage.getItem(ACCESS_TOKEN_KEY) || ""; } catch { return ""; }
@@ -290,54 +290,86 @@ function mapDbRow(row: any): any {
   };
 }
 
-/** Lấy tin của tôi từ Supabase theo user_email */
-async function fetchCloudByEmail(email?: string): Promise<any[]> {
-  const em = normalizeEmail(email);
-  if (!em) return [];
-  try {
-    const { data, error } = await supabase
-      .from("properties")
-      .select("*")
-      /* >>> SỬA: so khớp email không phân biệt hoa/thường */
-      .ilike("user_email", em)
-      .order("created_at", { ascending: false });
-    if (error) {
-      console.error("Supabase select error:", error);
-      return [];
-    }
-    return (data || []).map(mapDbRow);
-  } catch (e) {
-    console.error("Supabase select exception:", e);
-    return [];
-  }
-}
+/** 🔧 THAY THẾ: lấy tin của tôi từ Cloud theo nhiều tiêu chí (email/phone/created_by) */
+async function fetchCloudMine(u: UserAccount): Promise<any[]> {
+  const em = normalizeEmail(u?.email);
+  const ph = normalizePhone(u?.phone);
+  const results: any[] = [];
 
-/* ✅ THÊM: Đồng bộ hồ sơ từ Cloud về Local rồi trả về user đã cập nhật */
-async function syncProfileFromCloud(): Promise<UserAccount | null> {
-  const token = readAccessToken();
-  if (!token) return null;
+  // 1) theo email ở các cột thường gặp
+  if (em) {
+    try {
+      const { data, error } = await supabase
+        .from("properties")
+        .select("*")
+        .or(
+          [
+            `user_email.ilike.${em}`,
+            `owner_email.ilike.${em}`,
+            `contact_email.ilike.${em}`,
+          ].join(",")
+        )
+        .order("created_at", { ascending: false });
+      if (!error && Array.isArray(data)) results.push(...data.map(mapDbRow));
+    } catch (e) {
+      console.error("fetch by email failed:", e);
+    }
+  }
+
+  // 2) theo phone (đã chuẩn hoá)
+  if (ph) {
+    try {
+      const { data, error } = await supabase
+        .from("properties")
+        .select("*")
+        .or(
+          [
+            `user_phone.eq.${ph}`,
+            `owner_phone.eq.${ph}`,
+            `contact_phone.eq.${ph}`,
+          ].join(",")
+        )
+        .order("created_at", { ascending: false });
+      if (!error && Array.isArray(data)) results.push(...data.map(mapDbRow));
+    } catch (e) {
+      console.error("fetch by phone failed:", e);
+    }
+  }
+
+  // 3) theo created_by (user id lấy từ rpc_me bằng access_token)
   try {
-    const { data, error } = await supabase.rpc("rpc_me", { p_access_token: token });
-    if (!error && data?.[0]) {
-      const me = data[0] as any;
-      const mapped = {
-        id: me.id || me.user_id || me.uuid || me.phone || me.email,
-        fullName: me.full_name || me.name || "",
-        email: me.email || null,
-        phone: me.phone || null,
-        isAdmin: !!me.is_admin,
-        avatarUrl: me.avatar_url || me.photo_url || me.avatar || me.photo || me.picture || me.image_url || null,
-        isLoggedIn: true,
-      };
-      try { StorageManager.saveUser(mapped as any); } catch {}
-      try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
-      try { window.dispatchEvent(new Event("emyland:userUpdated")); } catch {}
-      return mapped as UserAccount;
+    const token = readAccessToken();
+    if (token) {
+      const { data: me, error: meErr } = await supabase.rpc("rpc_me", { p_access_token: token });
+      const meRow = !meErr && Array.isArray(me) ? me[0] : null;
+      const uid = meRow?.id || meRow?.user_id || meRow?.uuid;
+      if (uid) {
+        const { data, error } = await supabase
+          .from("properties")
+          .select("*")
+          .eq("created_by", uid)
+          .order("created_at", { ascending: false });
+        if (!error && Array.isArray(data)) results.push(...data.map(mapDbRow));
+      }
     }
   } catch (e) {
-    console.error("syncProfileFromCloud error:", e);
+    console.error("fetch by created_by failed:", e);
   }
-  return null;
+
+  // Khử trùng lặp theo id, ưu tiên bản mới hơn
+  const pick = new Map<string, any>();
+  for (const it of results) {
+    const id = String(it?.id || "");
+    if (!id) continue;
+    const prev = pick.get(id);
+    if (!prev) pick.set(id, it);
+    else {
+      const ta = new Date(prev.updatedAt || prev.createdAt || 0).getTime();
+      const tb = new Date(it.updatedAt || it.createdAt || 0).getTime();
+      pick.set(id, tb >= ta ? { ...prev, ...it } : prev);
+    }
+  }
+  return Array.from(pick.values());
 }
 
 /** Hợp nhất danh sách local + cloud theo id; ưu tiên bản có updatedAt mới hơn */
@@ -382,7 +414,8 @@ const Dashboard = () => {
   // 🔁 THÊM: hàm refresh cloud-first (gọi được ở nhiều nơi)
   const refreshMine = async (u: UserAccount) => {
     const localMine = listMyProperties(u);
-    const cloudMine = await fetchCloudByEmail(u.email);
+    /* ✅ SỬA: dùng fetchCloudMine thay vì chỉ theo email */
+    const cloudMine = await fetchCloudMine(u);
     setProperties(mergeByIdPreferNewer(localMine, cloudMine));
   };
 
@@ -404,14 +437,8 @@ const Dashboard = () => {
       // ⛳ Giữ logic cũ: hiển thị ngay dữ liệu local
       setProperties(listMyProperties(parsedUser));
 
-      // ✅ THÊM: trước khi load tin Cloud, đồng bộ profile từ Cloud để lấy email/phone CHUẨN nhất
-      (async () => {
-        const cloudUser = await syncProfileFromCloud();
-        const baseUser = cloudUser || parsedUser; // nếu RPC không về, giữ user hiện tại
-        setUser(baseUser);
-        await refreshMine(baseUser);
-        setLoading(false);
-      })();
+      // ✅ THÊM: sau đó tải cloud và hợp nhất (không chặn UI)
+      refreshMine(parsedUser).finally(() => setLoading(false));
       return;
     } catch (error) {
       console.error("Error loading dashboard data:", error);
@@ -442,28 +469,12 @@ const Dashboard = () => {
   useEffect(() => {
     const onChanged = () => { if (user) refreshMine(user); };
     window.addEventListener("emyland:properties-changed", onChanged as EventListener);
-    // ✅ THÊM: lắng nghe thay đổi localStorage để đồng bộ hồ sơ từ tab khác
-    const onStorage = (e: StorageEvent) => {
-      if (!e) return;
-      if (e.key === "emyland_properties_updated" || e.key === "emyland_properties") {
+    window.addEventListener("storage", (e: any) => {
+      if (e?.key === "emyland_properties_updated" || e?.key === "emyland_properties") {
         if (user) refreshMine(user);
       }
-      if (e.key === "emyland_user_updated") {
-        const data = localStorage.getItem("emyland_user");
-        if (data) {
-          try {
-            const u = JSON.parse(data) as UserAccount;
-            setUser(u);
-            if (u) refreshMine(u);
-          } catch {}
-        }
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener("emyland:properties-changed", onChanged as EventListener);
-      window.removeEventListener("storage", onStorage);
-    };
+    });
+    return () => window.removeEventListener("emyland:properties-changed", onChanged as EventListener);
   }, [user]);
 
   const handleDeleteProperty = async (propertyId: string) => {
