@@ -265,14 +265,13 @@ function hideFeaturedFieldInModal() {
 }
 
 /* ====================== THÊM: Cloud helpers ======================= */
-/** Map dòng DB → shape FE đang dùng (giữ nguyên field cũ để UI không đổi) */
 function mapDbRow(row: any): any {
   return {
     ...row,
     id: row.id,
     title: row.title,
     description: row.description,
-    images: asImages(row.images), // << parse TEXT → mảng
+    images: asImages(row.images),
     area: row.area ?? row.size,
     propertyType: row.property_type ?? row.propertyType,
     listingType: row.listing_type ?? row.listingType,
@@ -290,75 +289,54 @@ function mapDbRow(row: any): any {
   };
 }
 
-/** 🔧 THAY THẾ: lấy tin của tôi từ Cloud theo nhiều tiêu chí (email/phone/created_by) */
+/** ✅ Lấy tin của tôi từ Cloud theo nhiều tiêu chí, tránh lỗi 400 PostgREST */
 async function fetchCloudMine(u: UserAccount): Promise<any[]> {
   const em = normalizeEmail(u?.email);
   const ph = normalizePhone(u?.phone);
-  const results: any[] = [];
+  const res: any[] = [];
 
-  // 1) theo email ở các cột thường gặp
+  // helper đơn giản: 1 cột/1 truy vấn
+  async function qEq(col: string, val: string) {
+    try {
+      const { data, error } = await supabase
+        .from("properties")
+        .select("*")
+        .eq(col, val)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!error && Array.isArray(data)) res.push(...data.map(mapDbRow));
+    } catch (e) {
+      console.error(`fetch ${col} failed:`, e);
+    }
+  }
+
   if (em) {
-    try {
-      const { data, error } = await supabase
-        .from("properties")
-        .select("*")
-        .or(
-          [
-            `user_email.ilike.${em}`,
-            `owner_email.ilike.${em}`,
-            `contact_email.ilike.${em}`,
-          ].join(",")
-        )
-        .order("created_at", { ascending: false });
-      if (!error && Array.isArray(data)) results.push(...data.map(mapDbRow));
-    } catch (e) {
-      console.error("fetch by email failed:", e);
-    }
+    await qEq("user_email", em);
+    await qEq("owner_email", em);
+    await qEq("contact_email", em);
   }
-
-  // 2) theo phone (đã chuẩn hoá)
   if (ph) {
-    try {
-      const { data, error } = await supabase
-        .from("properties")
-        .select("*")
-        .or(
-          [
-            `user_phone.eq.${ph}`,
-            `owner_phone.eq.${ph}`,
-            `contact_phone.eq.${ph}`,
-          ].join(",")
-        )
-        .order("created_at", { ascending: false });
-      if (!error && Array.isArray(data)) results.push(...data.map(mapDbRow));
-    } catch (e) {
-      console.error("fetch by phone failed:", e);
-    }
+    await qEq("user_phone", ph);
+    await qEq("owner_phone", ph);
+    await qEq("contact_phone", ph);
   }
 
-  // 3) theo created_by (user id lấy từ rpc_me bằng access_token)
+  // created_by theo rpc_me
   try {
     const token = readAccessToken();
     if (token) {
       const { data: me, error: meErr } = await supabase.rpc("rpc_me", { p_access_token: token });
       const meRow = !meErr && Array.isArray(me) ? me[0] : null;
       const uid = meRow?.id || meRow?.user_id || meRow?.uuid;
-      if (uid) {
-        const { data, error } = await supabase
-          .from("properties")
-          .select("*")
-          .eq("created_by", uid)
-          .order("created_at", { ascending: false });
-        if (!error && Array.isArray(data)) results.push(...data.map(mapDbRow));
-      }
+      if (uid) await qEq("created_by", uid);
     }
   } catch (e) {
-    console.error("fetch by created_by failed:", e);
+    console.error("fetch created_by failed:", e);
   }
 
-  // Khử trùng lặp theo id, ưu tiên bản mới hơn
+  // khử trùng lặp id, ưu tiên bản mới hơn
   const pick = new Map<string, any>();
-  for (const it of results) {
+  for (const it of res) {
     const id = String(it?.id || "");
     if (!id) continue;
     const prev = pick.get(id);
@@ -414,7 +392,6 @@ const Dashboard = () => {
   // 🔁 THÊM: hàm refresh cloud-first (gọi được ở nhiều nơi)
   const refreshMine = async (u: UserAccount) => {
     const localMine = listMyProperties(u);
-    /* ✅ SỬA: dùng fetchCloudMine thay vì chỉ theo email */
     const cloudMine = await fetchCloudMine(u);
     setProperties(mergeByIdPreferNewer(localMine, cloudMine));
   };
@@ -434,10 +411,10 @@ const Dashboard = () => {
       }
       setUser(parsedUser);
 
-      // ⛳ Giữ logic cũ: hiển thị ngay dữ liệu local
+      // hiển thị ngay dữ liệu local
       setProperties(listMyProperties(parsedUser));
 
-      // ✅ THÊM: sau đó tải cloud và hợp nhất (không chặn UI)
+      // tải cloud & hợp nhất
       refreshMine(parsedUser).finally(() => setLoading(false));
       return;
     } catch (error) {
@@ -448,6 +425,32 @@ const Dashboard = () => {
     }
   }, [navigate]);
 
+  // ✅ THÊM: hydrate hồ sơ từ Cloud (email/phone/avatar/isAdmin) nếu có token
+  useEffect(() => {
+    const token = readAccessToken();
+    if (!token || !user) return;
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("rpc_me", { p_access_token: token });
+        const me = !error && Array.isArray(data) ? data[0] : null;
+        if (!me) return;
+        const updated = {
+          ...user,
+          fullName: me.full_name ?? user.fullName ?? "",
+          email: me.email ?? user.email ?? null,
+          phone: me.phone ?? user.phone ?? null,
+          isAdmin: !!me.is_admin || !!user.isAdmin,
+          avatarUrl: me.avatar_url ?? user.avatarUrl ?? user.avatar ?? null,
+        } as any;
+        StorageManager.saveUser?.(updated);
+        localStorage.setItem("emyland_user", JSON.stringify(updated));
+        localStorage.setItem("emyland_user_updated", String(Date.now()));
+        window.dispatchEvent(new Event("emyland:userUpdated"));
+        setUser(updated);
+      } catch {}
+    })();
+  }, [user?.id]);
+
   // Nghe sự kiện global khi user cập nhật (từ UserEditModal)
   useEffect(() => {
     const onUserUpdated = () => {
@@ -456,7 +459,6 @@ const Dashboard = () => {
         try {
           const u = JSON.parse(data) as UserAccount;
           setUser(u);
-          // Đồng bộ lại danh sách tin
           refreshMine(u);
         } catch {}
       }
@@ -480,11 +482,11 @@ const Dashboard = () => {
   const handleDeleteProperty = async (propertyId: string) => {
     if (!propertyId) return;
     if (window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) {
-      // Giữ logic cũ: xoá local
+      // Xoá local
       StorageManager.deleteProperty(propertyId);
       if (user) setProperties(listMyProperties(user));
 
-      // ✅ THÊM: xoá trên Supabase (không chặn luồng nếu lỗi)
+      // Xoá trên Supabase
       try {
         const { error } = await supabase.from("properties").delete().eq("id", propertyId);
         if (error) console.error("Supabase delete error:", error);
@@ -492,25 +494,19 @@ const Dashboard = () => {
         console.error("Supabase delete exception:", e);
       }
 
-      // Sau xoá: refresh cloud-first để đồng bộ
       if (user) refreshMine(user);
     }
   };
 
-  // >>> SỬA: hàm mở Sửa tin — bổ sung fallback đọc ảnh từ Supabase nếu local trống
+  // Mở Sửa tin — prefill ảnh
   const handleEditProperty = async (property: PropertyListing) => {
     const id = property.id;
-
-    // ✅ Prefill ảnh pháp lý khi mở sửa (local trước)
     let legalImages = getLegalImagesById(id) || [];
-
-    // ✅ Prefill ảnh BĐS: ưu tiên từ prop → local
     const baseImages = Array.isArray((property as any).images)
       ? (property as any).images
       : asImages((property as any).images);
     let images = baseImages.length ? baseImages : getImagesById(id);
 
-    // 🔁 Fallback cloud nếu thiếu ảnh ở local
     if (!images.length || !legalImages.length) {
       try {
         const { data, error } = await supabase
@@ -528,30 +524,19 @@ const Dashboard = () => {
       }
     }
 
-    const merged: any = {
-      ...property,
-      images,
-      legalImages: Array.isArray(legalImages) ? legalImages : [],
-    };
+    const merged: any = { ...property, images, legalImages: Array.isArray(legalImages) ? legalImages : [] };
     setEditingProperty(merged);
     setIsEditModalOpen(true);
 
-    // >>> ADD: sync images & legalImages để PropertyEditModal luôn đọc được
     try { (StorageManager as any).saveImages?.(id, images); } catch {}
     try { localStorage.setItem(`emyland_property_images_${id}`, JSON.stringify(images)); } catch {}
     try { (StorageManager as any).saveLegalImages?.(id, merged.legalImages || []); } catch {}
     try { localStorage.setItem(`emyland_property_legal_${id}`, JSON.stringify(merged.legalImages || [])); } catch {}
   };
 
-  // ✅ Khi mở modal: ẩn trường "Đánh dấu Nổi bật"
-  useEffect(() => {
-    if (isEditModalOpen) hideFeaturedFieldInModal();
-  }, [isEditModalOpen, editingProperty?.id]);
+  useEffect(() => { if (isEditModalOpen) hideFeaturedFieldInModal(); }, [isEditModalOpen, editingProperty?.id]);
 
-  const handleSaveProperty = () => {
-    // Giữ cũ + THÊM refresh cloud
-    if (user) refreshMine(user);
-  };
+  const handleSaveProperty = () => { if (user) refreshMine(user); };
 
   const handleSaveUser = () => {
     const userData = localStorage.getItem("emyland_user");
@@ -562,7 +547,7 @@ const Dashboard = () => {
     }
   };
 
-  // ==== Avatar: click ảnh để đổi (bỏ nút riêng) ====
+  // ==== Avatar ====
   const onAvatarClick = () => fileInputRef.current?.click();
 
   const onAvatarSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
@@ -574,18 +559,11 @@ const Dashboard = () => {
       const updated = StorageManager.updateUserAvatar(user.id, dataUrl);
       if (updated) {
         setUser(updated);
-
         try {
           const logs = JSON.parse(localStorage.getItem("emyland_logs") || "[]");
-          logs.unshift({
-            id: Date.now().toString(),
-            timestamp: new Date().toISOString(),
-            type: "login",
-            message: "Cập nhật ảnh đại diện",
-          });
+          logs.unshift({ id: Date.now().toString(), timestamp: new Date().toISOString(), type: "login", message: "Cập nhật ảnh đại diện" });
           localStorage.setItem("emyland_logs", JSON.stringify(logs.slice(0, 100)));
         } catch {}
-
         localStorage.setItem("emyland_user_updated", String(Date.now()));
         window.dispatchEvent(new Event("emyland:userUpdated"));
         alert("Đã cập nhật ảnh đại diện!");
@@ -598,18 +576,15 @@ const Dashboard = () => {
     }
   };
 
-  // Dùng nhãn "hôm nay / hôm qua / dd/mm/yyyy"
   const renderPosted = (dateString: string) => {
     const label = postDateLabel(dateString);
     return label ? `Đăng: ${label}` : "";
   };
 
-  // >>> ADD: nâng z-index cho toast + ẩn chữ “Không có tệp nào được chọn”
   useEffect(() => {
     const style = document.createElement("style");
     style.id = "dashboard-hotfix-toast-fileinput";
     style.textContent = `
-      /* --- Toast/Toaster: luôn nổi trên mọi card, neo góc phải dưới --- */
   [data-sonner-toaster],
   .sonner-toaster,
   #sonner-toaster,
@@ -619,21 +594,18 @@ const Dashboard = () => {
     position: fixed !important;
     right: 16px !important;
     bottom: 16px !important;
-    z-index: 2147483647 !important; /* max */
+    z-index: 2147483647 !important;
     pointer-events: auto !important;
   }
-
-      /* Ẩn chuỗi "Không có tệp nào được chọn" trong input file của modal Sửa */
-      [role="dialog"] input[type="file"],
-      .ReactModal__Content input[type="file"] {
-        font-size: 0 !important;        /* ẩn text phụ */
-        min-width: 0 !important;
-      }
-      [role="dialog"] input[type="file"]::file-selector-button,
-      .ReactModal__Content input[type="file"]::file-selector-button {
-        font-size: 14px !important;     /* giữ chữ trên nút "Chọn tệp" */
-      }
-    `;
+  [role="dialog"] input[type="file"],
+  .ReactModal__Content input[type="file"] {
+    font-size: 0 !important;
+    min-width: 0 !important;
+  }
+  [role="dialog"] input[type="file"]::file-selector-button,
+  .ReactModal__Content input[type="file"]::file-selector-button {
+    font-size: 14px !important;
+  }`;
     document.head.appendChild(style);
     return () => document.getElementById("dashboard-hotfix-toast-fileinput")?.remove();
   }, []);
@@ -648,7 +620,6 @@ const Dashboard = () => {
     );
   }
 
-  // ✅ TÍNH BÊN TRONG COMPONENT (không dùng biến user ngoài scope)
   const avatarUrl =
     (user as any)?.avatarUrl ||
     (user as any)?.avatar ||
@@ -659,9 +630,7 @@ const Dashboard = () => {
 
   return (
     <AppLayout>
-      {/* Full viewport height + padding hợp lý cho mobile/desktop */}
       <section className="min-h-[100svh] px-4 md:px-6">
-        {/* Khối nội dung căn giữa ngang (max-w) và có khoảng đệm trên/dưới */}
         <div className="mx-auto max-w-5xl py-6 md:py-10">
           <div className="mb-8 text-center sm:text-left">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
@@ -765,7 +734,7 @@ const Dashboard = () => {
 
                               <p className="text-gray-600 mb-2 line-clamp-2">{property.description}</p>
 
-                              {/* Thông tin ngắn: Diện tích • N • WC • Đăng: … */}
+                              {/* Thông tin ngắn */}
                               <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
                                 <span>Diện tích: {property.area ?? "--"}m²</span>
                                 {typeof bedrooms === "number" && <span>• {bedrooms}N</span>}
@@ -895,7 +864,7 @@ const Dashboard = () => {
             </TabsContent>
           </Tabs>
 
-          {/* Modal sửa tin: ẩn quyền xác minh đối với user thường */}
+          {/* Modal sửa tin */}
           {/* @ts-ignore */}
           <PropertyEditModal
             property={editingProperty}
