@@ -34,3 +34,5 @@ nul
 .env*.local
 
 .vercel
+
+.env.local
