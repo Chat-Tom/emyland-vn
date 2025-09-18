@@ -1,5 +1,13 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "devCommand": "vite",
+  "functions": {
+    "api/**/*.ts": { "runtime": "nodejs20.x" },
+    "api/**/*.js": { "runtime": "nodejs20.x" }
+  },
   "crons": [
     { "path": "/api/ops/abuse-digest", "schedule": "*/15 * * * *" }
   ],
