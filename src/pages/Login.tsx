@@ -85,6 +85,48 @@ async function trySupabasePasswordLogin(loginId: string, pwd: string) {
   }
 }
 
+/* >>> Added: migrate local-only user lên Supabase khi cloud chưa có */
+async function migrateLocalToCloud(loginId: string, pwd: string) {
+  try {
+    const isMail = isEmail(loginId);
+    const phoneKey = sanitizePhone(loginId);
+    const localU =
+      (isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey)) || null;
+
+    // Chỉ migrate khi có bản local và (nếu lưu password local) khớp
+    if (!localU) return false;
+    if (localU.password && String(localU.password) !== String(pwd)) return false;
+
+    const regParams = {
+      p_email: isMail ? loginId : (localU?.email || null),
+      p_phone: isMail ? (localU?.phone || null) : phoneKey,
+      p_password: pwd,
+      p_full_name: localU?.fullName || null,
+    };
+
+    // Thử đăng ký "best-effort" (nếu đã tồn tại cũng coi như ok)
+    const { error: regErr } = await supabase.rpc("rpc_register_user", regParams as any);
+    if (regErr && !/already exists|unique/i.test(regErr.message || "")) {
+      console.warn("register fallback failed:", regErr.message);
+    }
+
+    // Đăng nhập lại để lấy access_token
+    const { data: d2, error: e2 } = await supabase.rpc("rpc_login", {
+      p_email_or_phone: loginId,
+      p_password: pwd,
+      p_device_id: getOrCreateDeviceId(),
+    } as any);
+
+    if (!e2 && d2?.[0]?.access_token) {
+      saveAccessToken(d2[0].access_token as string);
+      return true;
+    }
+  } catch (e) {
+    console.error("migrateLocalToCloud error:", e);
+  }
+  return false;
+}
+
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
@@ -324,7 +366,7 @@ const Login: React.FC = () => {
         isAdmin: false,
         registeredAt: new Date().toISOString(),
       } as any);
-      u = isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey);
+        u = isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey);
     } else if (!u.password) {
       StorageManager.saveUser({ ...u, password: pwd });
     }
@@ -358,6 +400,11 @@ const Login: React.FC = () => {
       }
       if (!cloudOK) {
         cloudOK = await tryCloudLoginOrMigrate(loginId, password, deviceId);
+      }
+
+      /* >>> Added: nếu cloud vẫn chưa OK, thử migrate local → cloud rồi login lại */
+      if (!cloudOK) {
+        cloudOK = await migrateLocalToCloud(loginId, password);
       }
 
       if (cloudOK) {
