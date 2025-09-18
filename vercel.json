@@ -1,13 +1,11 @@
+cat > vercel.json << 'EOF'
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
-  "devCommand": "vite",
-  "functions": {
-    "api/**/*.ts": { "runtime": "nodejs20.x" },
-    "api/**/*.js": { "runtime": "nodejs20.x" }
-  },
+  "outputDirectory": "dist",
+  "functions": { "runtime": "nodejs20.x" },
   "crons": [
     { "path": "/api/ops/abuse-digest", "schedule": "*/15 * * * *" }
   ],
@@ -16,3 +14,4 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
+EOF
