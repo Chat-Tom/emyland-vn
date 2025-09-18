@@ -16,6 +16,12 @@ import type { UserAccount, PropertyListing } from "@utils/storage";
 /* ✅ THÊM: đọc cloud */
 import { supabase } from "@/lib/supabase";
 
+/* ✅ THÊM: đọc access_token giống Login.tsx để sync hồ sơ Cloud */
+const ACCESS_TOKEN_KEY = "emy_access_token";
+const readAccessToken = () => {
+  try { return localStorage.getItem(ACCESS_TOKEN_KEY) || ""; } catch { return ""; }
+};
+
 const AVATAR_FALLBACK =
   "https://d64gsuwffb70l.cloudfront.net/6884f3c54508990b982512a3_1754146152775_21c04ef8.png";
 
@@ -306,6 +312,34 @@ async function fetchCloudByEmail(email?: string): Promise<any[]> {
   }
 }
 
+/* ✅ THÊM: Đồng bộ hồ sơ từ Cloud về Local rồi trả về user đã cập nhật */
+async function syncProfileFromCloud(): Promise<UserAccount | null> {
+  const token = readAccessToken();
+  if (!token) return null;
+  try {
+    const { data, error } = await supabase.rpc("rpc_me", { p_access_token: token });
+    if (!error && data?.[0]) {
+      const me = data[0] as any;
+      const mapped = {
+        id: me.id || me.user_id || me.uuid || me.phone || me.email,
+        fullName: me.full_name || me.name || "",
+        email: me.email || null,
+        phone: me.phone || null,
+        isAdmin: !!me.is_admin,
+        avatarUrl: me.avatar_url || me.photo_url || me.avatar || me.photo || me.picture || me.image_url || null,
+        isLoggedIn: true,
+      };
+      try { StorageManager.saveUser(mapped as any); } catch {}
+      try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
+      try { window.dispatchEvent(new Event("emyland:userUpdated")); } catch {}
+      return mapped as UserAccount;
+    }
+  } catch (e) {
+    console.error("syncProfileFromCloud error:", e);
+  }
+  return null;
+}
+
 /** Hợp nhất danh sách local + cloud theo id; ưu tiên bản có updatedAt mới hơn */
 function mergeByIdPreferNewer(localList: any[], cloudList: any[]) {
   const pick = new Map<string, any>();
@@ -370,8 +404,14 @@ const Dashboard = () => {
       // ⛳ Giữ logic cũ: hiển thị ngay dữ liệu local
       setProperties(listMyProperties(parsedUser));
 
-      // ✅ THÊM: sau đó tải cloud và hợp nhất (không chặn UI)
-      refreshMine(parsedUser).finally(() => setLoading(false));
+      // ✅ THÊM: trước khi load tin Cloud, đồng bộ profile từ Cloud để lấy email/phone CHUẨN nhất
+      (async () => {
+        const cloudUser = await syncProfileFromCloud();
+        const baseUser = cloudUser || parsedUser; // nếu RPC không về, giữ user hiện tại
+        setUser(baseUser);
+        await refreshMine(baseUser);
+        setLoading(false);
+      })();
       return;
     } catch (error) {
       console.error("Error loading dashboard data:", error);
@@ -402,12 +442,28 @@ const Dashboard = () => {
   useEffect(() => {
     const onChanged = () => { if (user) refreshMine(user); };
     window.addEventListener("emyland:properties-changed", onChanged as EventListener);
-    window.addEventListener("storage", (e: any) => {
-      if (e?.key === "emyland_properties_updated" || e?.key === "emyland_properties") {
+    // ✅ THÊM: lắng nghe thay đổi localStorage để đồng bộ hồ sơ từ tab khác
+    const onStorage = (e: StorageEvent) => {
+      if (!e) return;
+      if (e.key === "emyland_properties_updated" || e.key === "emyland_properties") {
         if (user) refreshMine(user);
       }
-    });
-    return () => window.removeEventListener("emyland:properties-changed", onChanged as EventListener);
+      if (e.key === "emyland_user_updated") {
+        const data = localStorage.getItem("emyland_user");
+        if (data) {
+          try {
+            const u = JSON.parse(data) as UserAccount;
+            setUser(u);
+            if (u) refreshMine(u);
+          } catch {}
+        }
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("emyland:properties-changed", onChanged as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
   }, [user]);
 
   const handleDeleteProperty = async (propertyId: string) => {
