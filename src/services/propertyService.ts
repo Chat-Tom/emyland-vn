@@ -272,14 +272,17 @@ export class PropertyService {
       .eq("is_public", true)
       .not("published_at", "is", null);
 
-    if (!filters) return q.order("created_at", { ascending: false });
+    if (!filters) {
+      // ✅ Sắp xếp theo published_at (desc)
+      return q.order("published_at", { ascending: false });
+    }
 
     const { province, ward, minPrice, maxPrice, minArea, maxArea, listingType } = filters;
 
-    // Province/City: OR theo cả province và location cho linh hoạt
+    // Province/City: OR theo cả province và location (ghi theo rest filter)
     if (province && province.trim()) {
-      const like = `%${province.trim()}%`;
-      q = q.or(`province.ilike.${like},location.ilike.${like}`);
+      const pv = province.trim();
+      q = q.or(`province.ilike.%${pv}%,location.ilike.%${pv}%`);
     }
 
     if (ward && ward.trim()) q = q.ilike("ward", `%${ward.trim()}%`);
@@ -297,7 +300,8 @@ export class PropertyService {
     if (typeof minA === "number") q = q.gte("area", minA);
     if (typeof maxA === "number") q = q.lte("area", maxA);
 
-    return q.order("created_at", { ascending: false });
+    // ✅ Sắp xếp theo published_at mới nhất
+    return q.order("published_at", { ascending: false });
   }
 
   /** Lấy list (không phân trang) + trộn local → đảm bảo “tin mới nhất” nổi lên */
