@@ -36,3 +36,8 @@ nul
 .vercel
 
 .env.local
+
+.vercel
+
+# ignore editor backups
+*.bak
