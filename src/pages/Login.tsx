@@ -18,7 +18,7 @@ const readAccessToken = () => { try { return localStorage.getItem(ACCESS_TOKEN_K
 /* ✅ reCAPTCHA v2 checkbox */
 import ReCAPTCHA from "react-google-recaptcha";
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string;
-// 🔧 PATCH: cho phép tắt captcha khi test
+// 🔧 PATCH: cho phép tắt captcha khi test local
 const RECAPTCHA_OFF = (import.meta.env as any)?.VITE_RECAPTCHA_OFF === "1";
 
 const ADMIN_EMAIL = "chat301277@gmail.com";
@@ -50,7 +50,7 @@ function getUserByEmailCI(email: string) {
   );
 }
 
-// 🔧 PATCH: helper gọi RPC an toàn, nhiều biến thể tham số (không làm đổi logic cũ)
+// 🔧 PATCH: helper gọi RPC an toàn, thử nhiều biến thể tham số
 async function tryRpcMulti(name: string, variants: Record<string, any>[]) {
   for (const args of variants) {
     try {
@@ -67,7 +67,6 @@ async function syncProfileFromCloud() {
   if (!token) return;
 
   try {
-    // 🔧 PATCH: fallback thêm trường hợp p_access_token null (tuỳ hàm rpc_me)
     const data =
       (await tryRpcMulti("rpc_me", [{ p_access_token: token }, {}])) || [];
     if (data?.[0]) {
@@ -99,7 +98,8 @@ async function getCloudMe() {
   }
 }
 
-/* ✅ Login Supabase gốc (email + password) để có session thật cho AuthSync */
+/* ✅ Login Supabase gốc (email + password) để có session thật cho AuthSync)
+   (giữ lại — có thể dùng fallback khác) */
 async function trySupabasePasswordLogin(loginId: string, pwd: string) {
   if (!isEmail(loginId)) return false; // chỉ áp dụng cho email
   try {
@@ -132,6 +132,10 @@ const Login: React.FC = () => {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaOk, setCaptchaOk] = useState(false);
   const recaptchaRef = useRef<ReCAPTCHA | null>(null);
+
+  // ✅ setter lỗi chung để dùng cho helper
+  const setFormError = (msg: string) =>
+    setErrors((p) => ({ ...p, general: msg || "Đăng nhập thất bại" }));
 
   // ✅ Điều hướng sau đăng nhập
   const DEFAULT_NEXT = "/post-property";
@@ -188,7 +192,6 @@ const Login: React.FC = () => {
     let alive = true;
     setExistsCloud(false);
     setDupCloudError("");
-    // Reset captcha khi người dùng đổi identifier để tránh token cũ
     setCaptchaOk(false);
     setCaptchaToken(null);
     try { recaptchaRef.current?.reset(); } catch {}
@@ -204,11 +207,9 @@ const Login: React.FC = () => {
       async function tryRpc(name: string, args: Record<string, any>) {
         try {
           const { data, error } = await supabase.rpc(name as any, args as any);
-          if (error) return null;
+        if (error) return null;
           return data;
-        } catch {
-          return null;
-        }
+        } catch { return null; }
       }
 
       let data: any = null;
@@ -221,21 +222,15 @@ const Login: React.FC = () => {
 
       if (Array.isArray(data)) {
         const row = data[0] ?? {};
-        const cnt =
-          row.count ?? row.c ?? row.total ?? row.n ??
-          (typeof row === "number" ? row : undefined);
+        const cnt = row.count ?? row.c ?? row.total ?? row.n ?? (typeof row === "number" ? row : undefined);
         if (typeof cnt === "number") {
-          exists = cnt > 0;
-          dup = cnt > 1;
+          exists = cnt > 0; dup = cnt > 1;
         } else {
           exists = !!(row.exists ?? row.is_exist ?? row.found);
-          dup =
-            !!(row.duplicated ?? row.dup ?? row.is_dup) ||
-            (typeof row.dup_count === "number" && row.dup_count > 1);
+          dup = !!(row.duplicated ?? row.dup ?? row.is_dup) || (typeof row.dup_count === "number" && row.dup_count > 1);
         }
       } else if (typeof data === "number") {
-        exists = data > 0;
-        dup = data > 1;
+        exists = data > 0; dup = data > 1;
       }
 
       if (data == null) {
@@ -247,90 +242,79 @@ const Login: React.FC = () => {
             .select("id", { count: "exact", head: true })
             .eq(col, val);
           if (!error && typeof count === "number") {
-            exists = count > 0;
-            dup = count > 1;
+            exists = count > 0; dup = count > 1;
           }
         } catch {}
       }
 
       if (!alive) return;
       setExistsCloud(exists);
-      setDupCloudError(
-        dup ? "Thông tin này đang trùng nhiều tài khoản trên hệ thống. Vui lòng liên hệ hỗ trợ." : ""
-      );
+      setDupCloudError(dup ? "Thông tin này đang trùng nhiều tài khoản trên hệ thống. Vui lòng liên hệ hỗ trợ." : "");
     }, 450);
 
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
+    return () => { alive = false; clearTimeout(timer); };
   }, [identifier, liveIdentifierError]);
 
   const canSubmit = useMemo(() => {
-    // ✅ Thêm điều kiện captchaOk
     return (
       !liveIdentifierError &&
       !dupCloudError &&
       identifier.trim() !== "" &&
       password.trim() !== "" &&
-      (RECAPTCHA_OFF || captchaOk) && // 🔧 PATCH: cho phép test không captcha
+      (RECAPTCHA_OFF || captchaOk) &&
       !isLoading
     );
   }, [identifier, password, liveIdentifierError, dupCloudError, isLoading, captchaOk]);
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!identifier.trim())
-      e.identifier = "Vui lòng nhập số điện thoại hoặc email";
+    if (!identifier.trim()) e.identifier = "Vui lòng nhập số điện thoại hoặc email";
     else if (mode === "email") {
       if (!isEmail(identifier)) e.identifier = "Email không hợp lệ";
     } else {
-      if (!isValidVNPhone(identifier))
-        e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
+      if (!isValidVNPhone(identifier)) e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
     }
     if (dupCloudError) e.identifier = dupCloudError;
     if (!password) e.password = "Vui lòng nhập mật khẩu";
-    if (!RECAPTCHA_OFF && !captchaOk) e.captcha = "Vui lòng xác nhận 'Tôi không phải người máy'."; // 🔧 PATCH
+    if (!RECAPTCHA_OFF && !captchaOk) e.captcha = "Vui lòng xác nhận 'Tôi không phải người máy'.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  /* ✅ Cloud login / migrate user cũ lên Supabase (giữ logic cũ) */
+  /* ✅ Cloud login / migrate user cũ lên Supabase (giữ logic cũ)
+     🔧 PATCH: thử nhiều biến thể tham số để tránh 400 do khác tên */
   const tryCloudLoginOrMigrate = async (loginId: string, pwd: string, deviceId: string) => {
     try {
-      const { data, error } = await supabase.rpc("rpc_login", {
-        p_email_or_phone: loginId,
-        p_password: pwd,
-        p_device_id: deviceId,
-      });
-      if (!error && data?.[0]?.access_token) {
+      const variants = [
+        { p_email_or_phone: loginId, p_password: pwd, p_device_id: deviceId },
+        { p_email_or_phone: loginId, p_password: pwd, device_id: deviceId },
+        { email_or_phone: loginId, password: pwd, device_id: deviceId },
+        { email: isEmail(loginId) ? loginId : null, phone: isEmail(loginId) ? null : sanitizePhone(loginId), password: pwd, device_id: deviceId },
+      ];
+      const data = await tryRpcMulti("rpc_login", variants);
+      if (data?.[0]?.access_token) {
         saveAccessToken(data[0].access_token as string);
         return true;
       }
-      if (error?.message?.includes("EMAIL_OR_PHONE_NOT_FOUND")) {
-        const isMail = isEmail(loginId);
-        const localU =
-          (isMail && getUserByEmailCI(loginId)) ||
-          StorageManager.getUserByPhone(sanitizePhone(loginId)) ||
-          null;
 
-        const regParams = {
-          p_email: isMail ? loginId : (localU?.email || null),
-          p_phone: isMail ? (localU?.phone || null) : sanitizePhone(loginId),
-          p_password: pwd,
-          p_full_name: localU?.fullName || null,
-        };
-        const { error: regErr } = await supabase.rpc("rpc_register_user", regParams);
-        if (!regErr || /already exists|unique/i.test(regErr.message)) {
-          const { data: d2, error: e2 } = await supabase.rpc("rpc_login", {
-            p_email_or_phone: loginId,
-            p_password: pwd,
-            p_device_id: deviceId,
-          });
-          if (!e2 && d2?.[0]?.access_token) {
-            saveAccessToken(d2[0].access_token as string);
-            return true;
-          }
+      // Nếu báo không tồn tại -> thử migrate
+      const isMail = isEmail(loginId);
+      const localU =
+        (isMail && getUserByEmailCI(loginId)) ||
+        StorageManager.getUserByPhone(sanitizePhone(loginId)) || null;
+
+      const regParams = {
+        p_email: isMail ? loginId : (localU?.email || null),
+        p_phone: isMail ? (localU?.phone || null) : sanitizePhone(loginId),
+        p_password: pwd,
+        p_full_name: localU?.fullName || null,
+      };
+      const reg = await tryRpcMulti("rpc_register_user", [regParams]);
+      if (reg !== null) {
+        const data2 = await tryRpcMulti("rpc_login", variants);
+        if (data2?.[0]?.access_token) {
+          saveAccessToken(data2[0].access_token as string);
+          return true;
         }
       }
     } catch {}
@@ -380,7 +364,7 @@ const Login: React.FC = () => {
 
     try {
       /* ✅ Verify captcha server-side trước khi login */
-      if (!RECAPTCHA_OFF) { // 🔧 PATCH
+      if (!RECAPTCHA_OFF) {
         const verifyRes = await fetch("/api/verify-recaptcha", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -405,15 +389,27 @@ const Login: React.FC = () => {
       const deviceId = getOrCreateDeviceId();
 
       let cloudOK = false;
+
+      // 🔧 Ưu tiên: nếu là EMAIL, gọi helper để nhận thông điệp lỗi thật từ Supabase
       if (isEmail(loginId)) {
-        cloudOK = await trySupabasePasswordLogin(loginId, password);
+        try {
+          await signInWithBetterError(loginId, password, setFormError);
+          const s = (await supabase.auth.getSession())?.data?.session?.access_token;
+          if (s) saveAccessToken(s);
+          cloudOK = true;
+        } catch {
+          // giữ cloudOK = false để thử flow RPC migrate bên dưới
+          cloudOK = false;
+        }
       }
+
+      // Fallback: vẫn giữ flow cũ nếu Supabase password login chưa thành công
       if (!cloudOK) {
         cloudOK = await tryCloudLoginOrMigrate(loginId, password, deviceId);
       }
 
       if (cloudOK) {
-        // 🔧 PATCH: xác minh hồ sơ trả về khớp định danh người vừa login
+        // 🔧 Xác minh tài khoản trả về khớp định danh
         const me = await getCloudMe();
         const mismatch =
           !me ||
@@ -445,6 +441,7 @@ const Login: React.FC = () => {
         return; // effect isAuthenticated sẽ điều hướng
       }
 
+      // Flow local cũ
       const ok = await loginByEmailOrPhone(loginId, password);
       if (!ok) {
         setErrors({ general: "Thông tin đăng nhập không đúng" });
@@ -680,5 +677,44 @@ const Login: React.FC = () => {
     </div>
   );
 };
+/* ================== [APPEND AT BOTTOM OF FILE] ================== */
+/** Gắn vào chỗ call signInWithPassword hiện hữu:
+ *   - Thay đoạn gọi hiện tại bằng hàm: await signInWithBetterError(email, password);
+ *   - Hoặc dùng trực tiếp trong onSubmit.
+ */
+async function signInWithBetterError(
+  email: string,
+  password: string,
+  setFormError?: (msg: string) => void
+) {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      // Nếu sau này Tom bật CAPTCHA của Supabase (Turnstile/hCaptcha),
+      // thêm: options: { captchaToken }
+    });
+
+    if (error) {
+      // Log chi tiết lên DevTools để chẩn đoán chính xác
+      console.error("Auth error detail", {
+        status: (error as any).status,
+        name: error.name,
+        message: error.message,
+      });
+
+      // Hiển thị đúng thông điệp thực tế thay vì câu chung chung
+      if (setFormError) setFormError(error.message);
+      throw error; // để caller biết thất bại
+    }
+
+    return data; // success
+  } catch (e: any) {
+    console.error("Auth exception:", e);
+    if (setFormError) setFormError(e?.message || "Đăng nhập thất bại");
+    throw e;
+  }
+}
+/* ================== [END APPEND] ================== */
 
 export default Login;
