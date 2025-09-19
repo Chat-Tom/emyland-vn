@@ -18,6 +18,8 @@ const readAccessToken = () => { try { return localStorage.getItem(ACCESS_TOKEN_K
 /* ✅ reCAPTCHA v2 checkbox */
 import ReCAPTCHA from "react-google-recaptcha";
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string;
+// 🔧 PATCH: cho phép tắt captcha khi test
+const RECAPTCHA_OFF = (import.meta.env as any)?.VITE_RECAPTCHA_OFF === "1";
 
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
@@ -48,14 +50,27 @@ function getUserByEmailCI(email: string) {
   );
 }
 
+// 🔧 PATCH: helper gọi RPC an toàn, nhiều biến thể tham số (không làm đổi logic cũ)
+async function tryRpcMulti(name: string, variants: Record<string, any>[]) {
+  for (const args of variants) {
+    try {
+      const { data, error } = await supabase.rpc(name as any, args as any);
+      if (!error) return data;
+    } catch {}
+  }
+  return null;
+}
+
 /* ✅ Đồng bộ hồ sơ từ Cloud về Local sau khi có token */
 async function syncProfileFromCloud() {
   const token = readAccessToken();
   if (!token) return;
 
   try {
-    const { data, error } = await supabase.rpc("rpc_me", { p_access_token: token });
-    if (!error && data?.[0]) {
+    // 🔧 PATCH: fallback thêm trường hợp p_access_token null (tuỳ hàm rpc_me)
+    const data =
+      (await tryRpcMulti("rpc_me", [{ p_access_token: token }, {}])) || [];
+    if (data?.[0]) {
       const me = data[0] as any;
       const mapped = {
         id: me.id || me.user_id || me.uuid || me.phone || me.email,
@@ -70,6 +85,18 @@ async function syncProfileFromCloud() {
       try { window.dispatchEvent(new Event("emyland:userUpdated")); } catch {}
     }
   } catch {}
+}
+
+// 🔧 PATCH: lấy “me” để xác minh khớp định danh vừa đăng nhập
+async function getCloudMe() {
+  const token = readAccessToken();
+  try {
+    const data =
+      (await tryRpcMulti("rpc_me", [{ p_access_token: token }, {}])) || [];
+    return data?.[0] || null;
+  } catch {
+    return null;
+  }
 }
 
 /* ✅ Login Supabase gốc (email + password) để có session thật cho AuthSync */
@@ -246,7 +273,7 @@ const Login: React.FC = () => {
       !dupCloudError &&
       identifier.trim() !== "" &&
       password.trim() !== "" &&
-      captchaOk &&
+      (RECAPTCHA_OFF || captchaOk) && // 🔧 PATCH: cho phép test không captcha
       !isLoading
     );
   }, [identifier, password, liveIdentifierError, dupCloudError, isLoading, captchaOk]);
@@ -263,7 +290,7 @@ const Login: React.FC = () => {
     }
     if (dupCloudError) e.identifier = dupCloudError;
     if (!password) e.password = "Vui lòng nhập mật khẩu";
-    if (!captchaOk) e.captcha = "Vui lòng xác nhận 'Tôi không phải người máy'.";
+    if (!RECAPTCHA_OFF && !captchaOk) e.captcha = "Vui lòng xác nhận 'Tôi không phải người máy'."; // 🔧 PATCH
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -353,22 +380,24 @@ const Login: React.FC = () => {
 
     try {
       /* ✅ Verify captcha server-side trước khi login */
-      const verifyRes = await fetch("/api/verify-recaptcha", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: captchaToken }),
-      });
-      const verifyJson = await verifyRes.json();
-      if (!verifyRes.ok || !verifyJson.success) {
-        setErrors((p) => ({
-          ...p,
-          captcha: "Xác minh captcha thất bại. Vui lòng tick lại ô 'Tôi không phải người máy'.",
-        }));
-        setIsLoading(false);
-        try { recaptchaRef.current?.reset(); } catch {}
-        setCaptchaOk(false);
-        setCaptchaToken(null);
-        return;
+      if (!RECAPTCHA_OFF) { // 🔧 PATCH
+        const verifyRes = await fetch("/api/verify-recaptcha", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: captchaToken }),
+        });
+        const verifyJson = await verifyRes.json();
+        if (!verifyRes.ok || !verifyJson.success) {
+          setErrors((p) => ({
+            ...p,
+            captcha: "Xác minh captcha thất bại. Vui lòng tick lại ô 'Tôi không phải người máy'.",
+          }));
+          setIsLoading(false);
+          try { recaptchaRef.current?.reset(); } catch {}
+          setCaptchaOk(false);
+          setCaptchaToken(null);
+          return;
+        }
       }
 
       const idTrim = identifier.trim();
@@ -384,6 +413,20 @@ const Login: React.FC = () => {
       }
 
       if (cloudOK) {
+        // 🔧 PATCH: xác minh hồ sơ trả về khớp định danh người vừa login
+        const me = await getCloudMe();
+        const mismatch =
+          !me ||
+          (isEmail(loginId)
+            ? (me.email || "").toLowerCase() !== loginId.toLowerCase()
+            : sanitizePhone(me.phone || "") !== sanitizePhone(loginId));
+        if (mismatch) {
+          try { localStorage.removeItem(ACCESS_TOKEN_KEY); } catch {}
+          setErrors({ general: "Tài khoản nhận được không khớp. Vui lòng thử lại." });
+          setIsLoading(false);
+          return;
+        }
+
         await syncProfileFromCloud();
         const u = ensureLocalUserAfterCloud(loginId, password);
         if (u) {
