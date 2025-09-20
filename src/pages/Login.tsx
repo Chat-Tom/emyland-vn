@@ -396,6 +396,8 @@ const Login: React.FC = () => {
           await signInWithBetterError(loginId, password, setFormError);
           const s = (await supabase.auth.getSession())?.data?.session?.access_token;
           if (s) saveAccessToken(s);
+          // ✔ chờ 1 frame để router/context cập nhật, tránh flicker 404
+          await new Promise(requestAnimationFrame); // <-- THÊM DÒNG NÀY
           cloudOK = true;
         } catch {
           // ⛔ DỪNG TẠI ĐÂY: đã setFormError() theo đúng lỗi Supabase rồi,
