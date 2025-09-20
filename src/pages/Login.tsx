@@ -691,32 +691,38 @@ async function signInWithBetterError(
 ) {
   try {
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim().toLowerCase(), // luôn hạ chữ thường
       password,
-      // Nếu sau này Tom bật CAPTCHA của Supabase (Turnstile/hCaptcha),
-      // thêm: options: { captchaToken }
     });
 
     if (error) {
-      // Log chi tiết lên DevTools để chẩn đoán chính xác
-      console.error("Auth error detail", {
-        status: (error as any).status,
-        name: error.name,
-        message: error.message,
-      });
+      // ánh xạ thông báo tiếng Việt
+      const m = (error.message || '').trim();
+      let vi = m;
 
-      // Hiển thị đúng thông điệp thực tế thay vì câu chung chung
-      if (setFormError) setFormError(error.message);
-      throw error; // để caller biết thất bại
+      if (m.includes('Invalid login credentials')) {
+        vi = 'Tài khoản hoặc mật khẩu không đúng.';
+      } else if (m.includes('Email not confirmed')) {
+        vi = 'Email chưa được xác minh. Vui lòng kiểm tra hộp thư và xác nhận.';
+      } else if (m.toLowerCase().includes('rate limit')) {
+        vi = 'Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút.';
+      }
+
+      if (setFormError) setFormError(vi);
+      throw error;
     }
 
-    return data; // success
+    return data;
   } catch (e: any) {
-    console.error("Auth exception:", e);
-    if (setFormError) setFormError(e?.message || "Đăng nhập thất bại");
+    if (setFormError) {
+      const raw = (e?.message || '').trim();
+      const vi = raw.includes('Invalid login credentials')
+        ? 'Tài khoản hoặc mật khẩu không đúng.'
+        : (raw || 'Đăng nhập thất bại');
+      setFormError(vi);
+    }
     throw e;
   }
 }
-/* ================== [END APPEND] ================== */
 
 export default Login;
