@@ -42,3 +42,7 @@ nul
 # ignore editor backups
 *.bak
 *.bak
+
+# build/edit artifacts
+vite.config.ts.timestamp-*
+
