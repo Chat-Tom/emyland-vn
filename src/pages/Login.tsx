@@ -398,8 +398,10 @@ const Login: React.FC = () => {
           if (s) saveAccessToken(s);
           cloudOK = true;
         } catch {
-          // giữ cloudOK = false để thử flow RPC migrate bên dưới
-          cloudOK = false;
+          // ⛔ DỪNG TẠI ĐÂY: đã setFormError() theo đúng lỗi Supabase rồi,
+          // không tiếp tục fallback để tránh ghi đè thông điệp.
+          setIsLoading(false);
+          return;
         }
       }
 
