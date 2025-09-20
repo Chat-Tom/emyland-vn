@@ -207,7 +207,7 @@ const Login: React.FC = () => {
       async function tryRpc(name: string, args: Record<string, any>) {
         try {
           const { data, error } = await supabase.rpc(name as any, args as any);
-        if (error) return null;
+          if (error) return null;
           return data;
         } catch { return null; }
       }
