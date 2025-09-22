@@ -1,23 +1,30 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://metbdgtkwyqggnngtscf.supabase.co";
-const supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ldGJkZ3Rrd3lxZ2dubmd0c2NmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM1OTc5MTIsImV4cCI6MjA2OTE3MzkxMn0.vj48J9Ul-MH7xZkERJATBzbvarmGN4CG45dnLoBhgMk";
+// ✅ Đọc từ .env(.local) – có sanitize loại BOM & ngoặc
+const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? "")
+  .replace(/^\uFEFF/, "")         // bỏ BOM đầu file nếu có
+  .replace(/^['"]|['"]$/g, "")    // bỏ ngoặc đơn/kép bọc giá trị
+  .trim();
+
+const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? "")
+  .replace(/^\uFEFF/, "")
+  .replace(/^['"]|['"]$/g, "")
+  .trim();
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Supabase environment variables are missing!");
+  throw new Error("Supabase environment variables are missing! (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)");
 }
 
-/* ✅ THÊM: cấu hình auth để giữ session + tự refresh token */
+/* ✅ Giữ session + tự refresh token (đúng cho password flow & SPA) */
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
+    detectSessionInUrl: true, // OK cho OAuth; không hại với password flow
   },
 });
 
-/* ✅ THÊM (tuỳ chọn debug): gắn ra window để dùng trên Console */
+/* ✅ (tuỳ chọn) Gắn ra window phục vụ debug Console */
 if (typeof window !== "undefined") {
   // @ts-ignore
   window.__supabase = supabase;

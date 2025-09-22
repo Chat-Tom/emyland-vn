@@ -1,4 +1,4 @@
-// src/pages/PostProperty.tsx 
+// src/pages/PostProperty.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -185,6 +185,16 @@ function openInNewTabSafe(url: string) {
       w.opener = null;
       w.location.href = url;
     }
+  }
+}
+
+/* ===== (NEW) Lấy email từ Supabase Auth (ưu tiên) ===== */
+async function getCurrentEmailFromSupabase(): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getUser();
+    return data?.user?.email ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -765,6 +775,13 @@ const PostProperty: React.FC = () => {
     if (isEditMode && editId) {
       // ====== UPDATE
       const payload = buildPropertyPayload(editId, now, provinceName, originalCreatedAt);
+
+      // (NEW) Lấy email theo Supabase → fallback StorageManager
+      const currentEmail =
+        (await getCurrentEmailFromSupabase()) ||
+        StorageManager.getCurrentUser?.()?.email ||
+        null;
+
       // (NEW) Upload images to Storage & use URLs
       const imageUrls = await ensureStorageUrls(editId, form.images);
       const finalImages = (imageUrls && imageUrls.length)
@@ -788,7 +805,8 @@ const PostProperty: React.FC = () => {
         province: provinceName,
         ward: form.ward,
         address: form.address.trim(),
-        user_email: StorageManager.getCurrentUser?.()?.email || null,
+        // 🔧 (NEW) dùng email chuẩn theo Supabase
+        user_email: currentEmail,
         owner_phone: payload?.contactInfo?.phone || form.contactPhone.trim(),
         verification_status: payload.verificationStatus || "pending",
         is_verified: !!payload.is_verified,
@@ -831,6 +849,13 @@ const PostProperty: React.FC = () => {
     // ====== CREATE
     const id = makeUUID() || String(Date.now());
     const payload = buildPropertyPayload(id, now, provinceName);
+
+    // (NEW) Lấy email theo Supabase → fallback StorageManager
+    const currentEmail =
+      (await getCurrentEmailFromSupabase()) ||
+      StorageManager.getCurrentUser?.()?.email ||
+      null;
+
     // (NEW) Upload images to Storage & use URLs
     const imageUrls = await ensureStorageUrls(id, form.images);
     const finalImages = (imageUrls && imageUrls.length)
@@ -856,7 +881,8 @@ const PostProperty: React.FC = () => {
       province: provinceName,
       ward: form.ward,
       address: form.address.trim(),
-      user_email: StorageManager.getCurrentUser?.()?.email || null,
+      // 🔧 (NEW) dùng email chuẩn theo Supabase
+      user_email: currentEmail,
       owner_phone: form.contactPhone.trim(),
       verification_status: "pending",
       is_verified: false,
