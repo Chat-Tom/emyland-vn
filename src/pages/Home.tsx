@@ -8,6 +8,9 @@ import { PropertyService, type Property as DBProperty } from "@/services/propert
 import "@/index.css";
 import Pagination01 from "@/components/Pagination01";
 
+/* NEW: đọc trực tiếp từ Supabase + realtime (vá nhẹ) */
+import { supabase } from "@/lib/supabase";
+
 type ListingType = "sell" | "rent";
 
 /* ===== Helpers ===== */
@@ -116,8 +119,13 @@ function normalizeForCard(p: any) {
     p.address ??
     [p.street, p.district || p.districtName, ward, province].filter(Boolean).join(", ");
 
-  const images =
+  /* ✅ FIX #1: Chuẩn hoá images về mảng (kể cả API trả chuỗi đơn) */
+  const imgsRaw =
     p.images ?? p.imageUrls ?? p.photos ?? p.gallery ?? (p.media && (p.media.urls || p.media)) ?? p.cover;
+  const images: string[] =
+    Array.isArray(imgsRaw) ? imgsRaw
+    : typeof imgsRaw === "string" ? [imgsRaw]
+    : [];
 
   const type: string | undefined = p.type ?? p.category ?? p.propertyType ?? p.kind ?? undefined;
 
@@ -134,6 +142,7 @@ function normalizeForCard(p: any) {
   const createdAt: string | number | Date | undefined =
     p.createdAt ?? p.created_at ?? p.postedAt ?? p.updatedAt ?? p.date ?? p.created;
 
+  /* ✅ FIX #2: Dùng giá trị đoán PN/WC nếu thiếu */
   const guessed = _inferRoomsHome(p);
   const bedroomsFixed = bedrooms ?? guessed.bedrooms;
   const bathroomsFixed = bathrooms ?? guessed.bathrooms;
@@ -190,6 +199,27 @@ function tsOf(p: any): number {
   const v = p?.createdAt ?? p?.created_at ?? p?.postedAt ?? p?.updatedAt ?? p?.date ?? p?.created;
   const t = v ? new Date(v as any).getTime() : NaN;
   return Number.isFinite(t) ? t : 0;
+}
+
+/* NEW: kiểu dòng tối giản khi lấy trực tiếp từ Supabase */
+type PropertyRow = {
+  id: string;
+  title: string;
+  created_at: string;
+  province: string | null;
+  ward: string | null;
+  address: string | null;
+  images: any; // mảng hoặc chuỗi JSON
+};
+function parseImages(x: any): string[] {
+  if (Array.isArray(x)) return x.filter(Boolean);
+  if (typeof x === "string") {
+    try {
+      const arr = JSON.parse(x);
+      return Array.isArray(arr) ? arr.filter(Boolean) : [];
+    } catch {}
+  }
+  return [];
 }
 
 export default function Home() {
@@ -358,6 +388,7 @@ export default function Home() {
     province: string;
   }>) => {
     try {
+      /* ✅ FIX #3 (đã có sẵn): province rỗng => undefined (không filter) */
       const fBase: any = {
         listingType,
         province: ((overrides?.province ?? province) || undefined),
@@ -411,6 +442,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
+      /* ✅ FIX #3 (đã có sẵn): province rỗng => undefined (không filter) */
       const baseFilters: any = {
         listingType,
         province: ((overrides?.province ?? province) || undefined),
@@ -550,7 +582,50 @@ export default function Home() {
     return () => window.removeEventListener("emyland:resetHome", handler);
   }, [loadFromSupabase, loadMatchedTotal, setSp]);
 
-  // auto refresh
+  /* ========= NEW: live feed trực tiếp từ Supabase (auto-refresh) ========= */
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveItems, setLiveItems] = useState<PropertyRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLive() {
+      setLiveLoading(true);
+      const { data, error } = await supabase
+        .from("properties")
+        .select("id,title,created_at,province,ward,address,images")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (!cancelled) {
+        if (error) console.error("load properties error:", error);
+        const rows = (data || []).map((r) => ({
+          ...r,
+          images: parseImages(r.images),
+        })) as PropertyRow[];
+        setLiveItems(rows);
+        setLiveLoading(false);
+      }
+    }
+
+    // initial fetch
+    loadLive();
+
+    // realtime: khi có INSERT/UPDATE thì reload
+    const ch = supabase
+      .channel("public:properties")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "properties" }, () => loadLive())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "properties" }, () => loadLive())
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+    };
+  }, []);
+  /* ========= END live feed ========= */
+
+  // auto refresh (luồng cũ – giữ nguyên)
   useEffect(() => {
     const refreshAll = () => {
       loadFromSupabase(1, { type: socialMode ? SOCIAL_TYPE_VALUE : type });
@@ -634,14 +709,18 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  /* ✅ FIX #4: tự đóng popover sau khi nhấn “Tìm kiếm” */
+  const [showPrice, setShowPrice] = useState(false);
+  const [showArea, setShowArea] = useState(false);
+
   const onSearch = async (e?: FormEvent) => {
     e?.preventDefault?.();
     await applySearchNow();
+    setShowPrice(false);  // đóng popover Giá
+    setShowArea(false);   // đóng popover Diện tích
   };
 
   /* ===== Popovers + click-outside ===== */
-  const [showPrice, setShowPrice] = useState(false);
-  const [showArea, setShowArea] = useState(false);
   const priceRef = useRef<HTMLDivElement | null>(null);
   const areaRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -655,15 +734,16 @@ export default function Home() {
   }, []);
 
   /* ===== Summaries ===== */
+  const isRentLocal = isRent;
   const priceSummary = useMemo(() => {
-    const minD = toDisplay(isRent, minPrice);
-    const maxD = toDisplay(isRent, maxPrice);
+    const minD = toDisplay(isRentLocal, minPrice);
+    const maxD = toDisplay(isRentLocal, maxPrice);
     if ((minPrice === 0 && maxPrice === 0) || (minD === 0 && maxD === 0)) return "Thỏa thuận";
-    if (!minD && !maxD) return isRent ? "Mức giá (triệu/tháng)" : "Mức giá (tỷ)";
+    if (!minD && !maxD) return isRentLocal ? "Mức giá (triệu/tháng)" : "Mức giá (tỷ)";
     if (minD && !maxD) return `Từ ${minD} ${priceUnitShort}`;
     if (!minD && maxD) return `Đến ${maxD} ${priceUnitShort}`;
     return `${minD}–${maxD} ${priceUnitShort}`;
-  }, [isRent, minPrice, maxPrice, priceUnitShort]);
+  }, [isRentLocal, minPrice, maxPrice, priceUnitShort]);
 
   const areaSummary = useMemo(() => {
     if (!minArea && !maxArea) return "Diện tích (m2)";
@@ -910,44 +990,92 @@ export default function Home() {
         <div className="container mx-auto px-4 pb-10">
           {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>}
 
-          {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
-            </div>
-          ) : total === 0 ? (
-            <>
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold">Tin đăng mới nhất</h3>
+          {/* NEW: Khi KHÔNG có filter phụ → ưu tiên liveItems từ Supabase (auto-refresh) */}
+          {!extraFiltersActive && !socialMode ? (
+            liveLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
               </div>
-              {latestLoading ? (
+            ) : liveItems.length === 0 ? (
+              // nếu chưa có tin live → rớt về cơ chế cũ (latest)
+              <>
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold">Tin đăng mới nhất</h3>
+                </div>
+                {latestLoading ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
+                  </div>
+                ) : latest.length === 0 ? (
+                  <div className="text-center text-gray-600 py-16">Hiện chưa có tin nào.</div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {latest.map((p: any) => (
+                      <PropertyCard key={String(p.id ?? p._id)} property={normalizeForCard(p)} />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {liveItems.map((p) => (
+                  <PropertyCard
+                    key={p.id}
+                    property={normalizeForCard({
+                      ...p,
+                      images: p.images,
+                      created_at: p.created_at,
+                      ward: p.ward ?? "",
+                      province: p.province ?? "",
+                      address: p.address ?? "",
+                    })}
+                  />
+                ))}
+              </div>
+            )
+          ) : (
+            /* Có filter phụ / socialMode / đang phân trang → dùng luồng cũ giữ nguyên */
+            <>
+              {loading ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
                 </div>
-              ) : latest.length === 0 ? (
-                <div className="text-center text-gray-600 py-16">Hiện chưa có tin nào.</div>
+              ) : total === 0 ? (
+                <>
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold">Tin đăng mới nhất</h3>
+                  </div>
+                  {latestLoading ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
+                    </div>
+                  ) : latest.length === 0 ? (
+                    <div className="text-center text-gray-600 py-16">Hiện chưa có tin nào.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {latest.map((p: any) => (
+                        <PropertyCard key={String(p.id ?? p._id)} property={normalizeForCard(p)} />
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {latest.map((p: any) => (
-                    <PropertyCard key={String(p.id ?? p._id)} property={normalizeForCard(p)} />
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              {properties.length === 0 ? (
-                <div className="text-center text-gray-600 py-10">Trang này chưa có dữ liệu. Vui lòng chọn trang khác bên dưới.</div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {properties.map((p: any) => (
-                    <PropertyCard key={String(p.id ?? p._id)} property={normalizeForCard(p)} />
-                  ))}
-                </div>
-              )}
+                <>
+                  {properties.length === 0 ? (
+                    <div className="text-center text-gray-600 py-10">Trang này chưa có dữ liệu. Vui lòng chọn trang khác bên dưới.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {properties.map((p: any) => (
+                        <PropertyCard key={String(p.id ?? p._id)} property={normalizeForCard(p)} />
+                      ))}
+                    </div>
+                  )}
 
-              {/* LUÔN hiển thị phân trang khi có kết quả tổng */}
-              {Math.max(1, Math.ceil((total || 0) / pageSize)) > 1 && (
-                <Pagination01 total={total} pageSize={pageSize} className="mt-8" />
+                  {/* LUÔN hiển thị phân trang khi có kết quả tổng */}
+                  {Math.max(1, Math.ceil((total || 0) / pageSize)) > 1 && (
+                    <Pagination01 total={total} pageSize={pageSize} className="mt-8" />
+                  )}
+                </>
               )}
             </>
           )}
