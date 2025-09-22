@@ -101,16 +101,29 @@ function normalizeForCard(p: any) {
     (p.for_sale ? "sell" : undefined) ??
     (p.rent_per_month ? "rent" : "sell");
 
-  const price: number | undefined =
+  // ===== Giá gốc
+  let price: number | undefined =
     p.price ?? p.sale_price ?? p.asking_price ?? (listingType === "sell" ? p.total_price : undefined);
 
-  const rent_per_month: number | undefined =
+  let rent_per_month: number | undefined =
     p.rent_per_month ?? p.monthly_rent ?? p.rent ?? (listingType === "rent" ? p.price : undefined);
 
-  const area: number = Number(p.area ?? p.acreage ?? p.squareMeters ?? p.sqm ?? p.size) || 0;
+  /* ✅ FIX: Giá “Thỏa thuận”
+     - Nhiều nguồn dùng 0 để biểu thị thỏa thuận, hoặc có text “thỏa thuận”.
+     - Khi gặp, trả về price/rent_per_month = undefined và gắn cờ priceNegotiable. */
+  const priceTextHay = _deburrLower(
+    [p?.price_text, p?.priceText, p?.badge, p?.label, p?.title, p?.description].filter(Boolean).join(" ")
+  );
+  const isNegotiable =
+    price === 0 || rent_per_month === 0 || /thoa\s*thuan|tho[aả]?\s*thu[aâ]n|thoả\s*thu[aâ]n|thỏa\s*thuận/.test(priceTextHay);
+  if (isNegotiable) { price = undefined; rent_per_month = undefined; }
+
+  /* ✅ FIX: Diện tích — KHÔNG để 0 m² lên UI */
+  const areaRaw = Number(p.area ?? p.acreage ?? p.squareMeters ?? p.sqm ?? p.size);
+  const area: number | undefined = Number.isFinite(areaRaw) && areaRaw > 0 ? Math.round(areaRaw) : undefined;
 
   const price_per_m2: number | undefined =
-    p.price_per_m2 ?? (listingType === "sell" && area > 0 && price ? Math.round(price / area) : undefined);
+    p.price_per_m2 ?? (listingType === "sell" && area && (price ?? 0) > 0 ? Math.round((price as number) / area) : undefined);
 
   const ward = p.ward ?? p.wardName ?? p.commune ?? p.subdistrict ?? "";
   const province = p.province ?? p.provinceName ?? p.city ?? p.region ?? "";
@@ -153,11 +166,12 @@ function normalizeForCard(p: any) {
     title,
     price,
     rent_per_month,
+    priceNegotiable: isNegotiable === true,   // ✅ thêm flag, không ảnh hưởng chỗ khác
     price_per_m2,
     location,
     ward,
     province,
-    area,
+    area,                                     // ✅ giờ là undefined nếu dữ liệu = 0/không có
     bedrooms: bedroomsFixed,
     bathrooms: bathroomsFixed,
     images,
@@ -1238,7 +1252,7 @@ function DualSlider({ min, max, step, leftValue, rightValue, onLeft, onRight, ma
         className="absolute top-3 h-2 rounded-full track-fill"
         style={{
           left: `${(leftValue / max) * 100}%`,
-          right: `${(1 - rightValue / max) * 100}%`,
+          right: `${(1 - rightValue / max) * 100)%}`,
         }}
       />
       {marks.map((m: number) => (
