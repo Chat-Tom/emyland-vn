@@ -59,6 +59,8 @@ const listingTypeOf = (p: any): ListingType =>
   (p?.listingType as ListingType) ??
   (typeof p?.rent_per_month === "number" ? "rent" : "sell");
 
+/* ✅ VÁ: chuẩn format giá */
+const trimTrailingZero = (s: string) => s.replace(/\.0\b/, "");
 const priceText = (p: any) => {
   const lt = listingTypeOf(p);
   if (lt === "rent") {
@@ -67,9 +69,17 @@ const priceText = (p: any) => {
   }
   const v = Number(p?.price) || 0;
   if (!v) return "Thoả thuận";
-  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)} tỷ`;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(0)} triệu`;
-  return v.toLocaleString();
+  if (v >= 1_000_000_000) return `${trimTrailingZero((v / 1_000_000_000).toFixed(1))} tỷ`;
+  if (v >= 1_000_000) return `${Math.round(v / 1_000_000)} triệu`;
+  return v.toLocaleString(); // fallback hiếm
+};
+
+/* ✅ VÁ: format diện tích linh hoạt */
+const areaText = (a: any) => {
+  if (a === null || a === undefined) return "--";
+  const n = typeof a === "number" ? a : Number(String(a).replace(/[^\d.,]/g, "").replace(",", "."));
+  if (!isFinite(n) || n <= 0) return "--";
+  return n < 100 ? `${Math.round(n * 10) / 10}m²` : `${Math.round(n)}m²`;
 };
 
 type Verify = "verified" | "pending";
@@ -736,7 +746,7 @@ const Dashboard = () => {
 
                               {/* Thông tin ngắn */}
                               <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
-                                <span>Diện tích: {property.area ?? "--"}m²</span>
+                                <span>Diện tích: {areaText((property as any).area)}</span>
                                 {typeof bedrooms === "number" && <span>• {bedrooms}N</span>}
                                 {typeof bathrooms === "number" && <span>• {bathrooms}WC</span>}
                                 <span>• {renderPosted((property as any).createdAt || (property as any).created_at)}</span>
@@ -744,7 +754,7 @@ const Dashboard = () => {
 
                               <div className="flex justify-between items-center">
                                 <div className="text-2xl font-bold text-red-600">
-                                  {priceText(property)} {lt === "sell" ? "VND" : ""}
+                                  {priceText(property)}
                                 </div>
 
                                 <div className="flex gap-2">

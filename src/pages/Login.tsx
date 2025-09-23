@@ -396,8 +396,8 @@ const Login: React.FC = () => {
           await signInWithBetterError(loginId, password, setFormError);
           const s = (await supabase.auth.getSession())?.data?.session?.access_token;
           if (s) saveAccessToken(s);
-          // ✔ chờ 1 frame để router/context cập nhật, tránh flicker 404
-          await new Promise(requestAnimationFrame); // <-- THÊM DÒNG NÀY
+          // ✅ chờ 2 frame: chắc chắn Router/Context đã mount xong → không 404 thoáng chốc
+          await waitRouterStable();
           cloudOK = true;
         } catch {
           // ⛔ DỪNG TẠI ĐÂY: đã setFormError() theo đúng lỗi Supabase rồi,
@@ -442,6 +442,7 @@ const Login: React.FC = () => {
           try { await loginByEmailOrPhone(loginId, password); } catch {}
         }
         try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
+        await waitRouterStable(); // ✅ chống 404 vụt tắt khi effect điều hướng
         return; // effect isAuthenticated sẽ điều hướng
       }
 
@@ -472,6 +473,7 @@ const Login: React.FC = () => {
       }
 
       try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
+      await waitRouterStable(); // ✅ đồng nhất xử lý với cloud flow
     } catch {
       setErrors({ general: "Có lỗi xảy ra. Vui lòng thử lại." });
     } finally {
@@ -538,7 +540,17 @@ const Login: React.FC = () => {
         </CardHeader>
 
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-4"
+            noValidate
+            action="#"
+            target="_self" // ✅ ép submit cùng tab, chống nhảy tab
+            onKeyDown={(e) => {
+              // ✅ chặn Ctrl/Cmd + Enter tránh trình duyệt hiểu là "open new tab"
+              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "enter") e.preventDefault();
+            }}
+          >
             {errors.general && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm" role="alert">
                 {errors.general}
@@ -725,6 +737,11 @@ async function signInWithBetterError(
     }
     throw e;
   }
+}
+
+/* ✅ Helper: đợi 2 frame để Router/Context kịp ổn định, chống flicker 404 */
+async function waitRouterStable() {
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 }
 
 export default Login;

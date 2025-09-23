@@ -128,14 +128,15 @@ const Header: React.FC<HeaderProps> = ({
         session.deviceId === deviceId &&
         StorageManager.isDeviceRecognized(session.phone, deviceId)
       ) {
-        const u =
+        const found =
           StorageManager.getUserById(session.userId) ??
           StorageManager.getUserByPhone(session.phone);
-        if (u) {
-          u.isLoggedIn = true;
-          StorageManager.saveUser(u);
-          StorageManager.setCurrentUser(u);
-          setCurrentUser(u);
+        if (found) {
+          // 🔧 FIX: không mutate trực tiếp object user gốc
+          const nextUser = { ...found, isLoggedIn: true };
+          StorageManager.saveUser(nextUser);
+          StorageManager.setCurrentUser(nextUser);
+          setCurrentUser(nextUser);
           window.dispatchEvent(new Event("emyland:userUpdated"));
           return true;
         }
@@ -222,6 +223,8 @@ const Header: React.FC<HeaderProps> = ({
   const avatarSrc =
     s(currentUser?.avatarUrl) ||
     s(currentUser?.avatar_url) ||
+    s(currentUser?.photoUrl) ||        // bổ sung fallback phổ biến
+    s(currentUser?.photo_url) ||       // bổ sung fallback phổ biến
     DEFAULT_AVATAR;
 
   return (
@@ -281,17 +284,18 @@ const Header: React.FC<HeaderProps> = ({
 
             {/* Menu + Tin mới (MOBILE) */}
             <Sheet>
-              <SheetTrigger asChild>
-                <div className="flex items-center gap-2 md:hidden">
-                  {/* >>> Tin mới mobile */}
-                  <Button
-                    onClick={handleOpenNews}
-                    variant="outline"
-                    className="h-9 px-3 rounded-lg border-amber-400 text-amber-700 hover:bg-amber-100"
-                    title="Tin tức mới"
-                  >
-                    Tin mới
-                  </Button>
+              {/* 🔧 FIX: chỉ bọc nút Menu bằng SheetTrigger, không bọc cả cụm (tránh mở drawer khi bấm "Tin mới") */}
+              <div className="flex items-center gap-2 md:hidden">
+                {/* >>> Tin mới mobile */}
+                <Button
+                  onClick={handleOpenNews}
+                  variant="outline"
+                  className="h-9 px-3 rounded-lg border-amber-400 text-amber-700 hover:bg-amber-100"
+                  title="Tin tức mới"
+                >
+                  Tin mới
+                </Button>
+                <SheetTrigger asChild>
                   <Button
                     variant="outline"
                     size="icon"
@@ -301,8 +305,8 @@ const Header: React.FC<HeaderProps> = ({
                   >
                     <Menu className="h-5 w-5" />
                   </Button>
-                </div>
-              </SheetTrigger>
+                </SheetTrigger>
+              </div>
 
               <SheetContent
                 side="right"

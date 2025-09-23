@@ -1,3 +1,4 @@
+// src/pages/SystemDashboard.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
@@ -19,7 +20,7 @@ import {
   Search,
   Images,
   Pencil,
-  Newspaper,              // >>> Added: icon cho tab Tin tức
+  Newspaper,
 } from "lucide-react";
 /* ✅ THÊM: icon Ban */
 import { Ban } from "lucide-react";
@@ -726,18 +727,32 @@ const SystemDashboard = () => {
     }
   };
 
+  /* ================== FIX GIÁ/DIỆN TÍCH ================== */
+  const trimTrailingZero = (s: string) => s.replace(/\.0\b/, "");
+
   const priceText = (p: any) => {
     const lt: ListingType = p?.listingType ?? (typeof p?.rent_per_month === "number" ? "rent" : "sell");
     if (lt === "rent") {
       const v = Number(p?.rent_per_month) || 0;
-      return v ? `${Math.round(v / 1_000_000)} triệu/tháng` : "Thoả thuận";
+      return v > 0 ? `${Math.round(v / 1_000_000)} triệu/tháng` : "Thoả thuận";
     }
     const v = Number(p?.price) || 0;
     if (!v) return "Thoả thuận";
-    if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)} tỷ`;
-    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(0)} triệu`;
+    if (v >= 1_000_000_000) return `${trimTrailingZero((v / 1_000_000_000).toFixed(1))} tỷ`;
+    if (v >= 1_000_000) return `${Math.round(v / 1_000_000)} triệu`;
     return v.toLocaleString();
   };
+
+  const areaText = (a?: any) => {
+    if (a === null || a === undefined) return "--";
+    const n =
+      typeof a === "number"
+        ? a
+        : Number(String(a).replace(/[^\d.,]/g, "").replace(",", "."));
+    if (!isFinite(n) || n <= 0) return "--";
+    return n < 100 ? `${Math.round(n * 10) / 10} m²` : `${Math.round(n)} m²`;
+  };
+  /* ======================================================= */
 
   const todayCount = useMemo(() => {
     const today = new Date().toDateString();
@@ -1137,7 +1152,8 @@ const SystemDashboard = () => {
                             Giá: <span className="font-semibold text-gray-900">{priceText(property)}</span>
                           </span>
                           <span>•</span>
-                          <span>Diện tích: {property.area} m²</span>
+                          {/* ✅ FIX: diện tích nhất quán */}
+                          <span>Diện tích: {areaText(property.area)}</span>
 
                           {/* >>> Added: hiển thị N/WC nếu có */}
                           {typeof bedrooms === "number" && (
