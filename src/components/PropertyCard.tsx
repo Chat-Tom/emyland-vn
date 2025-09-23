@@ -93,8 +93,6 @@ function addressOf(ward?: string, province?: string, fallback?: any) {
   return typeof fallback === "string" ? fallback : "";
 }
 
-/* ==== VÁ GIÁ/DIỆN TÍCH (đồng bộ với Dashboard) ==== */
-const trimTrailingZero = (s: string) => s.replace(/\.0\b/, "");
 function formatPrice(
   listingType: "sell" | "rent" | undefined,
   price?: number,
@@ -104,16 +102,15 @@ function formatPrice(
   if (!value || value <= 0) return "Thoả thuận";
   if (listingType === "rent") {
     const mil = Math.round((value ?? 0) / 1_000_000);
-    return `${mil} triệu/tháng`;
+    return `${mil.toLocaleString("vi-VN")} triệu/tháng`;
   }
   if ((value ?? 0) >= 1_000_000_000) {
-    const ty = trimTrailingZero(((value ?? 0) / 1_000_000_000).toFixed(1));
-    return `${ty} tỷ`;
+    const ty = Number(((value ?? 0) / 1_000_000_000).toFixed(2));
+    return `${ty.toLocaleString("vi-VN")} tỷ`;
   }
-  return `${Math.round((value ?? 0) / 1_000_000)} triệu`;
+  return `${Math.round((value ?? 0) / 1_000_000).toLocaleString("vi-VN")} triệu`;
 }
 
-/* giữ nguyên logic m2, chỉ làm tròn như cũ */
 function formatPricePerM2(
   listingType: "sell" | "rent" | undefined,
   area?: number,
@@ -124,19 +121,8 @@ function formatPricePerM2(
   const val = price_per_m2 ?? (price ?? 0) / area;
   if (!val || val <= 0) return null;
   return val >= 1_000_000_000
-    ? `${Math.round(val / 1_000_000_000)} tỷ/m²`
-    : `${Math.round(val / 1_000_000)} triệu/m²`;
-}
-
-/* diện tích: <100 hiển thị 1 số thập phân; ≥100 làm tròn; không hợp lệ ⇒ "--" */
-function areaText(a?: any) {
-  if (a === null || a === undefined) return "--";
-  const n =
-    typeof a === "number"
-      ? a
-      : Number(String(a).replace(/[^\d.,]/g, "").replace(",", "."));
-  if (!isFinite(n) || n <= 0) return "--";
-  return n < 100 ? `${Math.round(n * 10) / 10} m²` : `${Math.round(n)} m²`;
+    ? `${Math.round(val / 1_000_000_000).toLocaleString("vi-VN")} tỷ/m²`
+    : `${Math.round(val / 1_000_000).toLocaleString("vi-VN")} triệu/m²`;
 }
 
 /* ===== Chuẩn hoá & suy luận loại ===== */
@@ -640,7 +626,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
         {/* Thông số + Chia sẻ */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-700 font-medium">
-            {areaText(area)}
+            {area ?? "--"} m²
             {typeof bedrooms === "number" ? ` • ${bedrooms}N` : ""}
             {typeof bathrooms === "number" ? ` • ${bathrooms}WC` : ""}
             {postedText ? (
