@@ -1,6 +1,6 @@
 // src/pages/PostProperty.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 
 // 🔧 storage ở GỐC dự án (ngoài /src) → đi ra 2 cấp
 import { StorageManager } from "../../utils/storage";
@@ -318,9 +318,116 @@ const initialForm: FormState = {
   agreeLegalTruth: true,
 };
 
+/* ===== (NEW) Fireworks canvas (nhẹ, tự tắt sau ~3s) ===== */
+const Fireworks: React.FC<{ run?: boolean; height?: number }> = ({ run = false, height = 140 }) => {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    if (!run) return;
+    const cvs = ref.current!;
+    const ctx = cvs.getContext("2d")!;
+    let raf = 0, isRunning = true;
+
+    const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const fit = () => {
+      const w = cvs.parentElement ? cvs.parentElement.clientWidth : window.innerWidth;
+      cvs.width = Math.floor(w * DPR);
+      cvs.height = Math.floor(height * DPR);
+      cvs.style.width = w + "px";
+      cvs.style.height = height + "px";
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+
+    type P = { x:number;y:number;vx:number;vy:number;life:number;color:string;size:number };
+    const parts: P[] = [];
+    const colors = ["#ff4d4f", "#faad14", "#52c41a", "#1677ff", "#eb2f96", "#13c2c2"];
+
+    const burst = () => {
+      const cx = Math.random() * (cvs.width / DPR);
+      const cy = (0.3 + Math.random() * 0.5) * (cvs.height / DPR);
+      const n = 40 + Math.floor(Math.random() * 30);
+      for (let i = 0; i < n; i++) {
+        const a = (Math.PI * 2 * i) / n + Math.random() * 0.2;
+        const sp = 2 + Math.random() * 2.5;
+        parts.push({
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp,
+          vy: Math.sin(a) * sp - 1.5,
+          life: 60 + Math.random() * 30,
+          color: colors[(i + Math.floor(Math.random()*colors.length)) % colors.length],
+          size: 2 + Math.random() * 2,
+        });
+      }
+    };
+
+    burst(); setTimeout(burst, 450); setTimeout(burst, 900);
+
+    const loop = () => {
+      if (!isRunning) return;
+      raf = requestAnimationFrame(loop);
+      ctx.clearRect(0, 0, cvs.width, cvs.height);
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, cvs.width, cvs.height);
+      ctx.globalAlpha = 1;
+
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.04;
+        p.vx *= 0.992;
+        p.vy *= 0.992;
+        p.life -= 1;
+
+        const alpha = Math.max(0, Math.min(1, p.life / 40));
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x * DPR, p.y * DPR, p.size * DPR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        if (p.life <= 0) parts.splice(i, 1);
+      }
+    };
+    loop();
+
+    const stopTimer = setTimeout(() => { isRunning = false; cancelAnimationFrame(raf); }, 2800);
+    return () => {
+      isRunning = false;
+      cancelAnimationFrame(raf);
+      clearTimeout(stopTimer);
+      window.removeEventListener("resize", fit);
+    };
+  }, [run, height]);
+
+  return (
+    <canvas
+      ref={ref}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: `${height}px`,
+        pointerEvents: "none",
+        borderRadius: "16px",
+        mixBlendMode: "screen",
+        opacity: run ? 1 : 0,
+        transition: "opacity .4s ease",
+      }}
+      aria-hidden
+    />
+  );
+};
+
 const PostProperty: React.FC = () => {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
+  const location = useLocation();
+  const showWelcome =
+    (location.state as any)?.welcome === true || sp.get("welcome") === "1";
 
   const [form, setForm] = useState<FormState>(initialForm);
   const [aiBusy, setAiBusy] = useState(false);
@@ -1000,6 +1107,24 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
         {isEditMode ? "Sửa tin bất động sản" : "Đăng tin bất động sản"}
       </h1>
 
+      {/* (NEW) Banner chúc mừng lần đầu */}
+      {showWelcome && (
+        <div className="relative mx-auto mb-6 max-w-5xl overflow-hidden rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50 via-rose-50 to-cyan-50 p-4 shadow">
+          <Fireworks run={true} height={140} />
+          <div className="relative z-10 flex flex-col items-center justify-center gap-1 py-6 text-center">
+            <div className="text-2xl md:text-3xl font-extrabold">
+              🎉 Chào mừng bạn đến với <span className="text-amber-600">EmyLand</span>!
+            </div>
+            <em className="text-sm md:text-base text-gray-700">
+              Chúc mừng bạn đã có Tài khoản <strong>“Đăng tin miễn phí”</strong> trọn đời
+            </em>
+            <div className="mt-2 text-xs text-gray-500">
+              Mẹo: Chuẩn bị <strong>ảnh pháp lý</strong> rõ tên chính chủ để xác minh siêu tốc ⚡
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto max-w-5xl rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         {/* Vị trí & địa chỉ */}
         <section className="space-y-4">
@@ -1089,7 +1214,7 @@ Nếu có thông tin liên hệ, chỉ kết thúc bằng câu mời liên hệ,
         <section className="space-y-4 mt-8">
           <h2 className="text-xl font-bold">Thông tin nhà đất</h2>
 
-          {/* Hình thức tin */}
+        {/* Hình thức tin */}
           <div>
             <label className="block text-sm font-medium mb-2">Hình thức tin *</label>
             <div className="flex gap-2">

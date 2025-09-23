@@ -17,13 +17,20 @@ const readAccessToken = () => { try { return localStorage.getItem(ACCESS_TOKEN_K
 
 /* ✅ reCAPTCHA v2 checkbox */
 import ReCAPTCHA from "react-google-recaptcha";
-const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string;
-// 🔧 PATCH: cho phép tắt captcha khi test local
-const RECAPTCHA_OFF = (import.meta.env as any)?.VITE_RECAPTCHA_OFF === "1";
+// Dùng test key nếu env chưa set → không báo “khóa không hợp lệ” khi dev
+const RECAPTCHA_SITE_KEY = (
+  import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
+  "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
+) as string;
+// Cho phép tắt captcha khi dev/local
+const RECAPTCHA_OFF =
+  (import.meta.env as any)?.VITE_RECAPTCHA_OFF === "1" ||
+  window.location.hostname === "localhost";
 
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
 
+/* ===== helpers ===== */
 function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
@@ -39,7 +46,6 @@ function normalizeVNPhone(input: string) {
 function isValidVNPhone(v: string) {
   return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 }
-
 // Tìm user theo email (không phân biệt hoa/thường)
 function getUserByEmailCI(email: string) {
   const direct = StorageManager.getUserByEmail(email);
@@ -49,8 +55,7 @@ function getUserByEmailCI(email: string) {
     StorageManager.getAllUsers().find((u) => (u.email || "").toLowerCase() === low) || null
   );
 }
-
-// 🔧 PATCH: helper gọi RPC an toàn, thử nhiều biến thể tham số
+// 🔧 RPC an toàn, thử nhiều biến thể tham số (tránh 400 do khác tên tham số)
 async function tryRpcMulti(name: string, variants: Record<string, any>[]) {
   for (const args of variants) {
     try {
@@ -60,12 +65,10 @@ async function tryRpcMulti(name: string, variants: Record<string, any>[]) {
   }
   return null;
 }
-
 /* ✅ Đồng bộ hồ sơ từ Cloud về Local sau khi có token */
 async function syncProfileFromCloud() {
   const token = readAccessToken();
   if (!token) return;
-
   try {
     const data =
       (await tryRpcMulti("rpc_me", [{ p_access_token: token }, {}])) || [];
@@ -86,42 +89,38 @@ async function syncProfileFromCloud() {
   } catch {}
 }
 
-// 🔧 PATCH: lấy “me” để xác minh khớp định danh vừa đăng nhập
+/* ✅ Helper: đợi 2 frame để Router/Context kịp ổn định, chống flicker 404 */
+async function waitRouterStable() {
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
+/* 🔧 LẤY "me" an toàn */
 async function getCloudMe() {
-  const token = readAccessToken();
   try {
+    const { data, error } = await supabase.auth.getUser();
+    if (!error && data?.user) {
+      const u = data.user;
+      return {
+        email: (u.email || "").toLowerCase(),
+        phone: (u.user_metadata?.phone || u.phone || "").toString(),
+      };
+    }
+  } catch {}
+  try {
+    const token = readAccessToken();
     const data =
       (await tryRpcMulti("rpc_me", [{ p_access_token: token }, {}])) || [];
     return data?.[0] || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-/* ✅ Login Supabase gốc (email + password) để có session thật cho AuthSync)
-   (giữ lại — có thể dùng fallback khác) */
-async function trySupabasePasswordLogin(loginId: string, pwd: string) {
-  if (!isEmail(loginId)) return false; // chỉ áp dụng cho email
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: loginId,
-      password: pwd,
-    });
-    if (error) return false;
-    const tok = data?.session?.access_token;
-    if (tok) saveAccessToken(tok);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
+/* ===== Component ===== */
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
   const { loginByEmailOrPhone, isAuthenticated, user } = useAuth();
 
-  const [identifier, setIdentifier] = useState(""); // email hoặc phone
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -133,16 +132,21 @@ const Login: React.FC = () => {
   const [captchaOk, setCaptchaOk] = useState(false);
   const recaptchaRef = useRef<ReCAPTCHA | null>(null);
 
-  // ✅ setter lỗi chung để dùng cho helper
   const setFormError = (msg: string) =>
     setErrors((p) => ({ ...p, general: msg || "Đăng nhập thất bại" }));
 
   // ✅ Điều hướng sau đăng nhập
   const DEFAULT_NEXT = "/post-property";
-  const nextPath = useMemo(() => {
+  const rawNext = useMemo(() => {
     const n = sp.get("next");
-    return n && n.startsWith("/") ? n : DEFAULT_NEXT;
+    return n && n.startsWith("/") ? n : "";
   }, [sp]);
+
+  // Nếu `next=/dashboard` thì ép về /post-property
+  const safeNext = useMemo(() => {
+    if (!rawNext || rawNext === "/dashboard") return DEFAULT_NEXT;
+    return rawNext;
+  }, [rawNext]);
 
   // Seed admin (idempotent)
   useEffect(() => {
@@ -153,38 +157,25 @@ const Login: React.FC = () => {
     }
   }, []);
 
-  // Nếu đã đăng nhập thì điều hướng
+  // Nếu đã đăng nhập → điều hướng ngay (không mở tab mới)
   useEffect(() => {
     if (isAuthenticated) {
-      if (nextPath) {
-        navigate(nextPath, { replace: true });
-      } else {
-        navigate(user?.isAdmin ? "/system-dashboard" : "/post-property", { replace: true });
-      }
+      navigate(user?.isAdmin ? "/system-dashboard" : safeNext, { replace: true });
     }
-  }, [isAuthenticated, user, navigate, nextPath]);
+  }, [isAuthenticated, user, navigate, safeNext]);
 
-  const mode: "email" | "phone" = useMemo(
-    () => (isEmail(identifier) ? "email" : "phone"),
-    [identifier]
-  );
-
-  // ❗ Cảnh báo theo thời gian thực (định dạng)
+  // ❗ Chỉ cho phép SỐ ĐIỆN THOẠI
   const liveIdentifierError = useMemo(() => {
     const v = identifier.trim();
     if (!v) return "";
-    if (mode === "email") {
-      return isEmail(v) ? "" : "Email không hợp lệ";
-    }
+    if (isEmail(v)) return "Chỉ hỗ trợ đăng nhập bằng số điện thoại.";
     const normalized = normalizeVNPhone(v);
     return isValidVNPhone(normalized)
       ? ""
       : "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
-  }, [identifier, mode]);
+  }, [identifier]);
 
-  /* ──────────────────────────────────────────────────────────────
-     ✅ THÊM: Kiểm tra “đã đăng ký / trùng” với Cloud (Supabase)
-  ────────────────────────────────────────────────────────────── */
+  /* ───── Kiểm tra đã đăng ký/trùng Cloud (Supabase) ───── */
   const [existsCloud, setExistsCloud] = useState(false);
   const [dupCloudError, setDupCloudError] = useState("");
 
@@ -199,9 +190,7 @@ const Login: React.FC = () => {
     const v = identifier.trim();
     if (!v || liveIdentifierError) return;
 
-    const id = isEmail(v) ? v : normalizeVNPhone(v);
-    const email = isEmail(id) ? id : null;
-    const phone = !email ? sanitizePhone(id) : null;
+    const phone = sanitizePhone(normalizeVNPhone(v));
 
     const timer = setTimeout(async () => {
       async function tryRpc(name: string, args: Record<string, any>) {
@@ -211,42 +200,31 @@ const Login: React.FC = () => {
           return data;
         } catch { return null; }
       }
-
       let data: any = null;
-      data = await tryRpc("rpc_check_identifier", { p_email: email, p_phone: phone });
-      if (data == null) data = await tryRpc("rpc_exists_identifier", { p_email: email, p_phone: phone });
-      if (data == null) data = await tryRpc("rpc_lookup_user", { p_email_or_phone: email ?? phone });
+      data = await tryRpc("rpc_check_identifier", { p_email: null, p_phone: phone });
+      if (data == null) data = await tryRpc("rpc_exists_identifier", { p_email: null, p_phone: phone });
+      if (data == null) data = await tryRpc("rpc_lookup_user", { p_email_or_phone: phone });
 
-      let exists = false;
-      let dup = false;
-
+      let exists = false, dup = false;
       if (Array.isArray(data)) {
         const row = data[0] ?? {};
         const cnt = row.count ?? row.c ?? row.total ?? row.n ?? (typeof row === "number" ? row : undefined);
-        if (typeof cnt === "number") {
-          exists = cnt > 0; dup = cnt > 1;
-        } else {
+        if (typeof cnt === "number") { exists = cnt > 0; dup = cnt > 1; }
+        else {
           exists = !!(row.exists ?? row.is_exist ?? row.found);
           dup = !!(row.duplicated ?? row.dup ?? row.is_dup) || (typeof row.dup_count === "number" && row.dup_count > 1);
         }
-      } else if (typeof data === "number") {
-        exists = data > 0; dup = data > 1;
-      }
+      } else if (typeof data === "number") { exists = data > 0; dup = data > 1; }
 
       if (data == null) {
         try {
-          const col = email ? "email" : "phone";
-          const val = email ?? phone!;
           const { count, error } = await supabase
             .from("users_public")
             .select("id", { count: "exact", head: true })
-            .eq(col, val);
-          if (!error && typeof count === "number") {
-            exists = count > 0; dup = count > 1;
-          }
+            .eq("phone", phone);
+          if (!error && typeof count === "number") { exists = count > 0; dup = count > 1; }
         } catch {}
       }
-
       if (!alive) return;
       setExistsCloud(exists);
       setDupCloudError(dup ? "Thông tin này đang trùng nhiều tài khoản trên hệ thống. Vui lòng liên hệ hỗ trợ." : "");
@@ -268,12 +246,9 @@ const Login: React.FC = () => {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!identifier.trim()) e.identifier = "Vui lòng nhập số điện thoại hoặc email";
-    else if (mode === "email") {
-      if (!isEmail(identifier)) e.identifier = "Email không hợp lệ";
-    } else {
-      if (!isValidVNPhone(identifier)) e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
-    }
+    if (!identifier.trim()) e.identifier = "Vui lòng nhập số điện thoại";
+    else if (isEmail(identifier)) e.identifier = "Chỉ hỗ trợ đăng nhập bằng số điện thoại.";
+    else if (!isValidVNPhone(normalizeVNPhone(identifier))) e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
     if (dupCloudError) e.identifier = dupCloudError;
     if (!password) e.password = "Vui lòng nhập mật khẩu";
     if (!RECAPTCHA_OFF && !captchaOk) e.captcha = "Vui lòng xác nhận 'Tôi không phải người máy'.";
@@ -281,67 +256,51 @@ const Login: React.FC = () => {
     return Object.keys(e).length === 0;
   };
 
-  /* ✅ Cloud login / migrate user cũ lên Supabase (giữ logic cũ)
-     🔧 PATCH: thử nhiều biến thể tham số để tránh 400 do khác tên */
-  const tryCloudLoginOrMigrate = async (loginId: string, pwd: string, deviceId: string) => {
+  /* ✅ Cloud login / migrate user cũ lên Supabase (phone-only) */
+  const tryCloudLoginOrMigrate = async (phoneLogin: string, pwd: string, deviceId: string) => {
     try {
       const variants = [
-        { p_email_or_phone: loginId, p_password: pwd, p_device_id: deviceId },
-        { p_email_or_phone: loginId, p_password: pwd, device_id: deviceId },
-        { email_or_phone: loginId, password: pwd, device_id: deviceId },
-        { email: isEmail(loginId) ? loginId : null, phone: isEmail(loginId) ? null : sanitizePhone(loginId), password: pwd, device_id: deviceId },
+        { p_email_or_phone: phoneLogin, p_password: pwd, p_device_id: deviceId },
+        { p_email_or_phone: phoneLogin, p_password: pwd, device_id: deviceId },
+        { email_or_phone: phoneLogin, password: pwd, device_id: deviceId },
+        { email: null, phone: sanitizePhone(phoneLogin), password: pwd, device_id: deviceId },
       ];
       const data = await tryRpcMulti("rpc_login", variants);
-      if (data?.[0]?.access_token) {
-        saveAccessToken(data[0].access_token as string);
-        return true;
-      }
+      if (data?.[0]?.access_token) { saveAccessToken(data[0].access_token as string); return true; }
 
-      // Nếu báo không tồn tại -> thử migrate
-      const isMail = isEmail(loginId);
-      const localU =
-        (isMail && getUserByEmailCI(loginId)) ||
-        StorageManager.getUserByPhone(sanitizePhone(loginId)) || null;
+      const localU = StorageManager.getUserByPhone(sanitizePhone(phoneLogin)) || null;
 
       const regParams = {
-        p_email: isMail ? loginId : (localU?.email || null),
-        p_phone: isMail ? (localU?.phone || null) : sanitizePhone(loginId),
+        p_email: localU?.email || null,
+        p_phone: sanitizePhone(phoneLogin),
         p_password: pwd,
         p_full_name: localU?.fullName || null,
       };
       const reg = await tryRpcMulti("rpc_register_user", [regParams]);
       if (reg !== null) {
         const data2 = await tryRpcMulti("rpc_login", variants);
-        if (data2?.[0]?.access_token) {
-          saveAccessToken(data2[0].access_token as string);
-          return true;
-        }
+        if (data2?.[0]?.access_token) { saveAccessToken(data2[0].access_token as string); return true; }
       }
     } catch {}
     return false;
   };
 
   /* ✅ Đảm bảo có user Local sau Cloud login */
-  const ensureLocalUserAfterCloud = (loginId: string, pwd: string) => {
-    const phoneKey = sanitizePhone(loginId);
-    const byEmail = isEmail(loginId) ? getUserByEmailCI(loginId) : null;
+  const ensureLocalUserAfterCloud = (phoneLogin: string, pwd: string) => {
+    const phoneKey = sanitizePhone(phoneLogin);
     const byPhone = StorageManager.getUserByPhone(phoneKey);
-    let u: any = byEmail || byPhone || null;
+    let u: any = byPhone || null;
 
     if (!u) {
-      const isMail = isEmail(loginId);
-      const email = isMail ? loginId : undefined;
-      const phone = isMail ? undefined : phoneKey;
       StorageManager.saveUser({
-        id: phone || (email as string),
+        id: phoneKey,
         fullName: "",
-        email,
-        phone,
+        phone: phoneKey,
         password: pwd,
         isAdmin: false,
         registeredAt: new Date().toISOString(),
       } as any);
-      u = isMail ? getUserByEmailCI(loginId) : StorageManager.getUserByPhone(phoneKey);
+      u = StorageManager.getUserByPhone(phoneKey);
     } else if (!u.password) {
       StorageManager.saveUser({ ...u, password: pwd });
     }
@@ -385,41 +344,22 @@ const Login: React.FC = () => {
       }
 
       const idTrim = identifier.trim();
-      const loginId = isEmail(idTrim) ? idTrim : normalizeVNPhone(idTrim);
+      if (isEmail(idTrim)) {
+        setErrors({ identifier: "Chỉ hỗ trợ đăng nhập bằng số điện thoại." });
+        setIsLoading(false);
+        return;
+      }
+      const loginPhone = normalizeVNPhone(idTrim);
       const deviceId = getOrCreateDeviceId();
 
-      let cloudOK = false;
-
-      // 🔧 Ưu tiên: nếu là EMAIL, gọi helper để nhận thông điệp lỗi thật từ Supabase
-      if (isEmail(loginId)) {
-        try {
-          await signInWithBetterError(loginId, password, setFormError);
-          const s = (await supabase.auth.getSession())?.data?.session?.access_token;
-          if (s) saveAccessToken(s);
-          // ✅ chờ 2 frame: chắc chắn Router/Context đã mount xong → không 404 thoáng chốc
-          await waitRouterStable();
-          cloudOK = true;
-        } catch {
-          // ⛔ DỪNG TẠI ĐÂY: đã setFormError() theo đúng lỗi Supabase rồi,
-          // không tiếp tục fallback để tránh ghi đè thông điệp.
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      // Fallback: vẫn giữ flow cũ nếu Supabase password login chưa thành công
-      if (!cloudOK) {
-        cloudOK = await tryCloudLoginOrMigrate(loginId, password, deviceId);
-      }
+      let cloudOK = await tryCloudLoginOrMigrate(loginPhone, password, deviceId);
 
       if (cloudOK) {
-        // 🔧 Xác minh tài khoản trả về khớp định danh
         const me = await getCloudMe();
-        const mismatch =
-          !me ||
-          (isEmail(loginId)
-            ? (me.email || "").toLowerCase() !== loginId.toLowerCase()
-            : sanitizePhone(me.phone || "") !== sanitizePhone(loginId));
+        const mismatch = me
+          ? sanitizePhone(me.phone || "") !== sanitizePhone(loginPhone)
+          : false;
+
         if (mismatch) {
           try { localStorage.removeItem(ACCESS_TOKEN_KEY); } catch {}
           setErrors({ general: "Tài khoản nhận được không khớp. Vui lòng thử lại." });
@@ -428,40 +368,34 @@ const Login: React.FC = () => {
         }
 
         await syncProfileFromCloud();
-        const u = ensureLocalUserAfterCloud(loginId, password);
+        const u = ensureLocalUserAfterCloud(loginPhone, password);
         if (u) {
           try {
-            StorageManager.markDeviceForUser(u.phone || sanitizePhone(loginId), deviceId);
+            StorageManager.markDeviceForUser(u.phone || sanitizePhone(loginPhone), deviceId);
             StorageManager.setActiveSession({
               userId: u.id,
-              phone: u.phone || sanitizePhone(loginId),
+              phone: u.phone || sanitizePhone(loginPhone),
               deviceId,
               loggedInAt: new Date().toISOString(),
             });
           } catch {}
-          try { await loginByEmailOrPhone(loginId, password); } catch {}
+          try { await loginByEmailOrPhone(loginPhone, password); } catch {}
         }
         try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
-        await waitRouterStable(); // ✅ chống 404 vụt tắt khi effect điều hướng
-        return; // effect isAuthenticated sẽ điều hướng
+        await waitRouterStable();
+
+        navigate(u?.isAdmin ? "/system-dashboard" : safeNext, { replace: true });
+        return;
       }
 
       // Flow local cũ
-      const ok = await loginByEmailOrPhone(loginId, password);
+      const ok = await loginByEmailOrPhone(loginPhone, password);
       if (!ok) {
         setErrors({ general: "Thông tin đăng nhập không đúng" });
         return;
       }
 
-      let u =
-        (isEmail(loginId) && StorageManager.getUserByEmail(loginId)) ||
-        StorageManager.getUserByPhone(sanitizePhone(loginId));
-
-      if (!u && isEmail(loginId)) {
-        const lower = loginId.toLowerCase();
-        u = StorageManager.getAllUsers().find((x) => (x.email || "").toLowerCase() === lower) || null;
-      }
-
+      let u = StorageManager.getUserByPhone(sanitizePhone(loginPhone));
       if (u) {
         StorageManager.markDeviceForUser(u.phone, deviceId);
         StorageManager.setActiveSession({
@@ -473,7 +407,9 @@ const Login: React.FC = () => {
       }
 
       try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
-      await waitRouterStable(); // ✅ đồng nhất xử lý với cloud flow
+      await waitRouterStable();
+      navigate(u?.isAdmin ? "/system-dashboard" : safeNext, { replace: true });
+      return;
     } catch {
       setErrors({ general: "Có lỗi xảy ra. Vui lòng thử lại." });
     } finally {
@@ -481,42 +417,31 @@ const Login: React.FC = () => {
     }
   };
 
-  // ✅ Quên mật khẩu…
+  // ✅ Quên mật khẩu (phone-only)
   const handleForgotClick = () => {
     const id = identifier.trim();
-
     if (!id) {
       setErrors((p) => ({
         ...p,
-        identifier: "Vui lòng nhập số điện thoại hoặc email trước khi khôi phục mật khẩu",
+        identifier: "Vui lòng nhập số điện thoại trước khi khôi phục mật khẩu",
       }));
       return;
     }
-
     if (isEmail(id)) {
-      const u = getUserByEmailCI(id);
-      if (!u) {
-        setErrors((p) => ({ ...p, identifier: "Email chưa được đăng ký" }));
-        return;
-      }
-      navigate(`/forgot-password?email=${encodeURIComponent(u.email)}`);
+      setErrors((p) => ({ ...p, identifier: "Chỉ hỗ trợ số điện thoại." }));
       return;
     }
-
-    if (!isValidVNPhone(id)) {
+    const normalized = normalizeVNPhone(id);
+    if (!isValidVNPhone(normalized)) {
       setErrors((p) => ({ ...p, identifier: "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)" }));
       return;
     }
-    const phoneKey = sanitizePhone(id);
+    const phoneKey = sanitizePhone(normalized);
     const u = StorageManager.getUserByPhone(phoneKey);
-    if (!u) {
-      setErrors((p) => ({ ...p, identifier: "Số điện thoại chưa được đăng ký" }));
-      return;
-    }
-    if (!u.email) {
+    if (!u || !u.email) {
       setErrors((p) => ({
         ...p,
-        identifier: "Tài khoản này chưa có email khôi phục. Vui lòng liên hệ hỗ trợ.",
+        identifier: "Số điện thoại chưa được đăng ký hoặc chưa có email khôi phục. Vui lòng liên hệ hỗ trợ.",
       }));
       return;
     }
@@ -534,9 +459,7 @@ const Login: React.FC = () => {
             </span>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">Đăng nhập</CardTitle>
-          <p className="text-gray-600 mt-2">
-            Sử dụng số điện thoại <b>hoặc email</b> để đăng nhập
-          </p>
+          {/* ❌ ĐÃ XÓA: dòng mô tả “Sử dụng số điện thoại hoặc email…” */}
         </CardHeader>
 
         <CardContent>
@@ -545,9 +468,8 @@ const Login: React.FC = () => {
             className="space-y-4"
             noValidate
             action="#"
-            target="_self" // ✅ ép submit cùng tab, chống nhảy tab
+            target="_self"
             onKeyDown={(e) => {
-              // ✅ chặn Ctrl/Cmd + Enter tránh trình duyệt hiểu là "open new tab"
               if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "enter") e.preventDefault();
             }}
           >
@@ -559,8 +481,9 @@ const Login: React.FC = () => {
 
             {/* Identifier */}
             <div className="space-y-2">
-              <label htmlFor="identifier" className="text-sm font-medium text-gray-700">
-                Số điện thoại hoặc email *
+              {/* Ẩn nhãn để không hiển thị “Số điện thoại *” nhưng vẫn a11y */}
+              <label htmlFor="identifier" className="sr-only">
+                Số điện thoại
               </label>
               <Input
                 id="identifier"
@@ -573,7 +496,7 @@ const Login: React.FC = () => {
                   if (errors.identifier) setErrors((p) => ({ ...p, identifier: "" }));
                   if (errors.general) setErrors((p) => ({ ...p, general: "" }));
                 }}
-                placeholder="090xxxxxxx hoặc name@example.com"
+                placeholder="Số điện thoại"
                 aria-invalid={!!(errors.identifier || liveIdentifierError || dupCloudError)}
                 aria-describedby={
                   errors.identifier || liveIdentifierError || dupCloudError ? "identifier-error" : undefined
@@ -582,13 +505,9 @@ const Login: React.FC = () => {
                   ? "border-red-500 focus:border-red-500 focus-visible:ring-red-500"
                   : ""}
               />
-              {mode === "phone" ? (
-                <p className="text-xs text-gray-500">Chấp nhận số Việt Nam 10 số (đầu 03/05/07/08/09).</p>
-              ) : (
-                <p className="text-xs text-gray-500">Ví dụ: {ADMIN_EMAIL}</p>
-              )}
+              <p className="text-xs text-gray-500">Chấp nhận số Việt Nam 10 số (đầu 03/05/07/08/09).</p>
               {!liveIdentifierError && existsCloud && !dupCloudError && (
-                <p className="text-xs text-green-600">✅ Thông tin này đã đăng ký trên hệ thống.</p>
+                <p className="text-xs text-green-600">✅ Số điện thoại này đã đăng ký trên hệ thống.</p>
               )}
               {(errors.identifier || liveIdentifierError || dupCloudError) && (
                 <p id="identifier-error" className="text-red-500 text-sm">
@@ -599,8 +518,9 @@ const Login: React.FC = () => {
 
             {/* Password */}
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium text-gray-700">
-                Mật khẩu *
+              {/* Ẩn nhãn để không hiển thị “Mật khẩu *” */}
+              <label htmlFor="password" className="sr-only">
+                Mật khẩu
               </label>
               <div className="relative">
                 <Input
@@ -614,7 +534,7 @@ const Login: React.FC = () => {
                     if (errors.password) setErrors((p) => ({ ...p, password: "" }));
                     if (errors.general) setErrors((p) => ({ ...p, general: "" }));
                   }}
-                  placeholder="Nhập mật khẩu"
+                  placeholder="Mật khẩu"
                   aria-invalid={!!errors.password}
                   aria-describedby={errors.password ? "password-error" : undefined}
                   className={`pr-10 ${errors.password ? "border-red-500 focus:border-red-500 focus-visible:ring-red-500" : ""}`}
@@ -636,17 +556,21 @@ const Login: React.FC = () => {
 
               {/* ✅ Captcha */}
               <div className="mt-2">
-                <ReCAPTCHA
-                  ref={recaptchaRef}
-                  sitekey={RECAPTCHA_SITE_KEY}
-                  onChange={(tok) => {
-                    setCaptchaToken(tok);
-                    setCaptchaOk(!!tok);
-                    if (tok && errors.captcha) setErrors((p) => ({ ...p, captcha: "" }));
-                  }}
-                />
-                {errors.captcha && (
-                  <p className="text-red-500 text-sm mt-2">{errors.captcha}</p>
+                {!RECAPTCHA_OFF && (
+                  <>
+                    <ReCAPTCHA
+                      ref={recaptchaRef}
+                      sitekey={RECAPTCHA_SITE_KEY}
+                      onChange={(tok) => {
+                        setCaptchaToken(tok);
+                        setCaptchaOk(!!tok);
+                        if (tok && errors.captcha) setErrors((p) => ({ ...p, captcha: "" }));
+                      }}
+                    />
+                    {errors.captcha && (
+                      <p className="text-red-500 text-sm mt-2">{errors.captcha}</p>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -661,6 +585,12 @@ const Login: React.FC = () => {
             {/* Submit */}
             <Button
               type="submit"
+              formTarget="_self"
+              onClick={(e) => {
+                // chặn mở tab mới do ctrl/cmd-click
+                // @ts-expect-error custom
+                if (e.ctrlKey || e.metaKey) { e.preventDefault(); e.stopPropagation(); }
+              }}
               disabled={!canSubmit}
               className="relative group w-full overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to-orange-500 text-white font-semibold py-3 transition-transform duration-200 hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
             >
@@ -677,7 +607,7 @@ const Login: React.FC = () => {
               Chưa có tài khoản?{" "}
               <button
                 type="button"
-                onClick={() => navigate(`/register?next=${encodeURIComponent(nextPath)}`)}
+                onClick={() => navigate(`/register?next=${encodeURIComponent(safeNext)}`)}
                 className="relative group inline-flex items-center px-2 py-1 rounded-md font-medium text-blue-600 hover:text-blue-700 transition-colors"
               >
                 <span
@@ -693,55 +623,5 @@ const Login: React.FC = () => {
     </div>
   );
 };
-/* ================== [APPEND AT BOTTOM OF FILE] ================== */
-/** Gắn vào chỗ call signInWithPassword hiện hữu:
- *   - Thay đoạn gọi hiện tại bằng hàm: await signInWithBetterError(email, password);
- *   - Hoặc dùng trực tiếp trong onSubmit.
- */
-async function signInWithBetterError(
-  email: string,
-  password: string,
-  setFormError?: (msg: string) => void
-) {
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(), // luôn hạ chữ thường
-      password,
-    });
-
-    if (error) {
-      // ánh xạ thông báo tiếng Việt
-      const m = (error.message || '').trim();
-      let vi = m;
-
-      if (m.includes('Invalid login credentials')) {
-        vi = 'Tài khoản hoặc mật khẩu không đúng.';
-      } else if (m.includes('Email not confirmed')) {
-        vi = 'Email chưa được xác minh. Vui lòng kiểm tra hộp thư và xác nhận.';
-      } else if (m.toLowerCase().includes('rate limit')) {
-        vi = 'Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút.';
-      }
-
-      if (setFormError) setFormError(vi);
-      throw error;
-    }
-
-    return data;
-  } catch (e: any) {
-    if (setFormError) {
-      const raw = (e?.message || '').trim();
-      const vi = raw.includes('Invalid login credentials')
-        ? 'Tài khoản hoặc mật khẩu không đúng.'
-        : (raw || 'Đăng nhập thất bại');
-      setFormError(vi);
-    }
-    throw e;
-  }
-}
-
-/* ✅ Helper: đợi 2 frame để Router/Context kịp ổn định, chống flicker 404 */
-async function waitRouterStable() {
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-}
 
 export default Login;

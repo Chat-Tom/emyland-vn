@@ -1,6 +1,6 @@
 // src/pages/Register.tsx
-import React, { useCallback, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,18 +10,14 @@ import { Eye, EyeOff, Building2 } from "lucide-react";
 import { StorageManager } from "@utils/storage";
 import { getOrCreateDeviceId } from "@utils/device";
 import { useAuth } from "@/contexts/AuthContext";
+import { phoneExists, emailExists } from "@/lib/uniqueness";
 
 const Register: React.FC = () => {
   const navigate = useNavigate();
   const { loginByPhone } = useAuth();
-  const [sp] = useSearchParams();
 
-  // ✅ Hỗ trợ điều hướng trở lại trang mong muốn sau đăng ký
-  const DEFAULT_NEXT = "/post-property";
-  const nextPath = useMemo(() => {
-    const n = sp.get("next");
-    return n && n.startsWith("/") ? n : DEFAULT_NEXT;
-  }, [sp]);
+  // Luôn về trang Đăng tin miễn phí sau khi đăng ký
+  const NEXT_AFTER_REGISTER = "/post-property";
 
   const [form, setForm] = useState({
     phone: "",
@@ -35,15 +31,19 @@ const Register: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  // trạng thái kiểm tra trùng realtime
+  const [checking, setChecking] = useState({ phone: false, email: false });
+  const [dup, setDup] = useState({ phone: false, email: false });
+  const [dupMsg, setDupMsg] = useState({ phone: "", email: "" });
+
   const sanitizePhone = (v: string) => v.replace(/\D/g, "");
   const isValidVNEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
-
   const isValidVNPhone = useCallback(
     (v: string) => /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v)),
     []
   );
 
-  // ⬇️ Realtime validate để hiển thị cảnh báo đỏ ngay khi nhập
+  // validate định dạng realtime
   const phoneError = useMemo(() => {
     if (!form.phone.trim()) return "";
     return isValidVNPhone(form.phone)
@@ -67,7 +67,6 @@ const Register: React.FC = () => {
   }, [form.confirmPassword, form.password]);
 
   const canSubmit = useMemo(() => {
-    // Chặn nút khi có lỗi realtime hoặc còn thiếu bắt buộc
     const requiredOk =
       form.phone.trim() &&
       form.email.trim() &&
@@ -76,7 +75,9 @@ const Register: React.FC = () => {
       form.confirmPassword;
     const noRealtimeErrors =
       !phoneError && !emailError && !passwordHint && !confirmHint;
-    return !!requiredOk && noRealtimeErrors && !submitting;
+    const noDupAndNotChecking =
+      !dup.phone && !dup.email && !checking.phone && !checking.email;
+    return !!requiredOk && noRealtimeErrors && noDupAndNotChecking && !submitting;
   }, [
     form.phone,
     form.email,
@@ -87,10 +88,14 @@ const Register: React.FC = () => {
     emailError,
     passwordHint,
     confirmHint,
+    dup.phone,
+    dup.email,
+    checking.phone,
+    checking.email,
     submitting,
   ]);
 
-  // <<< CHUẨN HÓA SĐT: luôn giữ 0 đầu, tối đa 10 số (kể cả nhập +84...)
+  // Chuẩn hoá số điện thoại khi nhập
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     let v = value;
@@ -109,7 +114,73 @@ const Register: React.FC = () => {
     if (errors.general) setErrors((p) => ({ ...p, general: "" }));
   };
 
-  // Validate cuối trước khi submit (giữ nguyên logic tổng thể)
+  // Debounce check trùng PHONE
+  useEffect(() => {
+    const val = form.phone.trim();
+    if (!val || phoneError) {
+      setDup((d) => ({ ...d, phone: false }));
+      setDupMsg((m) => ({ ...m, phone: "" }));
+      return;
+    }
+    setChecking((c) => ({ ...c, phone: true }));
+    const t = setTimeout(async () => {
+      try {
+        const raw = sanitizePhone(val);
+        // local
+        let exists =
+          !!StorageManager.getUserByPhone(raw) ||
+          StorageManager.getAllUsers().some((u) => {
+            const up = (u.phone || "").replace(/\D/g, "");
+            const intl = raw.startsWith("0") ? `84${raw.slice(1)}` : raw;
+            return up === raw || up === intl;
+          });
+        // cloud
+        try {
+          if (!exists) exists = await phoneExists(raw);
+        } catch {}
+        setDup((d) => ({ ...d, phone: exists }));
+        setDupMsg((m) => ({ ...m, phone: exists ? "Số điện thoại đã đăng ký" : "" }));
+      } finally {
+        setChecking((c) => ({ ...c, phone: false }));
+      }
+    }, 450);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.phone, phoneError]);
+
+  // Debounce check trùng EMAIL
+  useEffect(() => {
+    const val = form.email.trim();
+    if (!val || emailError) {
+      setDup((d) => ({ ...d, email: false }));
+      setDupMsg((m) => ({ ...m, email: "" }));
+      return;
+    }
+    setChecking((c) => ({ ...c, email: true }));
+    const t = setTimeout(async () => {
+      try {
+        const emailLower = val.toLowerCase();
+        // local
+        let exists =
+          !!StorageManager.getUserByEmail(val) ||
+          StorageManager.getAllUsers().some(
+            (u) => (u.email || "").toLowerCase() === emailLower
+          );
+        // cloud
+        try {
+          if (!exists) exists = await emailExists(emailLower);
+        } catch {}
+        setDup((d) => ({ ...d, email: exists }));
+        setDupMsg((m) => ({ ...m, email: exists ? "Email đã đăng ký" : "" }));
+      } finally {
+        setChecking((c) => ({ ...c, email: false }));
+      }
+    }, 450);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.email, emailError]);
+
+  // Validate cuối trước khi submit
   const validate = () => {
     const e: Record<string, string> = {};
 
@@ -128,6 +199,9 @@ const Register: React.FC = () => {
     if (!form.confirmPassword) e.confirmPassword = "Xác nhận mật khẩu là bắt buộc";
     else if (form.password !== form.confirmPassword) e.confirmPassword = "Mật khẩu không khớp";
 
+    if (dup.phone) e.phone = dupMsg.phone || "Số điện thoại đã đăng ký";
+    if (dup.email) e.email = dupMsg.email || "Email đã đăng ký";
+
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -141,40 +215,46 @@ const Register: React.FC = () => {
     setErrors((p) => ({ ...p, general: "" }));
 
     try {
-      const phoneKey = sanitizePhone(form.phone); // đã chuẩn 0xxxxxxxxx
+      const phoneKey = sanitizePhone(form.phone);
       const emailNorm = form.email.trim();
       const emailLower = emailNorm.toLowerCase();
 
-      // 🔒 Chặn trùng trước khi gọi register (email không phân biệt hoa/thường)
-      const dupByPhone = !!StorageManager.getUserByPhone(phoneKey);
-      const dupByEmail =
+      // Double-check trùng
+      const dupByPhoneLocal =
+        !!StorageManager.getUserByPhone(phoneKey) ||
+        StorageManager.getAllUsers().some((u) => {
+          const up = (u.phone || "").replace(/\D/g, "");
+          const intl = phoneKey.startsWith("0") ? `84${phoneKey.slice(1)}` : phoneKey;
+          return up === phoneKey || up === intl;
+        });
+      const dupByEmailLocal =
         !!StorageManager.getUserByEmail(emailNorm) ||
         StorageManager.getAllUsers().some(
           (u) => (u.email || "").toLowerCase() === emailLower
         );
+      const dupByPhoneCloud = await phoneExists(phoneKey);
+      const dupByEmailCloud = await emailExists(emailLower);
 
-      if (dupByPhone) {
+      if (dupByPhoneLocal || dupByPhoneCloud) {
         setErrors({ general: "Số điện thoại đã được đăng ký" });
         return;
       }
-      if (dupByEmail) {
+      if (dupByEmailLocal || dupByEmailCloud) {
         setErrors({ general: "Email đã được đăng ký" });
         return;
       }
 
-      // Payload đúng kiểu (các trường thời gian StorageManager cũng tự set)
+      // Tạo user mới
       const payload = {
         id: StorageManager.generateId(),
         phone: phoneKey,
-        email: emailNorm, // giữ nguyên định dạng nhập; đã kiểm tra trùng không phân biệt hoa/thường
+        email: emailNorm,
         fullName: form.fullName.trim(),
         password: form.password,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isAdmin: false,
       };
-
-      // Tạo user mới (register sẽ set currentUser & isLoggedIn)
       const newUser = StorageManager.register(payload as any);
       if (!newUser) {
         setErrors({
@@ -183,7 +263,7 @@ const Register: React.FC = () => {
         return;
       }
 
-      // ✅ Ghi nhớ thiết bị + tạo session auto-login các lần sau
+      // Ghi nhớ thiết bị + session
       const deviceId = getOrCreateDeviceId();
       StorageManager.markDeviceForUser(phoneKey, deviceId);
       StorageManager.setActiveSession({
@@ -193,7 +273,7 @@ const Register: React.FC = () => {
         loggedInAt: new Date().toISOString(),
       });
 
-      // Đồng bộ AuthContext (đăng nhập ngay)
+      // Đăng nhập ngay
       const ok = await loginByPhone(phoneKey, form.password);
       if (!ok) {
         setErrors({
@@ -202,8 +282,11 @@ const Register: React.FC = () => {
         return;
       }
 
-      // Điều hướng: Admin → SystemDashboard; User → next (mặc định /post-property)
-      navigate(newUser.isAdmin ? "/system-dashboard" : nextPath, { replace: true });
+      // ✅ Điều hướng bắt buộc tới trang Đăng tin miễn phí + cờ welcome
+      navigate(`${NEXT_AFTER_REGISTER}?welcome=1`, {
+        replace: true,
+        state: { welcome: true, fullName: newUser.fullName },
+      });
     } catch {
       setErrors({ general: "Có lỗi xảy ra. Vui lòng thử lại." });
     } finally {
@@ -247,19 +330,20 @@ const Register: React.FC = () => {
                 value={form.phone}
                 onChange={handleChange}
                 placeholder="090xxxxxxx"
-                aria-invalid={!!(errors.phone || phoneError)}
-                aria-describedby={errors.phone || phoneError ? "phone-error" : undefined}
+                aria-invalid={!!(errors.phone || phoneError || dup.phone)}
+                aria-describedby={errors.phone || phoneError || dup.phone ? "phone-error" : undefined}
                 maxLength={10}
-                className={(errors.phone || phoneError) ? "border-red-500 focus:border-red-500" : ""}
+                className={(errors.phone || phoneError || dup.phone) ? "border-red-500 focus:border-red-500" : ""}
               />
               <p className="text-xs text-gray-500">
                 Chấp nhận số Việt Nam 10 số (đầu 03/05/07/08/09).
               </p>
-              {(errors.phone || phoneError) && (
+              {(errors.phone || phoneError || dup.phone) && (
                 <p id="phone-error" className="text-red-500 text-sm">
-                  {errors.phone || phoneError}
+                  {errors.phone || phoneError || dupMsg.phone}
                 </p>
               )}
+              {checking.phone && <p className="text-xs text-gray-500">Đang kiểm tra số điện thoại…</p>}
             </div>
 
             {/* Email */}
@@ -275,15 +359,16 @@ const Register: React.FC = () => {
                 value={form.email}
                 onChange={handleChange}
                 placeholder="you@example.com"
-                aria-invalid={!!(errors.email || emailError)}
-                aria-describedby={errors.email || emailError ? "email-error" : undefined}
-                className={(errors.email || emailError) ? "border-red-500 focus:border-red-500" : ""}
+                aria-invalid={!!(errors.email || emailError || dup.email)}
+                aria-describedby={errors.email || emailError || dup.email ? "email-error" : undefined}
+                className={(errors.email || emailError || dup.email) ? "border-red-500 focus:border-red-500" : ""}
               />
-              {(errors.email || emailError) && (
+              {(errors.email || emailError || dup.email) && (
                 <p id="email-error" className="text-red-500 text-sm">
-                  {errors.email || emailError}
+                  {errors.email || emailError || dupMsg.email}
                 </p>
               )}
+              {checking.email && <p className="text-xs text-gray-500">Đang kiểm tra email…</p>}
             </div>
 
             {/* Full name */}
@@ -381,7 +466,7 @@ const Register: React.FC = () => {
               <Button
                 type="submit"
                 disabled={!canSubmit}
-                className="relative group w-full overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to-orange-500 text-white font-semibold py-3 transition-transform duration-200 hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
+                className="relative group w-full overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to orange-500 text-white font-semibold py-3 transition-transform duration-200 hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <span
                   aria-hidden
@@ -396,7 +481,7 @@ const Register: React.FC = () => {
                 Đã có tài khoản?{" "}
                 <button
                   type="button"
-                  onClick={() => navigate(`/login?next=${encodeURIComponent(nextPath)}`)}
+                  onClick={() => navigate(`/login?next=${encodeURIComponent(NEXT_AFTER_REGISTER)}`)}
                   className="relative group inline-flex items-center px-2 py-1 rounded-md font-medium text-blue-600 hover:text-blue-700 transition-colors"
                 >
                   <span
