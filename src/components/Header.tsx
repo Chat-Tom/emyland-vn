@@ -96,6 +96,25 @@ const Header: React.FC<HeaderProps> = ({
       window.removeEventListener("emyland:userUpdated", onUpdated as any);
   }, []);
 
+  /** ✅ Vá nhỏ:
+   *  Nếu đang ở trang chủ mà thiếu ?tab=... thì mặc định tab=sell (giữ nguyên các tham số khác).
+   *  Dùng replace để không thêm entry vào history.
+   */
+  useEffect(() => {
+    try {
+      const { pathname, search } = window.location;
+      if (pathname === "/") {
+        const q = new URLSearchParams(search || "");
+        if (!q.get("tab")) {
+          q.set("tab", "sell");
+          navigate({ pathname: "/", search: `?${q.toString()}` }, { replace: true });
+        }
+      }
+    } catch {
+      /* noop */
+    }
+  }, [navigate]);
+
   /**
    * ✅ Thử auto-login nếu thiết bị đã được nhớ
    */
@@ -184,26 +203,26 @@ const Header: React.FC<HeaderProps> = ({
     []
   );
 
-const rawName =
-  (typeof buildMemberName === "function" && buildMemberName(currentUser)) ||
-  currentUser?.full_name ||
-  currentUser?.fullName ||
-  currentUser?.phone ||
-  currentUser?.email ||
-  "";
+  const rawName =
+    (typeof buildMemberName === "function" && buildMemberName(currentUser)) ||
+    currentUser?.full_name ||
+    currentUser?.fullName ||
+    currentUser?.phone ||
+    currentUser?.email ||
+    "";
 
-const memberName = rawName.replace(/^\s*Hội viên\s*/i, "").trim();
-const titledMemberName = memberName ? `Hội viên ${memberName}` : "Hội viên";
+  const memberName = rawName.replace(/^\s*Hội viên\s*/i, "").trim();
+  const titledMemberName = memberName ? `Hội viên ${memberName}` : "Hội viên";
 
-// ✅ Alias cho code cũ còn dùng accountDisplay (tránh lỗi runtime)
-const accountDisplay = titledMemberName;
+  // ✅ Alias cho code cũ còn dùng accountDisplay (tránh lỗi runtime)
+  const accountDisplay = titledMemberName;
 
-// --- Avatar fallback
-const s = (v?: string) => (typeof v === "string" ? v.trim() : "");
-const avatarSrc =
-  s(currentUser?.avatarUrl) ||
-  s(currentUser?.avatar_url) ||
-  "/logo.emyland.png";
+  // --- Avatar fallback
+  const s = (v?: string) => (typeof v === "string" ? v.trim() : "");
+  const avatarSrc =
+    s(currentUser?.avatarUrl) ||
+    s(currentUser?.avatar_url) ||
+    DEFAULT_AVATAR;
 
   return (
     <header className={`bg-white shadow-lg sticky top-0 z-50 ${className}`}>

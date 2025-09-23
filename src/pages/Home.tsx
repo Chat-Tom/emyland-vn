@@ -108,9 +108,7 @@ function normalizeForCard(p: any) {
   let rent_per_month: number | undefined =
     p.rent_per_month ?? p.monthly_rent ?? p.rent ?? (listingType === "rent" ? p.price : undefined);
 
-  /* ✅ FIX: Giá “Thỏa thuận”
-     - Nhiều nguồn dùng 0 để biểu thị thỏa thuận, hoặc có text “thỏa thuận”.
-     - Khi gặp, trả về price/rent_per_month = undefined và gắn cờ priceNegotiable. */
+  /* ✅ FIX: Giá “Thỏa thuận” */
   const priceTextHay = _deburrLower(
     [p?.price_text, p?.priceText, p?.badge, p?.label, p?.title, p?.description].filter(Boolean).join(" ")
   );
@@ -166,12 +164,12 @@ function normalizeForCard(p: any) {
     title,
     price,
     rent_per_month,
-    priceNegotiable: isNegotiable === true,   // ✅ thêm flag, không ảnh hưởng chỗ khác
+    priceNegotiable: isNegotiable === true,
     price_per_m2,
     location,
     ward,
     province,
-    area,                                     // ✅ giờ là undefined nếu dữ liệu = 0/không có
+    area,
     bedrooms: bedroomsFixed,
     bathrooms: bathroomsFixed,
     images,
@@ -258,17 +256,14 @@ export default function Home() {
   const [page, setPage] = useState<number>(initPage);
   const PAGE_SIZE = 12;
   const [pageSize] = useState<number>(PAGE_SIZE);
-  const [total, setTotal] = useState<number>(0);        // tổng dùng cho phân trang page hiện tại
-  const [totalAll, setTotalAll] = useState<number>(0);  // tổng hệ thống (Bán+Thuê+XH)
+  const [total, setTotal] = useState<number>(0);
+  const [totalAll, setTotalAll] = useState<number>(0);
 
-  // Tổng theo từng tab để hiển thị khi không có filter phụ
   const [totalSell, setTotalSell] = useState<number | null>(null);
   const [totalRent, setTotalRent] = useState<number | null>(null);
 
-  // Tổng "tin phù hợp" để hiển thị (độc lập với `total` của phân trang)
   const [matchedTotal, setMatchedTotal] = useState<number>(0);
 
-  // Điều hướng tab qua URL
   const goTab = useCallback((tab: "sell" | "rent" | "social") => {
     setSp((prev) => {
       const q = new URLSearchParams(prev);
@@ -278,16 +273,13 @@ export default function Home() {
     });
   }, [setSp]);
 
-  // Data
   const [loading, setLoading] = useState(false);
   const [properties, setProperties] = useState<DBProperty[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Fallback “tin mới nhất”
   const [latest, setLatest] = useState<DBProperty[]>([]);
   const [latestLoading, setLatestLoading] = useState(false);
 
-  // Province options
   const provinceOptions = useMemo(() => {
     if (!Array.isArray(PROVINCES_ORG)) return ["Trên toàn quốc"];
     const normalized = PROVINCES_ORG.map((p: any) => normalizeProvince(p?.provinceName)).filter(Boolean) as string[];
@@ -300,7 +292,6 @@ export default function Home() {
   const isRent = listingType === "rent";
   const priceUnitShort = isRent ? "triệu/tháng" : "tỷ";
 
-  // Presets
   const pricePresets = useMemo(
     () =>
       isRent
@@ -340,7 +331,6 @@ export default function Home() {
     { label: "Trên 500 m²", min: 500, max: undefined },
   ];
 
-  // Debounce auto-apply
   const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleApply = (overrides?: Partial<{
     minPrice: number | undefined; maxPrice: number | undefined;
@@ -353,7 +343,6 @@ export default function Home() {
     }, 350);
   };
 
-  // Totals (toàn hệ thống)
   const loadTotals = useCallback(async () => {
     try {
       const { total: all } = await PropertyService.getPropertiesPaged(undefined, { page: 1, pageSize: 1 });
@@ -363,7 +352,6 @@ export default function Home() {
     }
   }, []);
 
-  // Tổng theo tab Bán/Thuê (dùng khi không có filter phụ)
   const loadTabTotals = useCallback(async () => {
     try {
       const [sellRes, rentRes] = await Promise.all([
@@ -378,7 +366,6 @@ export default function Home() {
     }
   }, []);
 
-  // Latest
   const loadLatest = useCallback(async () => {
     setLatest([]);
     setLatestLoading(true);
@@ -390,19 +377,12 @@ export default function Home() {
     }
   }, []);
 
-  /**
-   * Đếm "tin phù hợp" CHÍNH XÁC cho thanh báo cáo (độc lập với phân trang)
-   * - Bán/Thuê: gọi 1 request riêng chỉ để lấy `total` theo tab & filter số (khu vực/giá/diện tích)
-   * - Xã hội: đếm client-side (lọc "xã hội") với progressive fetch (giới hạn an toàn)
-   *   => đảm bảo số hiển thị luôn theo 1 trong 3 luồng Bán/Thuê/Xã hội.
-   */
   const loadMatchedTotal = useCallback(async (overrides?: Partial<{
     minPrice: number | undefined; maxPrice: number | undefined;
     minArea: number | undefined; maxArea: number | undefined;
     province: string;
   }>) => {
     try {
-      /* ✅ FIX #3 (đã có sẵn): province rỗng => undefined (không filter) */
       const fBase: any = {
         listingType,
         province: ((overrides?.province ?? province) || undefined),
@@ -413,15 +393,12 @@ export default function Home() {
       };
 
       if (!socialMode) {
-        // Bán/Thuê → đếm từ server theo tab
         const res = await PropertyService.getPropertiesPaged(fBase, { page: 1, pageSize: 1 });
         setMatchedTotal(Number(res?.total) || 0);
         return;
       }
 
-      // XÃ HỘI → đếm client-side (lọc "social")
-      // Progressive fetch có giới hạn cứng để tránh quá tải
-      let cap = 4000; // đủ để báo cáo; có thể tăng nếu cần
+      let cap = 4000;
       let take = 1000;
       let collected: DBProperty[] = [];
       for (let k = 0; k < 5 && collected.length < cap; k++) {
@@ -431,7 +408,7 @@ export default function Home() {
         );
         const arr = Array.isArray(res?.items) ? res.items : [];
         collected = arr;
-        if (arr.length < take) break; // server đã trả < yêu cầu → không còn nhiều
+        if (arr.length < take) break;
         take = Math.min(take + 1000, cap);
       }
       const filtered = collected.filter(isSocialRecord);
@@ -442,12 +419,6 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, province, minPrice, maxPrice, minArea, maxArea, socialMode]);
 
-  /**
-   * Load page with progressive over-fetch & verified-first sort
-   * - Không gửi listingType khi socialMode.
-   * - Kéo dữ liệu nhiều dần cho tới khi đủ để cắt trang sau LỌC.
-   * - Sắp xếp: verified trước, rồi createdAt desc.
-   */
   const loadFromSupabase = useCallback(async (nextPage = page, overrides?: Partial<{
     minPrice: number | undefined; maxPrice: number | undefined;
     minArea: number | undefined; maxArea: number | undefined;
@@ -456,7 +427,6 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
-      /* ✅ FIX #3 (đã có sẵn): province rỗng => undefined (không filter) */
       const baseFilters: any = {
         listingType,
         province: ((overrides?.province ?? province) || undefined),
@@ -465,7 +435,6 @@ export default function Home() {
         minArea: overrides?.minArea ?? minArea,
         maxArea: overrides?.maxArea ?? maxArea,
       };
-      // Tab "xã hội": KHÔNG gửi listingType
       if (socialMode) delete baseFilters.listingType;
 
       const needCount = nextPage * pageSize;
@@ -488,14 +457,12 @@ export default function Home() {
         perPage = Math.min(Math.max(perPage * 2, needCount * 3), 5000);
       }
 
-      // —— Lọc client theo loại hình (apartment/house/...) hoặc xã hội
       const wantType = overrides?.type ?? (socialMode ? SOCIAL_TYPE_VALUE : type);
       let filtered = (wantType
         ? collected.filter((p) => wantType === SOCIAL_TYPE_VALUE ? isSocialRecord(p) : isTypeRecord(p, wantType))
         : collected
       );
 
-      // —— Sắp xếp: verified trước → mới nhất trước
       filtered.sort((a, b) => {
         const ra = isVerified(a) ? 0 : 1;
         const rb = isVerified(b) ? 0 : 1;
@@ -503,14 +470,11 @@ export default function Home() {
         return tsOf(b) - tsOf(a);
       });
 
-      // —— Cắt trang
       const start = (nextPage - 1) * pageSize;
       const end = start + pageSize;
       const pageItems = filtered.slice(start, end);
 
       setProperties(pageItems);
-
-      // tổng dùng cho PHÂN TRANG của page hiện tại
       setTotal(serverTotal || filtered.length);
     } catch (e: any) {
       setError(e?.message ?? "Đã có lỗi khi tải dữ liệu");
@@ -522,7 +486,6 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, province, type, minPrice, maxPrice, minArea, maxArea, page, pageSize, socialMode]);
 
-  // react to mode switch
   useEffect(() => {
     setPage(1);
     setSp((prev) => { const q = new URLSearchParams(prev); q.set("page", "1"); return q; });
@@ -539,10 +502,8 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingType, socialMode]);
 
-  // ref chống click tab 2 lần
   const tabClickRef = useRef<"sell" | "rent" | "social" | null>(null);
 
-  // đọc ?tab=
   useEffect(() => {
     const q = new URLSearchParams(location.search || "");
     const tab = (q.get("tab") || "").toLowerCase() as "sell" | "rent" | "social" | "";
@@ -560,7 +521,6 @@ export default function Home() {
     else if (tab === "social") { setSocialMode(true); }
   }, [location.search, socialMode, listingType]);
 
-  // sync page from url
   useEffect(() => {
     const p = Math.max(1, parseInt(sp.get("page") || "1", 10) || 1);
     if (p !== page) setPage(p);
@@ -568,16 +528,12 @@ export default function Home() {
   }, [sp]);
 
   useEffect(() => { setFavicon(FAVICON_URL); }, []);
-
-  // tải tổng hệ thống + tổng theo tab
   useEffect(() => { loadTotals(); loadTabTotals(); }, [loadTotals, loadTabTotals]);
 
-  // load latest chỉ khi không có KẾT QUẢ (total === 0)
   useEffect(() => {
     if (!loading && total === 0) loadLatest();
   }, [loading, total, loadLatest]);
 
-  // reset bằng logo
   useEffect(() => {
     const handler = () => {
       setSocialMode(false);
@@ -622,10 +578,8 @@ export default function Home() {
       }
     }
 
-    // initial fetch
     loadLive();
 
-    // realtime: khi có INSERT/UPDATE thì reload
     const ch = supabase
       .channel("public:properties")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "properties" }, () => loadLive())
@@ -639,7 +593,6 @@ export default function Home() {
   }, []);
   /* ========= END live feed ========= */
 
-  // auto refresh (luồng cũ – giữ nguyên)
   useEffect(() => {
     const refreshAll = () => {
       loadFromSupabase(1, { type: socialMode ? SOCIAL_TYPE_VALUE : type });
@@ -665,15 +618,13 @@ export default function Home() {
   const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize));
   const otherTotal = useMemo(() => totalAll || 0, [totalAll]);
 
-  // Có filter phụ nào ngoài "tab" không?
   const extraFiltersActive = !!(
     province || minPrice !== undefined || maxPrice !== undefined ||
     minArea !== undefined || maxArea !== undefined
   );
 
-  // "Tin phù hợp" hiển thị: nếu không có filter phụ, Bán/Thuê dùng tổng theo tab để tránh sai số từ backend.
   const displayMatched = useMemo(() => {
-    if (socialMode) return matchedTotal; // xã hội đếm client-side
+    if (socialMode) return matchedTotal;
     if (!extraFiltersActive) {
       if (listingType === "sell" && totalSell !== null) return totalSell;
       if (listingType === "rent" && totalRent !== null) return totalRent;
@@ -681,7 +632,6 @@ export default function Home() {
     return matchedTotal;
   }, [matchedTotal, socialMode, extraFiltersActive, listingType, totalSell, totalRent]);
 
-  // Chỉ kéo về trang hợp lệ khi có tổng
   useEffect(() => {
     if (total > 0 && page > totalPages) {
       setPage(totalPages);
@@ -689,7 +639,6 @@ export default function Home() {
     }
   }, [page, totalPages, setSp, total]);
 
-  // luôn refetch khi `page` đổi (không cần đếm lại)
   useEffect(() => {
     loadFromSupabase(page, { type: socialMode ? SOCIAL_TYPE_VALUE : type });
   }, [page, socialMode, type, loadFromSupabase]);
@@ -730,8 +679,8 @@ export default function Home() {
   const onSearch = async (e?: FormEvent) => {
     e?.preventDefault?.();
     await applySearchNow();
-    setShowPrice(false);  // đóng popover Giá
-    setShowArea(false);   // đóng popover Diện tích
+    setShowPrice(false);
+    setShowArea(false);
   };
 
   /* ===== Popovers + click-outside ===== */
@@ -772,7 +721,6 @@ export default function Home() {
   const areaStep = 50;
   const marks = [0, 25, 50, 75, 100];
 
-  /* ===== Tabs class ===== */
   const tabClass = (active: boolean) =>
     `w-full whitespace-nowrap text-[13px] sm:text-sm md:text-2xl
      leading-none px-2 sm:px-3 md:px-4 py-2 md:py-3 rounded-lg
@@ -804,7 +752,6 @@ export default function Home() {
         <div className="container mx-auto px-4 py-6 sm:py-8">
           {/* Tabs */}
           <div className="mb-3 grid grid-cols-[1fr_1.35fr_1fr] sm:grid-cols-[1fr_1.25fr_1fr] md:grid-cols-3 gap-2 sm:gap-3">
-            {/* sell */}
             <button
               onClick={() => { tabClickRef.current = "sell"; setSocialMode(false); setListingType("sell"); goTab("sell"); }}
               className={tabClass(!socialMode && listingType === "sell")}
@@ -812,7 +759,6 @@ export default function Home() {
             >
               Nhà đất bán
             </button>
-            {/* rent */}
             <button
               onClick={() => { tabClickRef.current = "rent"; setSocialMode(false); setListingType("rent"); goTab("rent"); }}
               className={tabClass(!socialMode && listingType === "rent")}
@@ -820,7 +766,6 @@ export default function Home() {
             >
               Nhà đất cho thuê
             </button>
-            {/* social */}
             <button
               onClick={() => { tabClickRef.current = "social"; setSocialMode(true); goTab("social"); }}
               className={tabClass(socialMode === true)}
@@ -1004,14 +949,12 @@ export default function Home() {
         <div className="container mx-auto px-4 pb-10">
           {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>}
 
-          {/* NEW: Khi KHÔNG có filter phụ → ưu tiên liveItems từ Supabase (auto-refresh) */}
           {!extraFiltersActive && !socialMode ? (
             liveLoading ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
               </div>
             ) : liveItems.length === 0 ? (
-              // nếu chưa có tin live → rớt về cơ chế cũ (latest)
               <>
                 <div className="mb-4">
                   <h3 className="text-lg font-semibold">Tin đăng mới nhất</h3>
@@ -1048,7 +991,6 @@ export default function Home() {
               </div>
             )
           ) : (
-            /* Có filter phụ / socialMode / đang phân trang → dùng luồng cũ giữ nguyên */
             <>
               {loading ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1085,7 +1027,6 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* LUÔN hiển thị phân trang khi có kết quả tổng */}
                   {Math.max(1, Math.ceil((total || 0) / pageSize)) > 1 && (
                     <Pagination01 total={total} pageSize={pageSize} className="mt-8" />
                   )}
@@ -1252,7 +1193,7 @@ function DualSlider({ min, max, step, leftValue, rightValue, onLeft, onRight, ma
         className="absolute top-3 h-2 rounded-full track-fill"
         style={{
           left: `${(leftValue / max) * 100}%`,
-          right: `${(1 - rightValue / max) * 100)%}`,
+          right: `${(1 - rightValue / max) * 100}%`,
         }}
       />
       {marks.map((m: number) => (
