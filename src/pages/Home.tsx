@@ -222,6 +222,18 @@ type PropertyRow = {
   ward: string | null;
   address: string | null;
   images: any; // mảng hoặc chuỗi JSON
+
+  /* ===== BỔ SUNG CỘT CHO CARD ===== */
+  price: number | null;
+  rent_per_month: number | null;
+  price_per_m2: number | null;
+  area: number | null;
+  listing_type: "sell" | "rent" | null;
+  listingType?: "sell" | "rent" | null; // alias cho normalizeForCard
+  is_verified: boolean | null;
+  verification_status: string | null;
+  rating: number | null;
+  type?: string | null;
 };
 function parseImages(x: any): string[] {
   if (Array.isArray(x)) return x.filter(Boolean);
@@ -327,7 +339,6 @@ export default function Home() {
     { label: "80 - 100 m²", min: 80, max: 100 },
     { label: "100 - 150 m²", min: 100, max: 150 },
     { label: "150 - 300 m²", min: 150, max: 300 },
-    { label: "300 - 500 m²", min: 300, max: 500 },
     { label: "Trên 500 m²", min: 500, max: undefined },
   ];
 
@@ -563,7 +574,11 @@ export default function Home() {
       setLiveLoading(true);
       const { data, error } = await supabase
         .from("properties")
-        .select("id,title,created_at,province,ward,address,images")
+        .select(`
+          id, title, created_at, province, ward, address, images,
+          price, rent_per_month, price_per_m2, area,
+          listing_type, is_verified, verification_status, rating, type
+        `)
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -572,6 +587,8 @@ export default function Home() {
         const rows = (data || []).map((r) => ({
           ...r,
           images: parseImages(r.images),
+          // alias để normalizeForCard hiểu đúng
+          listingType: (r as any).listing_type ?? (r as any).listingType ?? null,
         })) as PropertyRow[];
         setLiveItems(rows);
         setLiveLoading(false);
