@@ -39,7 +39,7 @@ export interface PropertyCardProps {
 
 const TYPE_MAP: Record<string, { label: string; color: string }> = {
   apartment: { label: "Căn hộ", color: "bg-blue-500" },
-  house: { label: "Nhà đất riêng", color: "bg-green-500" },
+  house: { label: "Nhà phố", color: "bg-green-500" },
   villa: { label: "Biệt thự", color: "bg-purple-500" },
   land: { label: "Nhà đất khác", color: "bg-orange-500" },
   office: { label: "Văn phòng", color: "bg-cyan-600" },
@@ -191,16 +191,6 @@ function getTypeCode(p: any): string | undefined {
   if (hay.includes("biet thu") || hay.includes("villa")) return "villa";
   if (hay.includes("nha pho") || hay.includes("nha rieng") || (hay.startsWith("nha") && !hay.includes("biet thu"))) return "house";
   if (/\b(dat\s*nen|mat\s*bang|kho|xuong|khach\s*san|nha\s*tro|phong\s*tro|nha\s*vuon)\b/.test(hay) || /\bdat\b/.test(hay)) return "land";
-}
-
-/* >>> NEW: phát hiện trang xã hội để ép nhãn chỉ “Nhà ở xã hội” */
-function isSocialTab(): boolean {
-  try {
-    const q = new URLSearchParams(window.location.search || "");
-    return (q.get("tab") || "").toLowerCase() === "social";
-  } catch {
-    return false;
-  }
 }
 
 /* ===== Listing type ===== */
@@ -439,12 +429,8 @@ export default function PropertyCard({ property }: PropertyCardProps) {
   const isHot = p.isHot;
   const createdAt = p.createdAt;
 
-  /* >>> chỉ “Nhà ở xã hội” khi đang ở tab xã hội */
-  const onSocialPage = isSocialTab();
-
-  const typeCodeDetected = getTypeCode(p);
-  const typeCode = onSocialPage ? "social" : (typeCodeDetected as string | undefined);
-  const typeLabel = (typeCode ? TYPE_MAP[typeCode] : undefined)?.label ?? (onSocialPage ? TYPE_MAP.social.label : "Nhà đất khác");
+  const typeCode = getTypeCode(p);
+  const typeLabel = (typeCode ? TYPE_MAP[typeCode] : undefined)?.label ?? "Nhà đất";
   const finalListingType = listingType ?? getListingType(p);
 
   const img = firstImg(images);

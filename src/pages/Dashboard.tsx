@@ -287,8 +287,9 @@ function mapDbRow(row: any): any {
     listingType: row.listing_type ?? row.listingType,
     price: row.price ?? row.sale_price,
     rent_per_month: row.rent_per_month,
-    bedrooms: row.bedrooms ?? row.bedroom_count,
-    bathrooms: row.bathrooms ?? row.bathroom_count ?? row.wc,
+    // ✅ đọc đủ alias PN/WC
+    bedrooms: row.bedrooms ?? row.bedroom_count ?? row.bed ?? row.n ?? row.N,
+    bathrooms: row.bathrooms ?? row.bathroom_count ?? row.bath ?? row.wc ?? row.WC,
     province: row.province,
     ward: row.ward,
     address: row.address,
@@ -360,7 +361,32 @@ async function fetchCloudMine(u: UserAccount): Promise<any[]> {
   return Array.from(pick.values());
 }
 
-/** Hợp nhất danh sách local + cloud theo id; ưu tiên bản có updatedAt mới hơn */
+/* ========= NEW: merge giữ giá trị đã có nếu bản mới hơn thiếu field ========= */
+function mergePreferDefined(older: any, newer: any) {
+  const keepIf = <T,>(a: T | undefined, b: T | undefined): T | undefined =>
+    (b !== undefined && b !== null && !(Array.isArray(b) && b.length === 0)) ? b : a;
+
+  const merged = { ...older, ...newer };
+
+  const FIELDS = [
+    "bedrooms","bathrooms",
+    "area","price","rent_per_month","price_per_m2",
+    "listingType","propertyType",
+    "images","legalImages","province","ward","address",
+    "description",
+  ] as const;
+
+  for (const k of FIELDS) {
+    (merged as any)[k] = keepIf((older as any)[k], (newer as any)[k]);
+  }
+
+  if (!Array.isArray(merged.images)) merged.images = asImages(merged.images);
+  if (!Array.isArray(merged.legalImages)) merged.legalImages = asImages(merged.legalImages);
+
+  return merged;
+}
+
+/** Hợp nhất danh sách local + cloud theo id; ưu tiên bản có updatedAt mới hơn (nhưng giữ field đã có) */
 function mergeByIdPreferNewer(localList: any[], cloudList: any[]) {
   const pick = new Map<string, any>();
   const push = (arr: any[]) => {
@@ -373,7 +399,9 @@ function mergeByIdPreferNewer(localList: any[], cloudList: any[]) {
       } else {
         const ta = new Date(prev.updatedAt || prev.createdAt || 0).getTime();
         const tb = new Date(it.updatedAt || it.createdAt || 0).getTime();
-        pick.set(id, tb >= ta ? { ...prev, ...it } : prev);
+        const newer = tb >= ta ? it : prev;
+        const older = tb >= ta ? prev : it;
+        pick.set(id, mergePreferDefined(older, newer));
       }
     }
   };
@@ -508,7 +536,7 @@ const Dashboard = () => {
     }
   };
 
-  // Mở Sửa tin — prefill ảnh
+  // Mở Sửa tin — prefill ảnh + PN/WC
   const handleEditProperty = async (property: PropertyListing) => {
     const id = property.id;
     let legalImages = getLegalImagesById(id) || [];
@@ -534,7 +562,16 @@ const Dashboard = () => {
       }
     }
 
-    const merged: any = { ...property, images, legalImages: Array.isArray(legalImages) ? legalImages : [] };
+    // 🔧 Prefill PN/WC nếu thiếu (đọc alias + suy luận)
+    const guessed = inferRooms(property);
+    const merged: any = {
+      ...property,
+      images,
+      legalImages: Array.isArray(legalImages) ? legalImages : [],
+      bedrooms: property.bedrooms ?? (property as any).bedroom_count ?? (property as any).bed ?? guessed.bedrooms,
+      bathrooms: property.bathrooms ?? (property as any).bathroom_count ?? (property as any).bath ?? (property as any).wc ?? guessed.bathrooms,
+    };
+
     setEditingProperty(merged);
     setIsEditModalOpen(true);
 
