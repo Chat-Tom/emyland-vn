@@ -639,7 +639,7 @@ export default function Home() {
     province || minPrice !== undefined || maxPrice !== undefined ||
     minArea !== undefined || maxArea !== undefined
   );
-
+  const ENABLE_LIVE_FEED_ON_SELL_RENT = false;
   const displayMatched = useMemo(() => {
     if (socialMode) return matchedTotal;
     if (!extraFiltersActive) {
@@ -966,7 +966,7 @@ export default function Home() {
         <div className="container mx-auto px-4 pb-10">
           {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>}
 
-          {!extraFiltersActive && !socialMode ? (
+          {!extraFiltersActive && !socialMode && ENABLE_LIVE_FEED_ON_SELL_RENT ? (
             liveLoading ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-72 rounded-xl bg-gray-100 animate-pulse" />)}
