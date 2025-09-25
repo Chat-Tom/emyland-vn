@@ -475,12 +475,21 @@ export default function Home() {
       );
 
       filtered.sort((a, b) => {
-        const ra = isVerified(a) ? 0 : 1;
-        const rb = isVerified(b) ? 0 : 1;
-        if (ra !== rb) return ra - rb;
-        return tsOf(b) - tsOf(a);
-      });
-
+  const ra = statusRank(a);
+  const rb = statusRank(b);
+  if (ra !== rb) return ra - rb;        // verified -> pending -> others
+  return tsOf(b) - tsOf(a);             // cùng nhóm: mới nhất trước
+});
+      function isPending(p: any): boolean {
+  const vs = deburrLower(String(p?.verification_status ?? p?.verificationStatus ?? ""));
+  const badge = deburrLower([p?.badge, p?.label, p?.status, p?.note, p?.title].filter(Boolean).join(" "));
+  // các biến thể: verification_status='pending' hoặc nhãn “đang xác nhận”
+  return vs.includes("pending") || badge.includes("dang xac nhan");
+}
+function statusRank(p: any): number {
+  // 0: verified → 1: pending → 2: others
+  return isVerified(p) ? 0 : (isPending(p) ? 1 : 2);
+}
       const start = (nextPage - 1) * pageSize;
       const end = start + pageSize;
       const pageItems = filtered.slice(start, end);

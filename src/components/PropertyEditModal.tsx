@@ -12,7 +12,7 @@ import { StorageManager, type PropertyListing } from "@utils/storage";
 import { provinces as PROVINCES, wardsByProvince } from "@/data/vietnam-locations";
 import { PROPERTY_TYPES } from "@/data/property-types";
 
-/* >>> Added: Supabase (chỉ thêm, không đổi cấu trúc cũ) */
+/* Supabase (không đổi cấu trúc cũ) */
 import { supabase } from "@/lib/supabase";
 
 type ListingType = "sell" | "rent";
@@ -37,6 +37,28 @@ const normalizeImages = (images: any): string[] => {
   } catch {}
   return [];
 };
+
+/* 🔧 NEW: helpers suy luận PN/WC (fallback nếu dữ liệu thiếu) */
+const _toPosInt = (v: any): number | undefined => {
+  if (typeof v === "number" && v > 0) return Math.round(v);
+  if (typeof v === "string") { const m = v.match(/\d+/); const n = m ? +m[0] : NaN; if (n > 0) return n; }
+  return undefined;
+};
+const _deburrLower = (s?: string) => {
+  if (!s) return "";
+  try { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
+  catch { return String(s).toLowerCase().trim(); }
+};
+function _inferRooms(p: any): { bedrooms?: number; bathrooms?: number } {
+  let bedrooms = _toPosInt(p?.bedrooms ?? p?.bedroom_count ?? p?.bed);
+  let bathrooms = _toPosInt(p?.bathrooms ?? p?.bathroom_count ?? p?.wc ?? p?.bath);
+  if (!bedrooms || !bathrooms) {
+    const hay = _deburrLower([p?.title, p?.description, p?.summary].filter(Boolean).join(" "));
+    if (!bedrooms) { const m = hay.match(/(\d+)\s*(pn|phong\s*ngu|\bn\b)/i); if (m) bedrooms = +m[1]; }
+    if (!bathrooms) { const m = hay.match(/(\d+)\s*(wc|ve\s*sinh|vs|toilet|ph[oô]ng\s*t[ăa]m)\b/i); if (m) bathrooms = +m[1]; }
+  }
+  return { bedrooms, bathrooms };
+}
 
 const provinceOptions = (() => {
   const arr: any[] = Array.isArray(PROVINCES) ? (PROVINCES as any[]) : Object.values(PROVINCES as any);
@@ -79,7 +101,7 @@ const filesToDataUrls = (files: FileList) =>
     )
   );
 
-/* ===== Helpers: URL & upload to Supabase Storage (giữ giống PostProperty) ===== */
+/* ===== Helpers: URL & upload to Supabase Storage ===== */
 const AI_TMP_BUCKET =
   (import.meta as any)?.env?.VITE_SUPABASE_BUCKET_PUBLIC || "public";
 
@@ -133,11 +155,8 @@ interface PropertyEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: () => void;
-  /** Quyền admin (giữ nguyên prop cũ) */
   isAdmin?: boolean;
-  /** Alias mới để tương thích với Dashboard: nếu truyền, sẽ ưu tiên giá trị này */
   canVerify?: boolean;
-  /** Ẩn/hiện “Đánh dấu Nổi bật” (mặc định ẩn để đúng yêu cầu) */
   showFeatured?: boolean;
 }
 
@@ -148,12 +167,11 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
   onSave,
   isAdmin,
   canVerify,
-  showFeatured = false, // ⬅ mặc định ẩn
+  showFeatured = false,
 }) => {
-  /* 🔧 GIỮ CÂY DOM TĨNH: luôn render dialog; dùng object rỗng khi chưa có property
-     (tránh thay đổi mạnh cấu trúc khiến React báo “Expected static flag was missing”) */
+  // luôn render dialog; dùng object rỗng khi chưa có property
   const _prop: any = property ?? {};
-  const stableKey = String(_prop?.id ?? "new"); // dùng cho key dialog content
+  const stableKey = String(_prop?.id ?? "new");
 
   // ==== Read old schema ====
   const loc: any = _prop.location || {};
@@ -169,7 +187,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       ? _prop.location.address
       : _prop.address || (typeof _prop.location === "string" ? _prop.location : "") || "";
 
-  // ==== Form state (match PostProperty) ====
+  // ==== Form state ====
   const [listingType, setListingType] = useState<ListingType>(
     (_prop.listingType as ListingType) || "sell"
   );
@@ -177,7 +195,6 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
     _prop.type || _prop.type_code || _prop.property_type || _prop.propertyType || ""
   );
 
-  // Đơn vị: Bán = TỶ; Thuê = TRIỆU/tháng
   const [priceTy, setPriceTy] = useState<string>(() => {
     const p = Number(_prop.price || 0);
     return p > 0 ? (p / 1_000_000_000).toString() : "";
@@ -201,15 +218,11 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
   const [contactPhone, setContactPhone] = useState<string>(toStr(contact.phone ?? _prop.owner_phone));
   const [mapUrl, setMapUrl] = useState<string>(toStr(_prop.mapUrl ?? _prop.map_link ?? _prop.google_map_link));
 
-  // Ảnh
   const [images, setImages] = useState<string[]>(normalizeImages(_prop.images));
-
-  // ⬅ Prefill ảnh pháp lý
   const [legalImages, setLegalImages] = useState<string[]>(
     normalizeImages(_prop.legalImages ?? _prop.legal_images ?? _prop.attachments)
   );
 
-  // Thông số thêm
   const [bedrooms, setBedrooms] = useState<string>(toStr(_prop.bedrooms));
   const [bathrooms, setBathrooms] = useState<string>(toStr(_prop.bathrooms));
   const [isHot, setIsHot] = useState<boolean>(!!_prop.isHot);
@@ -217,14 +230,13 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
   const admin =
     typeof isAdmin === "boolean" ? isAdmin : !!StorageManager.getCurrentUser?.()?.isAdmin;
 
-  // ✔️ Quyền xác minh hợp nhất
   const allowVerify = typeof canVerify === "boolean" ? canVerify : admin;
 
   const [verification, setVerification] = useState<"verified" | "pending" | "unverified">(
     (_prop.verificationStatus as any) || (_prop.is_verified ? "verified" : "pending")
   );
 
-  // 🔁>>> NEW: HYDRATE LẠI TOÀN BỘ FORM KHI MỞ MODAL VỚI 1 PROPERTY (không làm đổi cấu trúc cũ)
+  /* 🔁 HYDRATE khi mở modal với 1 tin */
   useEffect(() => {
     if (!isOpen || !property) return;
     const p: any = property;
@@ -233,6 +245,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       (p.listingType as ListingType) ?? (typeof p.rent_per_month === "number" ? "rent" : "sell");
     setListingType(lt);
     setPropertyType(p.type || p.type_code || p.property_type || p.propertyType || "");
+
     const priceVND = Number(p.price ?? 0);
     const rentVND  = Number(p.rent_per_month ?? p.rentPerMonth ?? 0);
     setPriceTy(priceVND > 0 ? String((priceVND / 1_000_000_000).toFixed(2)).replace(/\.00$/, "") : "");
@@ -260,13 +273,19 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
 
     setBedrooms(toStr(p.bedrooms ?? p.bedroom_count ?? p.bed));
     setBathrooms(toStr(p.bathrooms ?? p.bathroom_count ?? p.wc ?? p.bath));
+
+    // ✅ Fallback suy luận nếu vẫn trống
+    const g = _inferRooms(p);
+    setBedrooms((cur) => cur || (g.bedrooms ? String(g.bedrooms) : ""));
+    setBathrooms((cur) => cur || (g.bathrooms ? String(g.bathrooms) : ""));
+
     setIsHot(!!p.isHot);
 
     const vraw: any = p.verificationStatus ?? p.verification_status;
     const v: "verified" | "pending" | "unverified" =
       vraw === "verified" || p.is_verified ? "verified" : vraw === "unverified" ? "unverified" : "pending";
     setVerification(v);
-  }, [isOpen, (property as any)?.id]); // chỉ hydrate khi mở hoặc đổi tin
+  }, [isOpen, (property as any)?.id]);
 
   // Load ảnh pháp lý từ kho nếu prop chưa có; fallback localStorage
   useEffect(() => {
@@ -291,7 +310,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_prop.id]);
 
-  /* >>> Fallback nạp ảnh BĐS cũ nếu prop.images trống */
+  // Fallback nạp ảnh BĐS cũ nếu prop.images trống
   useEffect(() => {
     (async () => {
       if (images.length > 0) return;
@@ -329,7 +348,7 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_prop.id]);
 
-  /* >>> Nếu local đều trống, thử lấy từ Supabase theo id */
+  // Nếu local đều trống, thử lấy từ Supabase theo id
   useEffect(() => {
     (async () => {
       const id = _prop?.id;
@@ -424,10 +443,9 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
 
       const areaNum = Number(area) || 0;
 
-      // ✅ Đồng bộ ảnh như trang Đăng tin: chỉ lấy theo danh sách hiện đang thấy trong form
       const _id = String(_prop.id || "");
 
-      // Upload dataURL → Storage; nếu không upload được thì giữ nguyên đường dẫn hiện có
+      // Upload dataURL → Storage (nếu cần)
       let finalImages: string[] = images;
       try {
         if (_id) {
@@ -439,7 +457,6 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       } catch {}
       finalImages = Array.from(new Set(finalImages)).slice(0, 10);
 
-      // Ảnh pháp lý: cũng upload để tránh 406/nguồn cục bộ; vẫn cắt 5 ảnh
       let finalLegal: string[] = legalImages;
       try {
         if (_id) {
@@ -489,8 +506,8 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
         map_link: mapUrl?.trim(),
         google_map_link: mapUrl?.trim(),
 
-        images: finalImages,           // ✅ giữ khớp form
-        legal_images: finalLegal,      // ✅ thêm để các trang khác có thể đọc trực tiếp
+        images: finalImages,
+        legal_images: finalLegal,
 
         type: propertyType,
         type_code: propertyType,
@@ -512,7 +529,6 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      // 🔒 Không có quyền xác minh thì không ghi đè field xác minh
       if (!allowVerify) {
         next.verificationStatus = _prop.verificationStatus;
         next.is_verified = _prop.is_verified;
@@ -556,10 +572,9 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
       try { if (_id) localStorage.setItem(`emyland_property_images_${_id}`, JSON.stringify(finalImages)); } catch {}
       try { (StorageManager as any).saveImages?.(_id, finalImages); } catch {}
       try { if (_id) localStorage.setItem(`emyland_property_legal_${_id}`, JSON.stringify(finalLegal)); } catch {}
-      // Lưu bản gốc (giống trang tạo mới)
       try { if (_id) localStorage.setItem(`emyland_property_images_original_${_id}`, JSON.stringify(images || [])); } catch {}
 
-      /* >>> Added: Upsert lên Supabase */
+      /* Upsert lên Supabase */
       try {
         const row: any = {
           id: _prop.id,
@@ -580,7 +595,6 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
           is_verified: next.is_verified,
           images: Array.isArray(finalImages) ? JSON.stringify(finalImages) : (typeof finalImages === "string" ? finalImages : "[]"),
           map_url: next.mapUrl || next.map_link || next.google_map_link,
-          // ✅ luôn stringify để khớp schema TEXT hiện dùng
           legal_images: JSON.stringify(finalLegal),
           updated_at: next.updatedAt,
         };
@@ -610,11 +624,9 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
   /* ---------------- UI ---------------- */
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      {/* 🔧 key ổn định theo id tin để React giữ static subtree */}
       <DialogContent key={stableKey} className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby="edit-modal-desc">
         <DialogHeader>
           <DialogTitle>Chỉnh sửa tin đăng</DialogTitle>
-          {/* ➕ Thêm để hết cảnh báo Radix “Missing Description” */}
           <DialogDescription id="edit-modal-desc" className="sr-only">
             Cập nhật nội dung tin đăng bất động sản và đồng bộ hình ảnh.
           </DialogDescription>
@@ -792,7 +804,6 @@ const PropertyEditModal: React.FC<PropertyEditModalProps> = ({
           </div>
 
           <div className="flex items-center justify-between py-2">
-            {/* Ẩn theo yêu cầu nhưng không xoá logic */}
             {showFeatured && (
               <div className="flex items-center gap-3">
                 <Switch checked={isHot} onCheckedChange={setIsHot} />
