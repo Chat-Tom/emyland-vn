@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback, FormEvent } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import PropertyCard from "@/components/PropertyCard";
@@ -7,6 +7,10 @@ import { provinces as PROVINCES_ORG } from "@/data/vietnam-locations";
 import { PropertyService, type Property as DBProperty } from "@/services/propertyService";
 import "@/index.css";
 import Pagination01 from "@/components/Pagination01";
+
+/* NEW UI: Promo + Logos */
+import AdPromoBar from "@/components/AdPromoBar";
+import LogoTicker from "@/components/LogoTicker";
 
 /* NEW: đọc trực tiếp từ Supabase + realtime (vá nhẹ) */
 import { supabase } from "@/lib/supabase";
@@ -248,6 +252,27 @@ function parseImages(x: any): string[] {
 
 export default function Home() {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  /* ===== Logos để chạy ticker ===== */
+  // LOGOS: thay “Emyland” bằng “MỜI QUẢNG CÁO” + thêm Viettel, FPT, be, Xanh SM
+  const LOGOS = [
+    { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
+    { src: "/brands/viettel.svg",   alt: "Viettel", href: "https://viettel.com.vn" },
+    { src: "/brands/fpt.svg",       alt: "FPT",     href: "https://fpt.com.vn" },
+    {
+      src: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Xanh_SM_logo.svg/165px-Xanh_SM_logo.svg.png",
+      alt: "Xanh SM",
+      href: "https://www.xanhsm.com/",
+    },
+    { src: "/brands/bee.svg",       alt: "be (taxi)", href: "https://be.com.vn" },
+
+    // lấp đầy ticker cho “đầy đặn”
+     // Các ô còn lại: MỜI QUẢNG CÁO
+  { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
+  { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
+  { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" }
+  ];
 
   // Search state
   const [listingType, setListingType] = useState<ListingType>("sell");
@@ -475,21 +500,21 @@ export default function Home() {
       );
 
       filtered.sort((a, b) => {
-  const ra = statusRank(a);
-  const rb = statusRank(b);
-  if (ra !== rb) return ra - rb;        // verified -> pending -> others
-  return tsOf(b) - tsOf(a);             // cùng nhóm: mới nhất trước
-});
+        const ra = statusRank(a);
+        const rb = statusRank(b);
+        if (ra !== rb) return ra - rb;        // verified -> pending -> others
+        return tsOf(b) - tsOf(a);             // cùng nhóm: mới nhất trước
+      });
       function isPending(p: any): boolean {
-  const vs = deburrLower(String(p?.verification_status ?? p?.verificationStatus ?? ""));
-  const badge = deburrLower([p?.badge, p?.label, p?.status, p?.note, p?.title].filter(Boolean).join(" "));
-  // các biến thể: verification_status='pending' hoặc nhãn “đang xác nhận”
-  return vs.includes("pending") || badge.includes("dang xac nhan");
-}
-function statusRank(p: any): number {
-  // 0: verified → 1: pending → 2: others
-  return isVerified(p) ? 0 : (isPending(p) ? 1 : 2);
-}
+        const vs = deburrLower(String(p?.verification_status ?? p?.verificationStatus ?? ""));
+        const badge = deburrLower([p?.badge, p?.label, p?.status, p?.note, p?.title].filter(Boolean).join(" "));
+        // các biến thể: verification_status='pending' hoặc nhãn “đang xác nhận”
+        return vs.includes("pending") || badge.includes("dang xac nhan");
+      }
+      function statusRank(p: any): number {
+        // 0: verified → 1: pending → 2: others
+        return isVerified(p) ? 0 : (isPending(p) ? 1 : 2);
+      }
       const start = (nextPage - 1) * pageSize;
       const end = start + pageSize;
       const pageItems = filtered.slice(start, end);
@@ -772,6 +797,9 @@ function statusRank(p: any): number {
           selectedChips: [],
         }}
       />
+
+      {/* Đối tác & thương hiệu tin cậy (đã tăng tốc) */}
+      <LogoTicker logos={LOGOS} speed="fast" />
 
       {/* HERO */}
       <section className="bg-gradient-to-r from-blue-600 via-purple-600 to-orange-500">

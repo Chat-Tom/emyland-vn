@@ -77,17 +77,24 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+
+    /* Tôn trọng safe-area trên mobile (notch) */
+    padding-left: env(safe-area-inset-left, 0);
+    padding-right: env(safe-area-inset-right, 0);
   }
 
   /* Placeholder “chữ mờ chìm” (đồng bộ toàn app) */
   input::placeholder,
-  textarea::placeholder { color: #9ca3af; opacity: 1; } /* gray-400 */
+  textarea::placeholder,
+  ::placeholder { color: #9ca3af; opacity: 1; } /* gray-400 */
 
-  /* Tối ưu focus cho accessibility */
-  :focus-visible {
-    outline: 2px solid hsl(207, 90%, 54%);
-    outline-offset: 2px;
-  }
+  /* Tối ưu focus cho accessibility (không phá ring của shadcn) */
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* Webkit thin scrollbar (nhẹ nhàng, không phô) */
+  *::-webkit-scrollbar { height: 8px; width: 8px; }
+  *::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 8px; }
+  *::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
 }
 
 /* ===== UTILITIES (bao gồm phần cũ + bổ sung) ===== */
@@ -151,10 +158,12 @@
   .no-number-spin::-webkit-outer-spin-button,
   .no-number-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .no-number-spin { -moz-appearance: textfield; }
+
+  /* Container helper (không thay đổi layout cũ; chỉ tiện tái sử dụng) */
+  .container-7xl { @apply mx-auto max-w-7xl px-3 sm:px-4; }
 }
 
 /* ===== FIX: Select / Dropdown Radix nổi dưới lớp blur ===== */
-/* Đặt z-index cao cho mọi popper/portal của Radix (shadcn/ui) */
 [data-radix-popper-content-wrapper],
 div[data-radix-portal] {
   z-index: var(--z-dropdown) !important;
@@ -174,7 +183,29 @@ div[data-radix-portal] {
 [data-radix-popper-content-wrapper] [data-state="open"] {
   z-index: var(--z-dropdown) !important;
 }
-/* Placeholder luôn mờ như hướng dẫn */
-::placeholder { color: #9ca3af; opacity: 1; } /* gray-400 */
-input::placeholder { color: #9ca3af; opacity: 1; }
-textarea::placeholder { color: #9ca3af; opacity: 1; }
+
+/* ====== Logo Ticker animation (nhẹ, mượt) ====== */
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); } /* vì track đã nhân đôi */
+}
+.animate-ticker      { animation: ticker 28s linear infinite; }
+.animate-ticker-slow { animation: ticker 38s linear infinite; }
+.animate-ticker-fast { animation: ticker 18s linear infinite; }
+
+/* Tối ưu render */
+.animate-ticker,
+.animate-ticker-slow,
+.animate-ticker-fast { will-change: transform; }
+
+/* Tôn trọng người dùng không thích animation */
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker,
+  .animate-ticker-slow,
+  .animate-ticker-fast,
+  .animate-fadeIn,
+  .animate-slideUp,
+  .animate-scaleIn {
+    animation: none !important;
+  }
+}
