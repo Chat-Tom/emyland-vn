@@ -798,7 +798,7 @@ export default function Home() {
         }}
       />
 
-      {/* Đối tác & thương hiệu tin cậy (đã tăng tốc) */}
+      {/* Đối tác tài trợ & thương hiệu tin cậy (đã tăng tốc) */}
       <LogoTicker logos={LOGOS} speed="fast" />
 
       {/* HERO */}
