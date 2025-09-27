@@ -40,6 +40,18 @@ function isEmail(v: string) {
 function sanitizePhone(v: string) {
   return String(v).replace(/\D/g, "");
 }
+// So khớp số ĐT VN linh hoạt: chấp nhận 0xxxxxxxxx <=> 84xxxxxxxxx
+function sameVnPhone(a?: string | null, b?: string | null) {
+  const norm = (s: string) =>
+    String(s || "")
+      .replace(/\D/g, "")
+      .replace(/^(?:\+84)/, "84");
+  const x = norm(a || "");
+  const y = norm(b || "");
+  if (!x || !y) return false;
+  const to84 = (s: string) => (s.startsWith("0") ? "84" + s.slice(1) : s);
+  return x === y || to84(x) === to84(y);
+}
 // Tìm user theo email (không phân biệt hoa/thường)
 function getUserByEmailCI(email: string) {
   const direct = StorageManager.getUserByEmail(email);
@@ -351,7 +363,7 @@ const Login: React.FC = () => {
       if (cloudOK) {
         const me = await getCloudMe();
         const mismatch = me
-          ? sanitizePhone(me.phone || "") !== sanitizePhone(loginPhone)
+          ? !sameVnPhone(me.phone || "", loginPhone)
           : false;
 
         if (mismatch) {
@@ -453,7 +465,6 @@ const Login: React.FC = () => {
             </span>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">Đăng nhập</CardTitle>
-          {/* ❌ ĐÃ XÓA: dòng mô tả “Sử dụng số điện thoại hoặc email…” */}
         </CardHeader>
 
         <CardContent>
@@ -475,10 +486,7 @@ const Login: React.FC = () => {
 
             {/* Identifier */}
             <div className="space-y-2">
-              {/* Ẩn nhãn để không hiển thị “Số điện thoại *” nhưng vẫn a11y */}
-              <label htmlFor="identifier" className="sr-only">
-                Số điện thoại
-              </label>
+              <label htmlFor="identifier" className="sr-only">Số điện thoại</label>
               <Input
                 id="identifier"
                 name="identifier"
@@ -512,10 +520,7 @@ const Login: React.FC = () => {
 
             {/* Password */}
             <div className="space-y-2">
-              {/* Ẩn nhãn để không hiển thị “Mật khẩu *” */}
-              <label htmlFor="password" className="sr-only">
-                Mật khẩu
-              </label>
+              <label htmlFor="password" className="sr-only">Mật khẩu</label>
               <div className="relative">
                 <Input
                   id="password"
