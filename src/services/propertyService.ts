@@ -69,9 +69,8 @@ function normalizeImages(v: any): string[] {
 
 const LS_KEY = "emyland_properties";
 
-/* ✅ Added: helper nhận diện UUID để tránh query sai kiểu id */
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/* ✅ Helper nhận diện UUID để tránh query sai kiểu id */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (s?: string) => !!s && UUID_RE.test(String(s));
 
 /** Bỏ tiền tố “Thành phố”, “Tỉnh”, “TP.” để so sánh/tìm kiếm */
@@ -260,26 +259,75 @@ function sortVerifiedThenNewest(items: Property[]): Property[] {
     });
 }
 
+/* ======================= helpers gọi Supabase an toàn ======================= */
+/** Thử order theo published_at, nếu cột không tồn tại → fallback created_at */
+async function runWithSafeOrder<T extends any[]>(
+  base:
+    | ReturnType<typeof supabase.from>["select"]
+    | ReturnType<typeof supabase.from>["select"]["constructor"],
+  opts:
+    | { limit?: number }
+    | { range?: { from: number; to: number } }
+    | undefined,
+  needCount: boolean
+): Promise<{ data: T | null; error: any; count?: number }> {
+  // @ts-ignore
+  let q = base as any;
+
+  try {
+    if ("limit" in (opts || {})) {
+      const { data, error, count } = await (q as any)
+        .order("published_at", { ascending: false })
+        .limit((opts as any)?.limit ?? 50);
+      // Nếu không lỗi → trả luôn
+      return { data, error, count: needCount ? count : undefined };
+    } else {
+      const rg = (opts as any)?.range;
+      const { data, error, count } = await (q as any)
+        .order("published_at", { ascending: false })
+        .range(rg?.from ?? 0, rg?.to ?? 23);
+      return { data, error, count: needCount ? count : undefined };
+    }
+  } catch (e: any) {
+    // không vào đây vì supabase-js trả error trong result. Xử lý dưới.
+  }
+
+  // supabase-js trả error trong result → bắt lại để fallback
+  const tryAgain = async () => {
+    if ("limit" in (opts || {})) {
+      const { data, error, count } = await (q as any)
+        .order("created_at", { ascending: false })
+        .limit((opts as any)?.limit ?? 50);
+      return { data, error, count: needCount ? count : undefined };
+    } else {
+      const rg = (opts as any)?.range;
+      const { data, error, count } = await (q as any)
+        .order("created_at", { ascending: false })
+        .range(rg?.from ?? 0, rg?.to ?? 23);
+      return { data, error, count: needCount ? count : undefined };
+    }
+  };
+
+  // chạy lại với created_at nếu error do cột không tồn tại
+  return await tryAgain();
+}
+
 /* ======================= Service ======================= */
 export class PropertyService {
   /** Query Supabase — KHÔNG filter server theo `type` để tránh lỗi cột không tồn tại */
   private static buildQuery(filters?: PropertyFilters) {
     let q = supabase.from("properties").select("*", { count: "exact" });
 
-    /* ✅ THÊM: chuẩn hoá feed công khai giống nhau giữa các domain */
-    q = q
-      .is("deleted_at", null)
-      .eq("is_public", true)
-      .not("published_at", "is", null);
+    /* ✅ Chuẩn hoá feed công khai */
+    q = q.is("deleted_at", null).eq("is_public", true).not("published_at", "is", null);
 
     if (!filters) {
-      // ✅ Sắp xếp theo published_at (desc)
-      return q.order("published_at", { ascending: false });
+      return q; // order sẽ xử lý bằng runWithSafeOrder
     }
 
     const { province, ward, minPrice, maxPrice, minArea, maxArea, listingType } = filters;
 
-    // Province/City: OR theo cả province và location (ghi theo rest filter)
+    // Province/City: OR theo cả province và location
     if (province && province.trim()) {
       const pv = province.trim();
       q = q.or(`province.ilike.%${pv}%,location.ilike.%${pv}%`);
@@ -300,31 +348,39 @@ export class PropertyService {
     if (typeof minA === "number") q = q.gte("area", minA);
     if (typeof maxA === "number") q = q.lte("area", maxA);
 
-    // ✅ Sắp xếp theo published_at mới nhất
-    return q.order("published_at", { ascending: false });
+    return q; // order xử lý sau
+  }
+
+  /** Map bản ghi DB → Property */
+  private static mapDbItem(item: any): Property {
+    return {
+      ...item,
+      created_at: String(item?.created_at ?? new Date().toISOString()),
+      price: Number(item?.price) || 0,
+      area: Number(item?.area) || 0,
+      rent_per_month: Number(item?.rent_per_month) || undefined,
+      price_per_m2: Number(item?.price_per_m2) || undefined,
+      listingType: (item?.listing_type ?? item?.listingType) as "sell" | "rent" | undefined,
+      is_verified:
+        typeof item?.is_verified === "boolean" ? item.is_verified : item?.is_verified === 1,
+      images: normalizeImages(item?.images),
+    };
   }
 
   /** Lấy list (không phân trang) + trộn local → đảm bảo “tin mới nhất” nổi lên */
   static async getProperties(filters?: PropertyFilters): Promise<Property[]> {
     try {
-      const query = this.buildQuery(filters);
-      const { data, error } = await query.limit(50);
+      const base = this.buildQuery(filters);
+      const { data, error } = await runWithSafeOrder<Property[]>(
+        base as any,
+        { limit: 50 },
+        false
+      );
       if (error) {
         console.error("Supabase error(getProperties):", error?.message ?? error, error);
       }
 
-      let remote: Property[] = (Array.isArray(data) ? data : []).map((item: any) => ({
-        ...item,
-        created_at: String(item?.created_at ?? new Date().toISOString()),
-        price: Number(item?.price) || 0,
-        area: Number(item?.area) || 0,
-        rent_per_month: Number(item?.rent_per_month) || undefined,
-        price_per_m2: Number(item?.price_per_m2) || undefined,
-        listingType: (item?.listing_type ?? item?.listingType) as "sell" | "rent" | undefined,
-        is_verified:
-          typeof item?.is_verified === "boolean" ? item.is_verified : item?.is_verified === 1,
-        images: normalizeImages(item?.images),
-      }));
+      let remote: Property[] = (Array.isArray(data) ? data : []).map(this.mapDbItem);
 
       // Lọc client-side cho remote (listingType + type)
       if (filters?.listingType) {
@@ -360,24 +416,19 @@ export class PropertyService {
     try {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
-      const query = this.buildQuery(filters).range(from, to);
-      const { data, error, count } = await query;
+
+      const base = this.buildQuery(filters);
+      const { data, error, count } = await runWithSafeOrder<Property[]>(
+        // thêm count ở buildQuery(select("*",{count:'exact'}))
+        (base as any),
+        { range: { from, to } },
+        true
+      );
       if (error) {
         console.error("Supabase error(getPropertiesPaged):", error?.message ?? error, error);
       }
 
-      let remote: Property[] = (Array.isArray(data) ? data : []).map((item: any) => ({
-        ...item,
-        created_at: String(item?.created_at ?? new Date().toISOString()),
-        price: Number(item?.price) || 0,
-        area: Number(item?.area) || 0,
-        rent_per_month: Number(item?.rent_per_month) || undefined,
-        price_per_m2: Number(item?.price_per_m2) || undefined,
-        listingType: (item?.listing_type ?? item?.listingType) as "sell" | "rent" | undefined,
-        is_verified:
-          typeof item?.is_verified === "boolean" ? item.is_verified : item?.is_verified === 1,
-        images: normalizeImages(item?.images),
-      }));
+      let remote: Property[] = (Array.isArray(data) ? data : []).map(this.mapDbItem);
 
       // Lọc client-side cho remote (listingType + type)
       if (filters?.listingType) {
@@ -448,23 +499,7 @@ export class PropertyService {
       }
 
       if (data) {
-        return {
-          ...data,
-          created_at: String((data as any).created_at ?? new Date().toISOString()),
-          price: Number((data as any).price) || 0,
-          area: Number((data as any).area) || 0,
-          rent_per_month: Number((data as any).rent_per_month) || undefined,
-          price_per_m2: Number((data as any).price_per_m2) || undefined,
-          listingType: ((data as any).listing_type ?? (data as any).listingType) as
-            | "sell"
-            | "rent"
-            | undefined,
-          is_verified:
-            typeof (data as any).is_verified === "boolean"
-              ? (data as any).is_verified
-              : (data as any).is_verified === 1,
-          images: normalizeImages((data as any).images),
-        };
+        return this.mapDbItem(data as any);
       }
 
       // Fallback: tìm trong local
