@@ -27,7 +27,7 @@ const SPEED_MS: Record<NonNullable<LogoTickerProps["speed"]>, number> = {
 export default function LogoTicker({
   logos,
   speed = "normal",
-  title = "Đối tác & thương hiệu tin cậy",
+  title = "Đối tác tài trợ & thương hiệu tin cậy",
   pauseOnHover = true,
 }: LogoTickerProps) {
   // lặp mảng để chạy marquee mượt
