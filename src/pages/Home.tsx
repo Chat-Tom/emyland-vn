@@ -255,24 +255,22 @@ export default function Home() {
   const navigate = useNavigate();
 
   /* ===== Logos để chạy ticker ===== */
-  // LOGOS: thay “Emyland” bằng “MỜI QUẢNG CÁO” + thêm Viettel, FPT, be, Xanh SM
-  const LOGOS = [
-    { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
-    { src: "/brands/viettel.svg",   alt: "Viettel", href: "https://viettel.com.vn" },
-    { src: "/brands/fpt.svg",       alt: "FPT",     href: "https://fpt.com.vn" },
-    {
-      src: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Xanh_SM_logo.svg/165px-Xanh_SM_logo.svg.png",
-      alt: "Xanh SM",
-      href: "https://www.xanhsm.com/",
-    },
-    { src: "/brands/bee.svg",       alt: "be (taxi)", href: "https://be.com.vn" },
+ const LOGOS = [
+  { src: "/brands/be.png",      alt: "Be Group",          href: "https://www.be.com.vn/" },
+  { src: "/brands/fpt-edu.png", alt: "FPT Education",     href: "https://daihoc.fpt.edu.vn/" },
+  { src: "/brands/viettel.png", alt: "Viettel",           href: "https://vietteltelecom.vn/" },
+  {
+    src: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Xanh_SM_logo.svg/165px-Xanh_SM_logo.svg.png",
+    alt: "Xanh SM",
+    href: "https://www.xanhsm.com/",
+  },
+  { src: "/brands/tailieutieuhoc.jpg", alt: "Nhóm học tập Zalo", href: "https://zalo.me/g/ufxlax300" },
 
-    // lấp đầy ticker cho “đầy đặn”
-     // Các ô còn lại: MỜI QUẢNG CÁO
-  { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
-  { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
-  { src: "/brands/ad-invite.svg", alt: "Mời quảng cáo", href: "/quang-cao" }
-  ];
+  // Slot trống → “Mời quảng cáo”
+  { src: "/placeholder.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
+  { src: "/placeholder.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
+  { src: "/placeholder.svg", alt: "Mời quảng cáo", href: "/quang-cao" },
+];
 
   // Search state
   const [listingType, setListingType] = useState<ListingType>("sell");
@@ -597,7 +595,6 @@ export default function Home() {
     return () => window.removeEventListener("emyland:resetHome", handler);
   }, [loadFromSupabase, loadMatchedTotal, setSp]);
 
-  /* ========= NEW: live feed trực tiếp từ Supabase (auto-refresh) ========= */
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveItems, setLiveItems] = useState<PropertyRow[]>([]);
 
@@ -642,7 +639,6 @@ export default function Home() {
       supabase.removeChannel(ch);
     };
   }, []);
-  /* ========= END live feed ========= */
 
   useEffect(() => {
     const refreshAll = () => {
@@ -799,7 +795,7 @@ export default function Home() {
       />
 
       {/* Đối tác tài trợ & thương hiệu tin cậy (đã tăng tốc) */}
-      <LogoTicker logos={LOGOS} speed="fast" />
+      <LogoTicker logos={LOGOS} speed="normal" pauseOnHover />
 
       {/* HERO */}
       <section className="bg-gradient-to-r from-blue-600 via-purple-600 to-orange-500">

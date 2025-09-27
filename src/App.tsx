@@ -1,4 +1,4 @@
-// src/App.tsx 
+// src/App.tsx
 import NewsPage from "@/pages/NewsPage";
 import NewsDetail from "@/pages/NewsDetail";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
@@ -20,11 +20,12 @@ const PlanningLookup       = lazy(() => import("@/pages/PlanningLookup"));
 const ValuationCertificate = lazy(() => import("@/pages/ValuationCertificate"));
 const LogsDashboard        = lazy(() => import("@/pages/LogsDashboard"));
 const ForgotPassword       = lazy(() => import("@/pages/ForgotPassword"));
-const ResetPassword        = lazy(() => import("@/pages/reset-password")); // ✅ tên biến hợp lệ
+const ResetPassword        = lazy(() => import("@/pages/reset-password"));
 const NotFound             = lazy(() => import("@/pages/NotFound"));
 const SocialHousing        = lazy(() => import("@/pages/SocialHousing"));
-/* ========= Helpers cho auto-login theo thiết bị (giữ ở đây để không đụng các page) ========= */
-// Dùng alias '/utils/*' như trong dự án; nếu khác, đổi path tương ứng.
+const QuangCao             = lazy(() => import("@/pages/QuangCao"));          // ✅ mới
+
+/* ========= Helpers cho auto-login theo thiết bị ========= */
 import { StorageManager } from "@utils/storage";
 import { getOrCreateDeviceId } from "@utils/device";
 
@@ -65,7 +66,6 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
       u.isLoggedIn = true;
       StorageManager.saveUser(u);
       StorageManager.setCurrentUser(u);
-      // phát sự kiện để AuthContext/khác (nếu có) sync lại
       window.dispatchEvent(new Event("emyland:userUpdated"));
       return true;
     } catch {
@@ -90,7 +90,6 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
         fullName: (row.full_name as string) || "",
         isLoggedIn: true,
       };
-      // Lưu vào storage theo schema cũ để toàn app hiểu
       try {
         StorageManager.saveUser?.(u as any);
         StorageManager.setCurrentUser?.(u as any);
@@ -107,11 +106,10 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      // chỉ thử khi chưa đăng nhập
       if (!isAuthenticated) {
         const okLocal = attemptFastLogin();
         if (!okLocal) {
-          await attemptCloudLogin(); // ✅ thử khôi phục bằng Supabase token
+          await attemptCloudLogin();
         }
       }
       if (mounted) setTrying(false);
@@ -119,7 +117,6 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
     return () => { mounted = false; };
   }, [isAuthenticated, attemptFastLogin, attemptCloudLogin]);
 
-  // Loading từ context hoặc đang thử auto-login
   if (isLoading || trying) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center text-gray-600">
@@ -160,6 +157,10 @@ function AppInner() {
             <Route path="/tin-moi" element={<Navigate to="/news" replace />} />
             <Route path="/tin-tuc" element={<Navigate to="/news" replace />} />
 
+            {/* ✅ Trang mời quảng cáo */}
+            <Route path="/quang-cao" element={<QuangCao />} />
+            <Route path="/quangcao" element={<Navigate to="/quang-cao" replace />} /> {/* alias */}
+
             {/* Chi tiết BĐS */}
             <Route path="/property/:id" element={<PropertyDetail />} />
 
@@ -177,7 +178,7 @@ function AppInner() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} /> {/* ✅ mới */}
+            <Route path="/reset-password" element={<ResetPassword />} />
 
             {/* Dashboard người dùng (yêu cầu đăng nhập) */}
             <Route
@@ -198,8 +199,7 @@ function AppInner() {
                 </ProtectedRoute>
               }
             />
-
-            {/* ✅ Alias route cho các nút/đường dẫn cũ: /system, /admin */}
+            {/* ✅ Alias cho đường dẫn cũ */}
             <Route path="/system" element={<Navigate to="/system-dashboard" replace />} />
             <Route path="/admin" element={<Navigate to="/system-dashboard" replace />} />
 
