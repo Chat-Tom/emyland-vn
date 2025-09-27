@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StorageManager, type UserAccount, type PropertyListing } from "@utils/storage";
-import { appendLog, getActorEmail } from '../../utils/log';
+import { appendLog, getActorEmail } from "../../utils/log";
 import {
   Users,
   Home,
@@ -21,61 +21,27 @@ import {
   Images,
   Pencil,
   Newspaper,
+  Ban,
 } from "lucide-react";
-/* ✅ THÊM: icon Ban */
-import { Ban } from "lucide-react";
 import LogsContent from "@/components/LogsContent";
 import { PROPERTY_TYPES } from "@/data/property-types";
 import { provinces, wardsByProvince } from "@/data/vietnam-locations";
-
-/* >>> Added: Panel quản trị tin tức (Tin mới) */
 import NewsAdminPanel from "@/components/admin/NewsAdminPanel";
 
-/* >>> Added: Supabase client (đọc cloud) */
+/* ✅ Supabase (cloud-first) */
 import { supabase } from "@/lib/supabase";
 
-type ListingType = "sell" | "rent";
+/* ======================= Helpers: phone-only ======================= */
+const sanitizePhone = (v: string) => (v || "").replace(/\D+/g, "");
+const normalizeVNPhone = (input: string) => {
+  const digits = sanitizePhone(input);
+  let normalized = digits.startsWith("84") ? "0" + digits.slice(2) : digits;
+  if (normalized && normalized[0] !== "0") normalized = "0" + normalized;
+  return normalized.slice(0, 10);
+};
+const isVNPhone10 = (v: string) => /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 
-/* ======================= Lightbox ảnh pháp lý ======================= */
-function Lightbox({
-  images,
-  onClose,
-}: {
-  images: string[];
-  onClose: () => void;
-}) {
-  if (!images?.length) return null;
-  return (
-    <div
-      className="fixed inset-0 z-[999] bg-black/70 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-xl max-w-5xl w-full p-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <div className="font-semibold">Ảnh pháp lý / HĐMB</div>
-          <button className="text-xl leading-none" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[70vh] overflow-auto">
-          {images.map((src, i) => (
-            <img
-              key={i}
-              src={src}
-              alt={`legal-${i}`}
-              className="w-full h-48 object-cover rounded-lg border"
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ======================= Helpers / dữ liệu chọn ======================= */
+/* ======================= UI helpers ======================= */
 const BIG6 = [
   "Thành phố Hồ Chí Minh",
   "Thành phố Hà Nội",
@@ -84,10 +50,9 @@ const BIG6 = [
   "Thành phố Cần Thơ",
   "Thành phố Huế",
 ];
-const viSort = (a: string, b: string) => a.localeCompare(b, "vi");
-const wardWeight = (name: string) => (name.startsWith("Phường") ? 0 : name.startsWith("Xã") ? 1 : 2);
+const wardWeight = (name: string) =>
+  name.startsWith("Phường") ? 0 : name.startsWith("Xã") ? 1 : 2;
 
-// === Định dạng ngày theo giờ Việt Nam (dd/mm/yyyy)
 const vnDateString = (d?: string | number | Date) => {
   if (!d) return "";
   try {
@@ -97,7 +62,7 @@ const vnDateString = (d?: string | number | Date) => {
   }
 };
 
-/* >>> Added: Suy luận số phòng ngủ / WC từ field & mô tả */
+/* ===== Suy luận PN/WC & unify ===== */
 const toPosInt = (v: any): number | undefined => {
   if (typeof v === "number" && v > 0) return Math.round(v);
   if (typeof v === "string") {
@@ -114,7 +79,12 @@ const inferRooms = (p: any): { bedrooms?: number; bathrooms?: number } => {
     p?.bedrooms ?? p?.bedroom ?? p?.numBedrooms ?? p?.rooms?.bedrooms ?? p?.bedroom_count
   );
   let bt = toPosInt(
-    p?.bathrooms ?? p?.bathroom ?? p?.numBathrooms ?? p?.rooms?.bathrooms ?? p?.bathroom_count ?? p?.wc
+    p?.bathrooms ??
+      p?.bathroom ??
+      p?.numBathrooms ??
+      p?.rooms?.bathrooms ??
+      p?.bathroom_count ??
+      p?.wc
   );
   if (bt === undefined) {
     bt = toPosInt(p?.WC ?? p?.toilet ?? p?.toilets ?? p?.toilet_count);
@@ -122,7 +92,8 @@ const inferRooms = (p: any): { bedrooms?: number; bathrooms?: number } => {
   let bedrooms = bd;
   let bathrooms = bt;
 
-  const hay = `${p?.title ?? ""} ${p?.description ?? ""} ${p?.summary ?? ""}`.toLowerCase();
+  const hay = `${p?.title ?? ""} ${p?.description ?? ""} ${p?.summary ?? ""}`
+    .toLowerCase();
   if (!bedrooms) {
     const m = hay.match(/(\d+)\s*(pn|phòng\s*ngủ|\bn\b)/i);
     if (m) bedrooms = Number(m[1]);
@@ -134,32 +105,47 @@ const inferRooms = (p: any): { bedrooms?: number; bathrooms?: number } => {
   return { bedrooms, bathrooms };
 };
 
-/* >>> Added: Chuẩn hoá record lấy từ Supabase */
 function unifyProperty(row: any): any {
   const p: any = { ...row };
   p.createdAt = p.createdAt || p.created_at;
   p.updatedAt = p.updatedAt || p.updated_at || p.createdAt;
   p.userEmail = p.userEmail || p.user_email || p.ownerEmail;
-  p.listingType = p.listingType || p.listing_type || (typeof p.rent_per_month === "number" ? "rent" : "sell");
+  p.listingType =
+    p.listingType ||
+    p.listing_type ||
+    (typeof p.rent_per_month === "number" ? "rent" : "sell");
   p.propertyType = p.propertyType || p.property_type;
-  p.verificationStatus = p.verificationStatus || p.verification_status || (p.is_verified ? "verified" : "pending");
+  p.verificationStatus =
+    p.verificationStatus ||
+    p.verification_status ||
+    (p.is_verified ? "verified" : "pending");
   if (!p.location) {
-    p.location = { province: p.province, district: p.district, ward: p.ward, address: p.address };
+    p.location = {
+      province: p.province,
+      district: p.district,
+      ward: p.ward,
+      address: p.address,
+    };
   }
   if (!p.contactInfo) {
     p.contactInfo = {
       name: p.ownerName,
       phone: p.ownerPhone,
       email: p.ownerEmail || p.userEmail,
-      ownerVerified: p.is_verified || p.verified || p.verification_status === "verified",
-      ownerVerifiedAt: p.ownerVerifiedAt || p.owner_verified_at || p.verifiedAt || p.verified_at,
+      ownerVerified:
+        p.is_verified || p.verified || p.verification_status === "verified",
+      ownerVerifiedAt:
+        p.ownerVerifiedAt ||
+        p.owner_verified_at ||
+        p.verifiedAt ||
+        p.verified_at,
     };
   }
   if (!Array.isArray(p.images)) p.images = p.photos || p.gallery || [];
   return p;
 }
 
-/* >>> Added: Audit log nhẹ (local) */
+/* ===== Audit log nhẹ ===== */
 function logEvent(event: string, detail: any = {}) {
   try {
     const logs = JSON.parse(localStorage.getItem("emyland_logs") || "[]");
@@ -175,7 +161,7 @@ function logEvent(event: string, detail: any = {}) {
   } catch {}
 }
 
-/* ✅ THÊM: siêu admin + danh sách bị chặn (email/sđt) */
+/* ===== Siêu admin + danh sách BAN ===== */
 const SUPER_ADMIN_EMAIL = "chat301277@gmail.com";
 const BANNED_EMAILS_KEY = "emyland_banned_emails";
 const BANNED_PHONES_KEY = "emyland_banned_phones";
@@ -200,434 +186,82 @@ function writeBanned(b: { emails: string[]; phones: string[] }) {
   } catch {}
 }
 
-/* ======================= Modal SỬA TIN (đầy đủ) ======================= */
-function EditPropertyModal({
-  property,
-  onClose,
-  onSaved,
-}: {
-  property: any; // dữ liệu local linh hoạt
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const ltInit: ListingType =
-    (property?.listingType as ListingType) ??
-    (typeof property?.rent_per_month === "number" ? "rent" : "sell");
+/* ======================= Component ======================= */
+type ListingType = "sell" | "rent";
 
-  // ---- Location mapping ----
-  const findProvinceIdByName = (name?: string): string => {
-    if (!name) return "";
-    const p = provinces.find((x) => x.provinceName.trim() === String(name).trim());
-    return p?.provinceId ?? "";
-  };
-  const sortedProvinces = React.useMemo(() => {
-    const list = provinces
-      .filter((p) => !/Tỉnh\s*\/\s*Thành\s*Phố/i.test(p.provinceName) && p.provinceName.trim() !== "")
-      .slice()
-      .sort((a, b) => {
-        const ia = BIG6.indexOf(a.provinceName);
-        const ib = BIG6.indexOf(b.provinceName);
-        if (ia !== -1 || ib !== -1) {
-          if (ia !== -1 && ib === -1) return -1;
-          if (ia === -1 && ib !== -1) return 1;
-          return ia - ib;
-        }
-        return a.provinceName.localeCompare(b.provinceName, "vi");
-      });
-    return list;
-  }, []);
-  const [provinceId, setProvinceId] = useState<string>(findProvinceIdByName(property?.location?.province));
-  const wardOptions = React.useMemo(() => {
-    if (!provinceId) return [];
-    const arr = wardsByProvince[provinceId] || [];
-    return arr.slice().sort((a, b) => {
-      const wa = wardWeight(a);
-      const wb = wardWeight(b);
-      if (wa !== wb) return wa - wb;
-      return a.localeCompare(b, "vi");
-    });
-  }, [provinceId]);
-
-  // ---- Main state ----
-  const [listingType, setListingType] = useState<ListingType>(ltInit);
-  const [title, setTitle] = useState<string>(property?.title ?? "");
-  const [description, setDescription] = useState<string>(property?.description ?? "");
-  const [propertyType, setPropertyType] = useState<string>(property?.propertyType ?? "");
-  const [area, setArea] = useState<string>(String(property?.area ?? ""));
-  const [priceTy, setPriceTy] = useState<string>(
-    listingType === "sell" && property?.price
-      ? String((Number(property.price) / 1_000_000_000).toFixed(2)).replace(/\.00$/, "")
-      : ""
-  );
-  const [rentMil, setRentMil] = useState<string>(
-    listingType === "rent" && property?.rent_per_month
-      ? String(Math.round(Number(property.rent_per_month) / 1_000_000))
-      : ""
-  );
-
-  // Địa chỉ + contact
-  const [ward, setWard] = useState<string>(property?.location?.ward ?? "");
-  const [address, setAddress] = useState<string>(property?.location?.address ?? "");
-  const [contactName, setContactName] = useState<string>(property?.contactInfo?.name ?? "");
-  const [contactPhone, setContactPhone] = useState<string>(property?.contactInfo?.phone ?? "");
-  const [contactEmail, setContactEmail] = useState<string>(property?.contactInfo?.email ?? "");
-  const [ownerVerified, setOwnerVerified] = useState<boolean>(
-    property?.contactInfo?.ownerVerified ?? (property?.verificationStatus === "verified") ?? false
-  );
-
-  // Ảnh BĐS
-  const [images, setImages] = useState<string[]>(Array.isArray(property?.images) ? property.images : []);
-  // Ảnh pháp lý
-  const [legalImages, setLegalImages] = useState<string[]>(StorageManager.getLegalImages(property.id) || []);
-
-  const filesToDataUrls = (files: FileList) =>
-    Promise.all(
-      Array.from(files).map(
-        (f) =>
-          new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ""));
-            reader.onerror = reject;
-            reader.readAsDataURL(f);
-          })
-      )
-    );
-
-  const addImages =
-    (field: "images" | "legal", limit: number) =>
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files || !files.length) return;
-      const urls = await filesToDataUrls(files);
-      if (field === "images") {
-        setImages((prev) => [...prev, ...urls].slice(0, limit));
-      } else {
-        setLegalImages((prev) => [...prev, ...urls].slice(0, limit));
-      }
-      e.currentTarget.value = "";
-    };
-
-  const removeImage = (field: "images" | "legal", idx: number) => {
-    if (field === "images") {
-      setImages((prev) => prev.filter((_, i) => i !== idx));
-    } else {
-      setLegalImages((prev) => prev.filter((_, i) => i !== idx));
-    }
-  };
-
-  const onSave = async () => {
-    const now = new Date().toISOString();
-    const provinceName =
-      sortedProvinces.find((p) => p.provinceId === provinceId)?.provinceName || property?.location?.province || "";
-
-    // --- Xác định mốc xác minh trước đó & cập nhật theo tick hiện tại ---
-    const wasVerified = Boolean(
-      property?.contactInfo?.ownerVerified ||
-        property?.verificationStatus === "verified" ||
-        property?.verifiedAt ||
-        property?.verified_at ||
-        property?.contactInfo?.ownerVerifiedAt ||
-        property?.contactInfo?.owner_verified_at
-    );
-
-    let nextVerifiedAt: string | undefined =
-      property?.verifiedAt ||
-      property?.verified_at ||
-      property?.contactInfo?.ownerVerifiedAt ||
-      property?.contactInfo?.owner_verified_at;
-
-    if (!wasVerified && ownerVerified) {
-      // Bật xác minh lần đầu: đóng dấu thời điểm hiện tại (ISO)
-      nextVerifiedAt = new Date().toISOString();
-    } else if (wasVerified && !ownerVerified) {
-      // Gỡ xác minh: xoá mốc thời gian
-      nextVerifiedAt = undefined;
-    }
-
-    const updated: any = {
-      ...property,
-      title: title.trim(),
-      description: description.trim(),
-      propertyType,
-      area: Number(area) || 0,
-      listingType,
-      images: images.slice(),
-      location: {
-        province: provinceName,
-        district: property?.location?.district || "",
-        ward: ward,
-        address: address.trim(),
-      },
-      contactInfo: {
-        ...(property?.contactInfo || {}),
-        name: contactName.trim(),
-        phone: contactPhone.trim(),
-        email: contactEmail.trim(),
-        ownerVerified,
-        // Lưu cả mốc xác minh trong contactInfo để tương thích
-        ownerVerifiedAt: nextVerifiedAt,
-        owner_verified_at: nextVerifiedAt,
-      },
-      // ⬇️ Trạng thái xác minh hiển thị
-      verificationStatus: ownerVerified ? "verified" : "pending",
-      // Lưu mốc xác minh ở cấp property (camel & snake) để các view khác dễ đọc
-      verifiedAt: nextVerifiedAt,
-      verified_at: nextVerifiedAt,
-      updatedAt: now,
-      updated_at: now,
-      user_email: property.userEmail || property.user_email, // hỗ trợ upsert snake_case
-    };
-
-    if (listingType === "sell") {
-      const v = Number(String(priceTy).replace(",", "."));
-      updated.price = isFinite(v) && v > 0 ? Math.round(v * 1_000_000_000) : 0;
-      updated.price_per_m2 =
-        updated.area > 0 && updated.price ? Math.round(updated.price / updated.area) : undefined;
-      updated.rent_per_month = undefined;
-    } else {
-      const v = Number(String(rentMil).replace(",", "."));
-      updated.rent_per_month = isFinite(v) && v > 0 ? Math.round(v * 1_000_000) : 0;
-      updated.price = undefined;
-      updated.price_per_m2 = undefined;
-    }
-
-    // --- Local cache (giữ nguyên logic cũ)
-    StorageManager.saveProperty(updated);
-/* disabled: verify/unverify log (missing wasVerified)
-*/
-
-    try {
-      window.dispatchEvent(new CustomEvent("emyland:properties-changed"));
-    } catch {}
-    logEvent("property_update", { id: property.id, title: updated.title, verificationStatus: updated.verificationStatus });
-    onSaved();
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[998] bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl max-w-4xl w-full p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="font-semibold text-lg">Sửa tin đăng</div>
-          <button className="text-xl leading-none" onClick={onClose}>×</button>
-        </div>
-
-        <div className="space-y-5 max-h-[80vh] overflow-auto pr-1">
-          {/* Hình thức */}
-          <div>
-            <div className="text-sm font-medium mb-1">Hình thức</div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setListingType("sell")}
-                className={`px-3 py-2 rounded-lg border shadow-sm ${listingType === "sell" ? "bg-amber-400 text-black border-amber-400" : "bg-white hover:bg-amber-50"}`}
-              >
-                Nhà đất bán
-              </button>
-              <button
-                type="button"
-                onClick={() => setListingType("rent")}
-                className={`px-3 py-2 rounded-lg border shadow-sm ${listingType === "rent" ? "bg-amber-400 text-black border-amber-400" : "bg-white hover:bg-amber-50"}`}
-              >
-                Nhà đất cho thuê
-              </button>
-            </div>
-          </div>
-
-          {/* Cơ bản */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <div className="text-sm font-medium mb-1">Tiêu đề</div>
-              <input className="w-full rounded-md border px-3 py-2" value={title} onChange={(e) => setTitle(e.target.value)} />
-            </div>
-            <div>
-              <div className="text-sm font-medium mb-1">Loại nhà đất</div>
-              <select className="w-full rounded-md border px-3 py-2" value={propertyType} onChange={(e) => setPropertyType(e.target.value)}>
-                <option value="">— Chọn loại —</option>
-                {PROPERTY_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <div className="text-sm font-medium mb-1">Diện tích (m²)</div>
-              <input type="number" className="w-full rounded-md border px-3 py-2" value={area} onChange={(e) => setArea(e.target.value)} />
-            </div>
-
-            {listingType === "sell" ? (
-              <div>
-                <div className="text-sm font-medium mb-1">Giá bán (tỷ VND)</div>
-                <input type="number" step="0.01" className="w-full rounded-md border px-3 py-2" value={priceTy} onChange={(e) => setPriceTy(e.target.value)} />
-                <div className="text-xs text-gray-500 mt-1">Nhập theo tỷ VND.</div>
-              </div>
-            ) : (
-              <div>
-                <div className="text-sm font-medium mb-1">Giá thuê (triệu/tháng)</div>
-                <input type="number" step="0.1" className="w-full rounded-md border px-3 py-2" value={rentMil} onChange={(e) => setRentMil(e.target.value)} />
-                <div className="text-xs text-gray-500 mt-1">Nhập theo triệu/tháng.</div>
-              </div>
-            )}
-          </div>
-
-          {/* Mô tả */}
-          <div>
-            <div className="text-sm font-medium mb-1">Mô tả</div>
-            <textarea rows={4} className="w-full rounded-md border px-3 py-2" value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-
-          {/* Địa chỉ */}
-          <div>
-            <div className="text-sm font-semibold mb-2">Địa chỉ</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <div className="text-sm font-medium mb-1">Tỉnh/Thành</div>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={provinceId}
-                  onChange={(e) => { setProvinceId(e.target.value); setWard(""); }}
-                >
-                  <option value="">— Chọn —</option>
-                  {sortedProvinces.map((p) => (
-                    <option key={p.provinceId} value={p.provinceId}>
-                      {p.provinceName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1">Phường/Xã</div>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={ward}
-                  onChange={(e) => setWard(e.target.value)}
-                  disabled={!provinceId}
-                >
-                  <option value="">— Chọn —</option>
-                  {wardOptions.map((w) => (
-                    <option key={w} value={w}>{w}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <div className="text-sm font-medium mb-1">Địa chỉ theo sổ đỏ/HĐMB</div>
-                <input className="w-full rounded-md border px-3 py-2" value={address} onChange={(e) => setAddress(e.target.value)} />
-              </div>
-            </div>
-          </div>
-
-          {/* Liên hệ */}
-          <div>
-            <div className="text-sm font-semibold mb-2">Thông tin liên hệ</div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <div className="text-sm font-medium mb-1">Họ tên</div>
-                <input className="w-full rounded-md border px-3 py-2" value={contactName} onChange={(e) => setContactName(e.target.value)} />
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1">Số điện thoại</div>
-                <input className="w-full rounded-md border px-3 py-2" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1">Email</div>
-                <input type="email" className="w-full rounded-md border px-3 py-2" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-              </div>
-            </div>
-            <label className="mt-3 flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={ownerVerified} onChange={(e) => setOwnerVerified(e.currentTarget.checked)} />
-              <span>Đánh dấu <strong>đã xác minh chính chủ</strong>.</span>
-            </label>
-          </div>
-
-          {/* Ảnh BĐS */}
-          <div>
-            <div className="text-sm font-semibold mb-2">Ảnh bất động sản</div>
-            <input type="file" accept="image/*" multiple onChange={addImages("images", 10)} />
-            {images.length > 0 && (
-              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-                {images.map((src, idx) => (
-                  <div key={idx} className="relative">
-                    <img src={src} alt={`img-${idx}`} className="h-28 w-full object-cover rounded-md border" />
-                    <button
-                      type="button"
-                      onClick={() => removeImage("images", idx)}
-                      className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white"
-                    >
-                      X
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Ảnh pháp lý */}
-          <div>
-            <div className="text-sm font-semibold mb-2">Ảnh pháp lý (sổ đỏ / HĐMB)</div>
-            <input type="file" accept="image/*" multiple onChange={addImages("legal", 8)} />
-            {legalImages.length > 0 && (
-              <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
-                {legalImages.map((src, idx) => (
-                  <div key={idx} className="relative">
-                    <img src={src} alt={`legal-${idx}`} className="h-24 w-full object-cover rounded-md border" />
-                    <button
-                      type="button"
-                      onClick={() => removeImage("legal", idx)}
-                      className="absolute top-1 right-1 rounded bg-white/80 px-2 text-xs hover:bg-red-500 hover:text-white"
-                    >
-                      X
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="pt-2 flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Huỷ</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={onSave}>Lưu thay đổi</Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ======================= Trang Dashboard ======================= */
 const SystemDashboard = () => {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [properties, setProperties] = useState<PropertyListing[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Tìm kiếm nhanh
   const [userQuery, setUserQuery] = useState("");
   const [propQuery, setPropQuery] = useState("");
-
-  // Lightbox ảnh pháp lý
   const [legalImages, setLegalImages] = useState<string[] | null>(null);
-
-  // Modal sửa tin
   const [editProp, setEditProp] = useState<any | null>(null);
 
-  // >>> Added: helper sort mới nhất trước (createdAt/updatedAt)
   const sortByDateDesc = (a: any, b: any) => {
     const ad = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
     const bd = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
     return bd - ad;
-  };
+    };
 
-  // >>> Added: nạp dữ liệu + sort (GIỮ NGUYÊN)
-  const loadAll = () => {
+  const loadAllLocal = () => {
     setUsers(StorageManager.getAllUsers());
     const list = StorageManager.getAllProperties().slice().sort(sortByDateDesc);
     setProperties(list);
   };
 
-  // >>> Added: đọc từ Supabase (cloud-first merge local, KHÔNG xoá logic cũ)
-  const loadCloud = async () => {
+  /* ✅ Quan trọng: Kiểm tra quyền admin cloud-first theo SĐT */
+  const [cloudAdminChecked, setCloudAdminChecked] = useState(false);
+  const [isAdminEffective, setIsAdminEffective] = useState(false);
+
+  async function checkAdminCloudFirst(): Promise<boolean> {
+    try {
+      const me = StorageManager.getCurrentUser();
+      if (!me || !me.isLoggedIn) return false;
+
+      const phone = normalizeVNPhone(me.phone || "");
+      if (!isVNPhone10(phone)) return false;
+
+      // RLS đã bật, chỉ cần lọc theo phone (chuẩn hóa 0xxxxxxxxx)
+      const { data, error } = await supabase
+        .from("users_public")
+        .select("id, phone, email, is_admin")
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("checkAdminCloudFirst error:", error.message);
+      }
+
+      if (data?.is_admin === true) {
+        // Đồng bộ Local để về sau không bị lệch
+        const u = StorageManager.getUserByPhone(phone) || StorageManager.getCurrentUser();
+        if (u) {
+          StorageManager.saveUser({ ...u, isAdmin: true });
+        }
+        setIsAdminEffective(true);
+        return true;
+      }
+
+      // fallback: siêu admin theo email nếu cần
+      const isSuper = normEmail(me.email) === SUPER_ADMIN_EMAIL;
+      setIsAdminEffective(isSuper || !!me.isAdmin);
+      return isSuper || !!me.isAdmin;
+    } catch (e) {
+      console.error("checkAdminCloudFirst fatal:", e);
+      // fallback local
+      const me = StorageManager.getCurrentUser();
+      const isSuper = normEmail(me?.email) === SUPER_ADMIN_EMAIL;
+      setIsAdminEffective(isSuper || !!me?.isAdmin);
+      return isSuper || !!me?.isAdmin;
+    } finally {
+      setCloudAdminChecked(true);
+    }
+  }
+
+  const loadCloudProps = async () => {
     try {
       const { data, error } = await supabase
         .from("properties")
@@ -635,37 +269,52 @@ const SystemDashboard = () => {
         .order("created_at", { ascending: false });
       if (error) throw error;
       const cloud = (data || []).map(unifyProperty);
-      // merge với local (giữ tin local chưa sync)
       const local = StorageManager.getAllProperties() as any[];
       const map = new Map<string, any>();
       [...cloud, ...local].forEach((p: any) => map.set(String(p.id), p));
       const merged = Array.from(map.values()).sort(sortByDateDesc);
       setProperties(merged as PropertyListing[]);
     } catch (e) {
-      console.error("Supabase fetch failed, keep local:", e);
+      console.error("Supabase fetch properties failed (keep local):", e);
     }
   };
 
   useEffect(() => {
-    const currentUser = StorageManager.getCurrentUser();
-    if (!currentUser || !currentUser.isLoggedIn) {
-      navigate("/login", { replace: true });
-      return;
-    }
-    if (!currentUser.isAdmin) {
-      navigate("/", { replace: true });
-      return;
-    }
+    (async () => {
+      const me = StorageManager.getCurrentUser();
+      if (!me || !me.isLoggedIn) {
+        navigate("/login", { replace: true });
+        return;
+      }
 
-    loadAll();              // giữ nguyên
-    loadCloud().finally(() => setLoading(false)); // >>> Added: đọc cloud
+      const ok = await checkAdminCloudFirst();
+      if (!ok) {
+        navigate("/", { replace: true });
+        return;
+      }
+
+      // quyền OK -> nạp dữ liệu
+      loadAllLocal();
+      await loadCloudProps();
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate]);
 
-  // >>> Added: tự refresh khi hệ thống có thay đổi tin hoặc localStorage thay đổi
+  // Tự refresh khi dữ liệu đổi
   useEffect(() => {
-    const onChanged = () => { loadAll(); loadCloud(); };
+    const onChanged = () => {
+      loadAllLocal();
+      loadCloudProps();
+    };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "emyland_properties" || e.key === "emyland_properties_updated") { loadAll(); loadCloud(); }
+      if (
+        e.key === "emyland_properties" ||
+        e.key === "emyland_properties_updated"
+      ) {
+        loadAllLocal();
+        loadCloudProps();
+      }
     };
     window.addEventListener("emyland:properties-changed", onChanged as EventListener);
     window.addEventListener("storage", onStorage);
@@ -676,26 +325,52 @@ const SystemDashboard = () => {
   }, []);
 
   const refreshUsers = () => setUsers(StorageManager.getAllUsers());
-  const refreshProps = () => { setProperties(StorageManager.getAllProperties().slice().sort(sortByDateDesc)); loadCloud(); };
+  const refreshProps = () => {
+    setProperties(StorageManager.getAllProperties().slice().sort(sortByDateDesc));
+    loadCloudProps();
+  };
 
   const handleDeleteUser = async (email: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) {
       StorageManager.deleteUser(email);
-    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "user", targetId: email, action: "delete", summary: "Xóa người dùng " + email }); } catch {}
-      // >>> Added: cascade xoá tin của user ở Supabase
-      try { await supabase.from("properties").delete().eq("user_email", email.toLowerCase()); } catch (e) { console.error(e); }
+      try {
+        appendLog({
+          actorEmail: getActorEmail(StorageManager),
+          target: "user",
+          targetId: email,
+          action: "delete",
+          summary: "Xóa người dùng " + email,
+        });
+      } catch {}
+      // cascade xoá tin của user ở cloud
+      try {
+        await supabase.from("properties").delete().eq("user_email", email.toLowerCase());
+      } catch (e) {
+        console.error(e);
+      }
       logEvent("user_delete", { email });
       refreshUsers();
-      refreshProps(); // tin của user cũng bị xoá
+      refreshProps();
     }
   };
 
   const handleDeleteProperty = async (propertyId: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) {
       StorageManager.deleteProperty(propertyId);
-    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "property", targetId: propertyId, action: "delete", summary: "Xóa tin đăng " + propertyId }); } catch {}
-      // >>> Added: xoá trên Supabase
-      try { await supabase.from("properties").delete().eq("id", propertyId); } catch (e) { console.error(e); }
+      try {
+        appendLog({
+          actorEmail: getActorEmail(StorageManager),
+          target: "property",
+          targetId: propertyId,
+          action: "delete",
+          summary: "Xóa tin đăng " + propertyId,
+        });
+      } catch {}
+      try {
+        await supabase.from("properties").delete().eq("id", propertyId);
+      } catch (e) {
+        console.error(e);
+      }
       logEvent("property_delete", { id: propertyId });
       refreshProps();
     }
@@ -703,12 +378,27 @@ const SystemDashboard = () => {
 
   const handleToggleAdmin = (u: UserAccount) => {
     const next = !u.isAdmin;
-    const msg = next ? `Cấp quyền Quản trị cho ${u.fullName || u.email}?` : `Gỡ quyền Quản trị của ${u.fullName || u.email}?`;
+    const msg = next
+      ? `Cấp quyền Quản trị cho ${u.fullName || u.email}?`
+      : `Gỡ quyền Quản trị của ${u.fullName || u.email}?`;
     if (!window.confirm(msg)) return;
+
+    // Local
     StorageManager.saveUser({ ...u, isAdmin: next });
-    try { appendLog({ actorEmail: getActorEmail(StorageManager), target: "user", targetId: u.email, action: "role_change", summary: (next ? "Cấp quyền Admin cho " : "Gỡ quyền Admin của ") + (u.fullName || u.email) }); } catch {}
+    try {
+      appendLog({
+        actorEmail: getActorEmail(StorageManager),
+        target: "user",
+        targetId: u.email,
+        action: "role_change",
+        summary:
+          (next ? "Cấp quyền Admin cho " : "Gỡ quyền Admin của ") +
+          (u.fullName || u.email),
+      });
+    } catch {}
     logEvent(next ? "user_grant_admin" : "user_revoke_admin", { email: u.email });
 
+    // Nếu gỡ quyền chính mình -> đăng xuất
     const cur = StorageManager.getCurrentUser();
     if (cur?.email === u.email && !next) {
       StorageManager.logout();
@@ -719,19 +409,10 @@ const SystemDashboard = () => {
     refreshUsers();
   };
 
-  const formatDate = (dateString: string) => {
-    try {
-      return new Date(dateString).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
-    } catch {
-      return "";
-    }
-  };
-
-  /* ================== FIX GIÁ/DIỆN TÍCH ================== */
   const trimTrailingZero = (s: string) => s.replace(/\.0\b/, "");
-
   const priceText = (p: any) => {
-    const lt: ListingType = p?.listingType ?? (typeof p?.rent_per_month === "number" ? "rent" : "sell");
+    const lt: ListingType =
+      p?.listingType ?? (typeof p?.rent_per_month === "number" ? "rent" : "sell");
     if (lt === "rent") {
       const v = Number(p?.rent_per_month) || 0;
       return v > 0 ? `${Math.round(v / 1_000_000)} triệu/tháng` : "Thoả thuận";
@@ -742,9 +423,8 @@ const SystemDashboard = () => {
     if (v >= 1_000_000) return `${Math.round(v / 1_000_000)} triệu`;
     return v.toLocaleString();
   };
-
   const areaText = (a?: any) => {
-    if (a === null || a === undefined) return "--";
+    if (a == null) return "--";
     const n =
       typeof a === "number"
         ? a
@@ -752,17 +432,14 @@ const SystemDashboard = () => {
     if (!isFinite(n) || n <= 0) return "--";
     return n < 100 ? `${Math.round(n * 10) / 10} m²` : `${Math.round(n)} m²`;
   };
-  /* ======================================================= */
 
   const todayCount = useMemo(() => {
     const today = new Date().toDateString();
     return properties.filter((p) => new Date(p.createdAt).toDateString() === today).length;
   }, [properties]);
-
   const adminsCount = useMemo(() => users.filter((u) => u.isAdmin).length, [users]);
   const onlineCount = useMemo(() => users.filter((u) => u.isLoggedIn).length, [users]);
 
-  // >>> Changed: lọc + sort luôn theo ngày mới nhất
   const filteredUsers = useMemo(() => {
     if (!userQuery.trim()) return users;
     const q = userQuery.trim().toLowerCase();
@@ -795,8 +472,10 @@ const SystemDashboard = () => {
     setLegalImages(imgs);
   };
 
-  /* ✅ THÊM: state & helpers ban */
-  const [banned, setBanned] = useState<{ emails: string[]; phones: string[] }>(readBanned());
+  /* ====== BAN state ====== */
+  const [banned, setBanned] = useState<{ emails: string[]; phones: string[] }>(
+    readBanned()
+  );
   const isSuperAdmin = normEmail(StorageManager.getCurrentUser()?.email) === SUPER_ADMIN_EMAIL;
   const reloadBanned = () => setBanned(readBanned());
 
@@ -805,7 +484,9 @@ const SystemDashboard = () => {
     b.emails.push(normEmail(email));
     writeBanned(b);
     setBanned(b);
-    try { await supabase.from("bans").upsert({ email: normEmail(email) }); } catch {}
+    try {
+      await supabase.from("bans").upsert({ email: normEmail(email) });
+    } catch {}
   };
   const unbanEmail = (email: string) => {
     const b = readBanned();
@@ -819,7 +500,9 @@ const SystemDashboard = () => {
     b.phones.push(normPhone(phone));
     writeBanned(b);
     setBanned(b);
-    try { await supabase.from("bans").upsert({ phone: normPhone(phone) }); } catch {}
+    try {
+      await supabase.from("bans").upsert({ phone: normPhone(phone) });
+    } catch {}
   };
   const unbanPhone = (phone: string) => {
     const b = readBanned();
@@ -834,7 +517,8 @@ const SystemDashboard = () => {
         e.key === "emyland_banned_updated" ||
         e.key === BANNED_EMAILS_KEY ||
         e.key === BANNED_PHONES_KEY
-      ) reloadBanned();
+      )
+        reloadBanned();
     };
     window.addEventListener("storage", onStorage);
     window.addEventListener("emyland:banned-updated", reloadBanned as EventListener);
@@ -844,11 +528,11 @@ const SystemDashboard = () => {
     };
   }, []);
 
-  if (loading) {
+  if (loading || !cloudAdminChecked || !isAdminEffective) {
     return (
       <AppLayout>
         <div className="flex justify-center items-center min-h-screen">
-          <div className="text-lg">Đang tải...</div>
+          <div className="text-lg">Đang tải…</div>
         </div>
       </AppLayout>
     );
@@ -862,7 +546,7 @@ const SystemDashboard = () => {
           <p className="text-gray-600">Quản lý người dùng và tin đăng trong hệ thống</p>
         </div>
 
-        {/* Thống kê tổng quan */}
+        {/* Thống kê */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
@@ -923,7 +607,6 @@ const SystemDashboard = () => {
         </div>
 
         <Tabs defaultValue="users" className="space-y-6">
-          {/* >>> Changed (nhẹ): 3 → 4 cột để thêm tab Tin tức */}
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="users" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
@@ -937,284 +620,184 @@ const SystemDashboard = () => {
               <BarChart3 className="h-4 w-4" />
               Dashboard Logs
             </TabsTrigger>
-            {/* >>> Added: Tab Tin tức (Tin mới) */}
             <TabsTrigger value="news" className="flex items-center gap-2">
               <Newspaper className="h-4 w-4" />
               Tin tức (Tin mới)
             </TabsTrigger>
           </TabsList>
 
-        {/* USERS */}
-        <TabsContent value="users" className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h2 className="text-2xl font-semibold">
-              Danh sách người dùng ({users.length})
-            </h2>
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <input
-                className="h-10 pl-9 pr-3 rounded-md border w-72"
-                placeholder="Tìm theo tên, email, SĐT…"
-                value={userQuery}
-                onChange={(e) => setUserQuery(e.target.value)}
-              />
+          {/* USERS */}
+          <TabsContent value="users" className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h2 className="text-2xl font-semibold">Danh sách người dùng ({users.length})</h2>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <input
+                  className="h-10 pl-9 pr-3 rounded-md border w-72"
+                  placeholder="Tìm theo tên, email, SĐT…"
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="grid gap-4">
-            {filteredUsers.map((user) => (
-              <Card key={user.email}>
-                <CardContent className="p-6">
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-lg font-semibold">
-                          {user.fullName || "(Chưa đặt tên)"}
-                        </h3>
-                        {user.isAdmin && (
-                          <Badge className="bg-blue-600 text-white">Admin</Badge>
-                        )}
-                        <Badge variant={user.isLoggedIn ? "default" : "secondary"}>
-                          {user.isLoggedIn ? "Đang online" : "Offline"}
-                        </Badge>
-                        {/* ✅ THÊM: hiện trạng bị chặn */}
-                        {banned.emails.includes(normEmail(user.email)) && (
-                          <Badge className="bg-red-600 text-white">Email bị chặn</Badge>
-                        )}
-                        {user.phone && banned.phones.includes(normPhone(user.phone)) && (
-                          <Badge className="bg-red-600 text-white">SĐT bị chặn</Badge>
-                        )}
-                      </div>
-                      <p className="text-gray-600">{user.email}</p>
-                      {user.phone && <p className="text-gray-600">{user.phone}</p>}
-                      <p className="text-sm text-gray-500">
-                        Đăng ký: {formatDate(user.registeredAt)}
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2 flex-wrap">
-                      <Button
-                        variant={user.isAdmin ? "outline" : "default"}
-                        size="sm"
-                        className={user.isAdmin ? "text-red-600 hover:text-red-700" : "bg-blue-600"}
-                        onClick={() => handleToggleAdmin(user)}
-                        title={user.isAdmin ? "Gỡ quyền Admin" : "Cấp quyền Admin"}
-                      >
-                        {user.isAdmin ? (
-                          <>
-                            <UserX className="h-4 w-4 mr-1" /> Gỡ Admin
-                          </>
-                        ) : (
-                          <>
-                            <Shield className="h-4 w-4 mr-1" /> Cấp Admin
-                          </>
-                        )}
-                      </Button>
-
-                      {/* ✅ THÊM: Sửa / Chặn (chỉ siêu admin) */}
-                      {isSuperAdmin && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const fullName = window.prompt("Họ tên", user.fullName || "") ?? user.fullName;
-                              const phone = window.prompt("SĐT", user.phone || "") ?? user.phone;
-                              const email = window.prompt("Email", user.email || "") ?? user.email;
-                              StorageManager.saveUser({
-                                ...user,
-                                fullName: (fullName || "").trim() || user.fullName,
-                                phone: (phone || "").trim() || user.phone,
-                                email: (email || "").trim() || user.email,
-                              });
-                              logEvent("user_update_admin", { from: user.email, to: email });
-                              refreshUsers();
-                            }}
-                          >
-                            <Pencil className="h-4 w-4 mr-1" />
-                            Sửa
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className={banned.emails.includes(normEmail(user.email)) ? "text-emerald-600" : "text-red-600"}
-                            onClick={() => {
-                              if (banned.emails.includes(normEmail(user.email))) {
-                                unbanEmail(user.email);
-                              } else if (window.confirm(`Chặn VĨNH VIỄN email ${user.email}?`)) {
-                                banEmail(user.email);
-                              }
-                            }}
-                            title="Chặn/Bỏ chặn theo Email"
-                          >
-                            <Ban className="h-4 w-4 mr-1" />
-                            {banned.emails.includes(normEmail(user.email)) ? "Bỏ chặn email" : "Chặn email"}
-                          </Button>
-
-                          {user.phone && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className={banned.phones.includes(normPhone(user.phone)) ? "text-emerald-600" : "text-red-600"}
-                              onClick={() => {
-                                if (banned.phones.includes(normPhone(user.phone))) {
-                                  unbanPhone(user.phone);
-                                } else if (window.confirm(`Chặn VĨNH VIỄN số ${user.phone}?`)) {
-                                  banPhone(user.phone);
-                                }
-                              }}
-                              title="Chặn/Bỏ chặn theo SĐT"
-                            >
-                              <Ban className="h-4 w-4 mr-1" />
-                              {banned.phones.includes(normPhone(user.phone)) ? "Bỏ chặn SĐT" : "Chặn SĐT"}
-                            </Button>
-                          )}
-                        </>
-                      )}
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 hover:text-red-700"
-                        onClick={() => handleDeleteUser(user.email)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Xóa
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        {/* PROPERTIES */}
-        <TabsContent value="properties" className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h2 className="text-2xl font-semibold">
-              Danh sách tin đăng ({properties.length})
-            </h2>
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <input
-                className="h-10 pl-9 pr-3 rounded-md border w-80"
-                placeholder="Tìm theo tiêu đề, mô tả, email chủ tin…"
-                value={propQuery}
-                onChange={(e) => setPropQuery(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-4">
-            {filteredProps.map((property: any) => {
-              const legalCount = StorageManager.getLegalImages(property.id)?.length ?? 0;
-              const lt: ListingType =
-                property?.listingType ?? (typeof property?.rent_per_month === "number" ? "rent" : "sell");
-              const isVerified =
-                property?.verificationStatus === "verified" || property?.contactInfo?.ownerVerified;
-
-              /* >>> Added: suy luận N/WC cho dòng hiển thị */
-              const { bedrooms, bathrooms } = inferRooms(property);
-
-              return (
-                <Card key={property.id}>
+            <div className="grid gap-4">
+              {filteredUsers.map((user) => (
+                <Card key={user.email}>
                   <CardContent className="p-6">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
                       <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold line-clamp-1">{property.title}</h3>
-                          <Badge className={lt === "sell" ? "bg-blue-600" : "bg-emerald-600"}>
-                            {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
-                          </Badge>
-                          {isVerified ? (
-                            <Badge className="bg-emerald-600">
-                              {(() => {
-                                const t =
-                                  property?.verifiedAt ||
-                                  property?.verified_at ||
-                                  property?.contactInfo?.ownerVerifiedAt ||
-                                  property?.contactInfo?.owner_verified_at;
-                                const d = vnDateString(t);
-                                return d ? `Đã xác nhận chính chủ ngày ${d}` : "Đã xác nhận chính chủ";
-                              })()}
-                            </Badge>
-                          ) : (
-                            <Badge className="bg-amber-500">Đang xác nhận chính chủ</Badge>
-                          )}
-                        </div>
-
-                        <p className="text-gray-600 line-clamp-2">{property.description}</p>
-
-                        <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
-                          <span>
-                            Giá: <span className="font-semibold text-gray-900">{priceText(property)}</span>
-                          </span>
-                          <span>•</span>
-                          {/* ✅ FIX: diện tích nhất quán */}
-                          <span>Diện tích: {areaText(property.area)}</span>
-
-                          {/* >>> Added: hiển thị N/WC nếu có */}
-                          {typeof bedrooms === "number" && (
-                            <>
-                              <span>•</span>
-                              <span>{bedrooms}N</span>
-                            </>
-                          )}
-                          {typeof bathrooms === "number" && (
-                            <>
-                              <span>•</span>
-                              <span>{bathrooms}WC</span>
-                            </>
-                          )}
-
-                          <span>•</span>
-                          <span>Đăng: {formatDate(property.createdAt)}</span>
-                        </div>
-
                         <div className="flex items-center gap-2">
-                          <Badge variant="secondary">{property.propertyType}</Badge>
-                          <span className="text-sm text-gray-500">bởi {property.userEmail}</span>
-                          {legalCount > 0 && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="ml-2"
-                              onClick={() => openLegalImages(property.id)}
-                              title="Xem ảnh pháp lý / sổ đỏ / HĐMB"
-                            >
-                              <Images className="h-4 w-4 mr-1" />
-                              Ảnh pháp lý ({legalCount})
-                            </Button>
+                          <h3 className="text-lg font-semibold">
+                            {user.fullName || "(Chưa đặt tên)"}
+                          </h3>
+                          {user.isAdmin && (
+                            <Badge className="bg-blue-600 text-white">Admin</Badge>
                           )}
+                          <Badge variant={user.isLoggedIn ? "default" : "secondary"}>
+                            {user.isLoggedIn ? "Đang online" : "Offline"}
+                          </Badge>
+                          {banned.emails.includes(normEmail(user.email)) && (
+                            <Badge className="bg-red-600 text-white">Email bị chặn</Badge>
+                          )}
+                          {user.phone &&
+                            banned.phones.includes(normPhone(user.phone)) && (
+                              <Badge className="bg-red-600 text-white">
+                                SĐT bị chặn
+                              </Badge>
+                            )}
                         </div>
+                        <p className="text-gray-600">{user.email}</p>
+                        {user.phone && <p className="text-gray-600">{user.phone}</p>}
+                        <p className="text-sm text-gray-500">
+                          Đăng ký:{" "}
+                          {(() => {
+                            try {
+                              return new Date(user.registeredAt).toLocaleDateString(
+                                "vi-VN",
+                                { timeZone: "Asia/Ho_Chi_Minh" }
+                              );
+                            } catch {
+                              return "";
+                            }
+                          })()}
+                        </p>
                       </div>
 
                       <div className="flex gap-2 flex-wrap">
                         <Button
-                          variant="outline"
+                          variant={user.isAdmin ? "outline" : "default"}
                           size="sm"
-                          onClick={() => navigate(`/property/${property.id}`)}
+                          className={
+                            user.isAdmin
+                              ? "text-red-600 hover:text-red-700"
+                              : "bg-blue-600"
+                          }
+                          onClick={() => handleToggleAdmin(user)}
+                          title={user.isAdmin ? "Gỡ quyền Admin" : "Cấp quyền Admin"}
                         >
-                          <Eye className="h-4 w-4 mr-1" />
-                          Xem
+                          {user.isAdmin ? (
+                            <>
+                              <UserX className="h-4 w-4 mr-1" /> Gỡ Admin
+                            </>
+                          ) : (
+                            <>
+                              <Shield className="h-4 w-4 mr-1" /> Cấp Admin
+                            </>
+                          )}
                         </Button>
 
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditProp(property)}
-                        >
-                          <Pencil className="h-4 w-4 mr-1" />
-                          Sửa
-                        </Button>
+                        {isSuperAdmin && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const fullName =
+                                  window.prompt("Họ tên", user.fullName || "") ??
+                                  user.fullName;
+                                const phone =
+                                  window.prompt("SĐT", user.phone || "") ??
+                                  user.phone;
+                                const email =
+                                  window.prompt("Email", user.email || "") ??
+                                  user.email;
+                                StorageManager.saveUser({
+                                  ...user,
+                                  fullName: (fullName || "").trim() || user.fullName,
+                                  phone: (phone || "").trim() || user.phone,
+                                  email: (email || "").trim() || user.email,
+                                });
+                                logEvent("user_update_admin", {
+                                  from: user.email,
+                                  to: email,
+                                });
+                                refreshUsers();
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 mr-1" />
+                              Sửa
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={
+                                banned.emails.includes(normEmail(user.email))
+                                  ? "text-emerald-600"
+                                  : "text-red-600"
+                              }
+                              onClick={() => {
+                                if (banned.emails.includes(normEmail(user.email))) {
+                                  unbanEmail(user.email);
+                                } else if (
+                                  window.confirm(`Chặn VĨNH VIỄN email ${user.email}?`)
+                                ) {
+                                  banEmail(user.email);
+                                }
+                              }}
+                              title="Chặn/Bỏ chặn theo Email"
+                            >
+                              <Ban className="h-4 w-4 mr-1" />
+                              {banned.emails.includes(normEmail(user.email))
+                                ? "Bỏ chặn email"
+                                : "Chặn email"}
+                            </Button>
+
+                            {user.phone && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className={
+                                  banned.phones.includes(normPhone(user.phone))
+                                    ? "text-emerald-600"
+                                    : "text-red-600"
+                                }
+                                onClick={() => {
+                                  if (banned.phones.includes(normPhone(user.phone))) {
+                                    unbanPhone(user.phone);
+                                  } else if (
+                                    window.confirm(`Chặn VĨNH VIỄN số ${user.phone}?`)
+                                  ) {
+                                    banPhone(user.phone);
+                                  }
+                                }}
+                                title="Chặn/Bỏ chặn theo SĐT"
+                              >
+                                <Ban className="h-4 w-4 mr-1" />
+                                {banned.phones.includes(normPhone(user.phone))
+                                  ? "Bỏ chặn SĐT"
+                                  : "Chặn SĐT"}
+                              </Button>
+                            )}
+                          </>
+                        )}
 
                         <Button
                           variant="outline"
                           size="sm"
                           className="text-red-600 hover:text-red-700"
-                          onClick={() => handleDeleteProperty(property.id)}
+                          onClick={() => handleDeleteUser(user.email)}
                         >
                           <Trash2 className="h-4 w-4 mr-1" />
                           Xóa
@@ -1223,60 +806,235 @@ const SystemDashboard = () => {
                     </div>
                   </CardContent>
                 </Card>
-              );
-            })}
+              ))}
+            </div>
+          </TabsContent>
+
+          {/* PROPERTIES */}
+          <TabsContent value="properties" className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h2 className="text-2xl font-semibold">Danh sách tin đăng ({properties.length})</h2>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <input
+                  className="h-10 pl-9 pr-3 rounded-md border w-80"
+                  placeholder="Tìm theo tiêu đề, mô tả, email chủ tin…"
+                  value={propQuery}
+                  onChange={(e) => setPropQuery(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4">
+              {filteredProps.map((property: any) => {
+                const legalCount =
+                  StorageManager.getLegalImages(property.id)?.length ?? 0;
+                const lt: ListingType =
+                  property?.listingType ??
+                  (typeof property?.rent_per_month === "number" ? "rent" : "sell");
+                const isVerified =
+                  property?.verificationStatus === "verified" ||
+                  property?.contactInfo?.ownerVerified;
+
+                const { bedrooms, bathrooms } = inferRooms(property);
+
+                return (
+                  <Card key={property.id}>
+                    <CardContent className="p-6">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-lg font-semibold line-clamp-1">
+                              {property.title}
+                            </h3>
+                            <Badge
+                              className={
+                                lt === "sell" ? "bg-blue-600" : "bg-emerald-600"
+                              }
+                            >
+                              {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
+                            </Badge>
+                            {isVerified ? (
+                              <Badge className="bg-emerald-600">
+                                {(() => {
+                                  const t =
+                                    property?.verifiedAt ||
+                                    property?.verified_at ||
+                                    property?.contactInfo?.ownerVerifiedAt ||
+                                    property?.contactInfo?.owner_verified_at;
+                                  const d = vnDateString(t);
+                                  return d
+                                    ? `Đã xác nhận chính chủ ngày ${d}`
+                                    : "Đã xác nhận chính chủ";
+                                })()}
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-amber-500">
+                                Đang xác nhận chính chủ
+                              </Badge>
+                            )}
+                          </div>
+
+                          <p className="text-gray-600 line-clamp-2">
+                            {property.description}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                            <span>
+                              Giá:{" "}
+                              <span className="font-semibold text-gray-900">
+                                {priceText(property)}
+                              </span>
+                            </span>
+                            <span>•</span>
+                            <span>Diện tích: {areaText(property.area)}</span>
+
+                            {typeof bedrooms === "number" && (
+                              <>
+                                <span>•</span>
+                                <span>{bedrooms}N</span>
+                              </>
+                            )}
+                            {typeof bathrooms === "number" && (
+                              <>
+                                <span>•</span>
+                                <span>{bathrooms}WC</span>
+                              </>
+                            )}
+
+                            <span>•</span>
+                            <span>Đăng: {vnDateString(property.createdAt)}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">{property.propertyType}</Badge>
+                            <span className="text-sm text-gray-500">
+                              bởi {property.userEmail}
+                            </span>
+                            {legalCount > 0 && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="ml-2"
+                                onClick={() => openLegalImages(property.id)}
+                                title="Xem ảnh pháp lý / sổ đỏ / HĐMB"
+                              >
+                                <Images className="h-4 w-4 mr-1" />
+                                Ảnh pháp lý ({legalCount})
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 flex-wrap">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/property/${property.id}`)}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            Xem
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditProp(property)}
+                          >
+                            <Pencil className="h-4 w-4 mr-1" />
+                            Sửa
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleDeleteProperty(property.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Xóa
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          {/* LOGS */}
+          <TabsContent value="logs" className="space-y-6">
+            <LogsContent />
+          </TabsContent>
+
+          {/* NEWS */}
+          <TabsContent value="news" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold">Tin tức (Tin mới)</h2>
+              <Button
+                variant="outline"
+                onClick={() => window.open("/news", "_blank")}
+                title="Mở trang Tin mới (công khai)"
+              >
+                Xem trang Tin mới
+              </Button>
+            </div>
+
+            <div className="news-editor">
+              <NewsAdminPanel />
+            </div>
+
+            <style>{`
+              @media (max-width: 480px){
+                .news-editor .ai-row { gap: .5rem; }
+                .news-editor .ai-row > button { height: 34px; padding: 0 10px; }
+              }
+            `}</style>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {Array.isArray(legalImages) && (
+        <div
+          className="fixed inset-0 z-[999] bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setLegalImages(null)}
+        >
+          <div
+            className="bg-white rounded-xl max-w-5xl w-full p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-semibold">Ảnh pháp lý / HĐMB</div>
+              <button className="text-xl leading-none" onClick={() => setLegalImages(null)}>
+                ×
+              </button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[70vh] overflow-auto">
+              {legalImages.map((src, i) => (
+                <img
+                  key={i}
+                  src={src}
+                  alt={`legal-${i}`}
+                  className="w-full h-48 object-cover rounded-lg border"
+                />
+              ))}
+            </div>
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        {/* LOGS */}
-        <TabsContent value="logs" className="space-y-6">
-          <LogsContent />
-        </TabsContent>
-
-        {/* >>> Added: Tab Tin tức (Tin mới) – biên tập & quản lý bài */}
-        <TabsContent value="news" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Tin tức (Tin mới)</h2>
-            <Button
-              variant="outline"
-              onClick={() => window.open("/news", "_blank")}
-              title="Mở trang Tin mới (công khai)"
-            >
-              Xem trang Tin mới
-            </Button>
-          </div>
-
-          {/* >>> Added: bọc để áp CSS mobile cho nút AI viết bên trong NewsAdminPanel */}
-          <div className="news-editor">
-            <NewsAdminPanel />
-          </div>
-
-          {/* >>> Added: tinh chỉnh mobile cho hàng nút AI (không ảnh hưởng phần khác) */}
-          <style>{`
-            @media (max-width: 480px){
-              .news-editor .ai-row { gap: .5rem; }
-              .news-editor .ai-row > button { height: 34px; padding: 0 10px; }
-            }
-          `}</style>
-        </TabsContent>
-      </Tabs>
-    </div>
-
-    {Array.isArray(legalImages) && (
-      <Lightbox images={legalImages} onClose={() => setLegalImages(null)} />
-    )}
-
-    {editProp && (
-      <EditPropertyModal
-        property={editProp}
-        onClose={() => setEditProp(null)}
-        onSaved={() => {
-          refreshProps();
-        }}
-      />
-    )}
-  </AppLayout>
-);
+      {editProp && (
+        <EditPropertyModal
+          property={editProp}
+          onClose={() => setEditProp(null)}
+          onSaved={() => {
+            refreshProps();
+          }}
+        />
+      )}
+    </AppLayout>
+  );
 };
 
 export default SystemDashboard;
