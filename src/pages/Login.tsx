@@ -15,6 +15,9 @@ const ACCESS_TOKEN_KEY = "emy_access_token";
 const saveAccessToken = (t: string) => { try { if (t) localStorage.setItem(ACCESS_TOKEN_KEY, t); } catch {} };
 const readAccessToken = () => { try { return localStorage.getItem(ACCESS_TOKEN_KEY) || ""; } catch { return ""; } };
 
+/* ✅ Chuẩn hoá số điện thoại (dùng file gốc /utils/phone.ts) */
+import { phoneVnNormalize, phoneVnIsValid } from "/utils/phone";
+
 /* ✅ reCAPTCHA v2 checkbox */
 import ReCAPTCHA from "react-google-recaptcha";
 // Dùng test key nếu env chưa set → không báo “khóa không hợp lệ” khi dev
@@ -35,16 +38,7 @@ function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 function sanitizePhone(v: string) {
-  return v.replace(/\D/g, "");
-}
-function normalizeVNPhone(input: string) {
-  const digits = sanitizePhone(input);
-  let normalized = digits.startsWith("84") ? "0" + digits.slice(2) : digits;
-  if (normalized.length > 0 && normalized[0] !== "0") normalized = "0" + normalized;
-  return normalized.slice(0, 10);
-}
-function isValidVNPhone(v: string) {
-  return /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
+  return String(v).replace(/\D/g, "");
 }
 // Tìm user theo email (không phân biệt hoa/thường)
 function getUserByEmailCI(email: string) {
@@ -164,13 +158,13 @@ const Login: React.FC = () => {
     }
   }, [isAuthenticated, user, navigate, safeNext]);
 
-  // ❗ Chỉ cho phép SỐ ĐIỆN THOẠI
+  // ❗ Chỉ cho phép SỐ ĐIỆN THOẠI (dùng helper /utils/phone.ts)
   const liveIdentifierError = useMemo(() => {
     const v = identifier.trim();
     if (!v) return "";
     if (isEmail(v)) return "Chỉ hỗ trợ đăng nhập bằng số điện thoại.";
-    const normalized = normalizeVNPhone(v);
-    return isValidVNPhone(normalized)
+    const normalized = phoneVnNormalize(v);
+    return phoneVnIsValid(normalized)
       ? ""
       : "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
   }, [identifier]);
@@ -190,7 +184,7 @@ const Login: React.FC = () => {
     const v = identifier.trim();
     if (!v || liveIdentifierError) return;
 
-    const phone = sanitizePhone(normalizeVNPhone(v));
+    const phone = sanitizePhone(phoneVnNormalize(v));
 
     const timer = setTimeout(async () => {
       async function tryRpc(name: string, args: Record<string, any>) {
@@ -248,7 +242,7 @@ const Login: React.FC = () => {
     const e: Record<string, string> = {};
     if (!identifier.trim()) e.identifier = "Vui lòng nhập số điện thoại";
     else if (isEmail(identifier)) e.identifier = "Chỉ hỗ trợ đăng nhập bằng số điện thoại.";
-    else if (!isValidVNPhone(normalizeVNPhone(identifier))) e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
+    else if (!phoneVnIsValid(phoneVnNormalize(identifier))) e.identifier = "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)";
     if (dupCloudError) e.identifier = dupCloudError;
     if (!password) e.password = "Vui lòng nhập mật khẩu";
     if (!RECAPTCHA_OFF && !captchaOk) e.captcha = "Vui lòng xác nhận 'Tôi không phải người máy'.";
@@ -349,7 +343,7 @@ const Login: React.FC = () => {
         setIsLoading(false);
         return;
       }
-      const loginPhone = normalizeVNPhone(idTrim);
+      const loginPhone = phoneVnNormalize(idTrim);
       const deviceId = getOrCreateDeviceId();
 
       let cloudOK = await tryCloudLoginOrMigrate(loginPhone, password, deviceId);
@@ -431,8 +425,8 @@ const Login: React.FC = () => {
       setErrors((p) => ({ ...p, identifier: "Chỉ hỗ trợ số điện thoại." }));
       return;
     }
-    const normalized = normalizeVNPhone(id);
-    if (!isValidVNPhone(normalized)) {
+    const normalized = phoneVnNormalize(id);
+    if (!phoneVnIsValid(normalized)) {
       setErrors((p) => ({ ...p, identifier: "Số điện thoại Việt Nam 10 số (đầu 03/05/07/08/09)" }));
       return;
     }
