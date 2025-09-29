@@ -33,24 +33,18 @@ const RECAPTCHA_OFF =
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
 
+/* 🔧 BỔ SUNG: seed admin theo SĐT của Tom (vá nóng an toàn, idempotent) */
+const ADMIN_PHONE = "0903496118";
+const ADMIN_EMAIL2 = "emyland.vn@gmail.com";
+const ADMIN_PASSWORD2 = "Chat@1221";
+const phoneOnly = (v: string) => String(v || "").replace(/\D/g, "");
+
 /* ===== helpers ===== */
 function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 function sanitizePhone(v: string) {
   return String(v).replace(/\D/g, "");
-}
-// So khớp số ĐT VN linh hoạt: chấp nhận 0xxxxxxxxx <=> 84xxxxxxxxx
-function sameVnPhone(a?: string | null, b?: string | null) {
-  const norm = (s: string) =>
-    String(s || "")
-      .replace(/\D/g, "")
-      .replace(/^(?:\+84)/, "84");
-  const x = norm(a || "");
-  const y = norm(b || "");
-  if (!x || !y) return false;
-  const to84 = (s: string) => (s.startsWith("0") ? "84" + s.slice(1) : s);
-  return x === y || to84(x) === to84(y);
 }
 // Tìm user theo email (không phân biệt hoa/thường)
 function getUserByEmailCI(email: string) {
@@ -157,10 +151,36 @@ const Login: React.FC = () => {
   // Seed admin (idempotent)
   useEffect(() => {
     StorageManager.initializeAdmin?.();
+
+    // 1) Giữ seed cũ theo email (nếu đã có)
     const admin = StorageManager.getUserByEmail(ADMIN_EMAIL);
     if (admin && admin.isAdmin && admin.password !== ADMIN_PASSWORD) {
       StorageManager.saveUser({ ...admin, password: ADMIN_PASSWORD, isAdmin: true });
     }
+
+    // 2) BỔ SUNG: seed admin theo SĐT 0903496118 (vá nóng prod)
+    try {
+      const phoneKey = phoneOnly(ADMIN_PHONE);
+      const byPhone = StorageManager.getUserByPhone(phoneKey);
+      if (!byPhone) {
+        StorageManager.saveUser({
+          id: phoneKey,
+          fullName: "Admin EmyLand",
+          email: ADMIN_EMAIL2,
+          phone: phoneKey,
+          password: ADMIN_PASSWORD2,
+          isAdmin: true,
+          registeredAt: new Date().toISOString(),
+          isLoggedIn: false,
+        } as any);
+      } else {
+        const needPatch =
+          !byPhone.isAdmin || (byPhone.password && byPhone.password !== ADMIN_PASSWORD2) || !byPhone.password;
+        if (needPatch) {
+          StorageManager.saveUser({ ...byPhone, isAdmin: true, password: ADMIN_PASSWORD2 });
+        }
+      }
+    } catch {}
   }, []);
 
   // Nếu đã đăng nhập → điều hướng ngay (không mở tab mới)
@@ -214,11 +234,13 @@ const Login: React.FC = () => {
       let exists = false, dup = false;
       if (Array.isArray(data)) {
         const row = data[0] ?? {};
-        const cnt = row.count ?? row.c ?? row.total ?? row.n ?? (typeof row === "number" ? row : undefined);
-        if (typeof cnt === "number") { exists = cnt > 0; dup = cnt > 1; }
-        else {
+        the_loop: {
+          const cnt = row.count ?? row.c ?? row.total ?? row.n ?? (typeof row === "number" ? row : undefined);
+          if (typeof cnt === "number") { exists = cnt > 0; dup = cnt > 1; break the_loop; }
           exists = !!(row.exists ?? row.is_exist ?? row.found);
-          dup = !!(row.duplicated ?? row.dup ?? row.is_dup) || (typeof row.dup_count === "number" && row.dup_count > 1);
+          dup =
+            !!(row.duplicated ?? row.dup ?? row.is_dup) ||
+            (typeof row.dup_count === "number" && row.dup_count > 1);
         }
       } else if (typeof data === "number") { exists = data > 0; dup = data > 1; }
 
@@ -363,7 +385,7 @@ const Login: React.FC = () => {
       if (cloudOK) {
         const me = await getCloudMe();
         const mismatch = me
-          ? !sameVnPhone(me.phone || "", loginPhone)
+          ? sanitizePhone(me.phone || "") !== sanitizePhone(loginPhone)
           : false;
 
         if (mismatch) {
@@ -465,6 +487,7 @@ const Login: React.FC = () => {
             </span>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">Đăng nhập</CardTitle>
+          {/* ❌ ĐÃ XÓA: dòng mô tả “Sử dụng số điện thoại hoặc email…” */}
         </CardHeader>
 
         <CardContent>
@@ -486,7 +509,10 @@ const Login: React.FC = () => {
 
             {/* Identifier */}
             <div className="space-y-2">
-              <label htmlFor="identifier" className="sr-only">Số điện thoại</label>
+              {/* Ẩn nhãn để không hiển thị “Số điện thoại *” nhưng vẫn a11y */}
+              <label htmlFor="identifier" className="sr-only">
+                Số điện thoại
+              </label>
               <Input
                 id="identifier"
                 name="identifier"
@@ -520,7 +546,10 @@ const Login: React.FC = () => {
 
             {/* Password */}
             <div className="space-y-2">
-              <label htmlFor="password" className="sr-only">Mật khẩu</label>
+              {/* Ẩn nhãn để không hiển thị “Mật khẩu *” */}
+              <label htmlFor="password" className="sr-only">
+                Mật khẩu
+              </label>
               <div className="relative">
                 <Input
                   id="password"
