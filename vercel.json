@@ -2,7 +2,6 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://emyland-vn.vercel.app/api/$1" },
 
-    // SPA fallback: chỉ áp dụng cho đường dẫn KHÔNG chứa dấu chấm (không phải file tĩnh)
     { "source": "/((?!.*\\.).*)", "destination": "/" }
   ],
   "headers": [
