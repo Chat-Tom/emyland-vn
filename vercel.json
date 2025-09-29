@@ -1,16 +1,6 @@
 {
   "git": { "productionBranch": "vercel-free" },
-  "cleanUrls": true,
-  "trailingSlash": false,
   "rewrites": [
     { "source": "/((?!.*\\.).*)", "destination": "/" }
-  ],
-  "headers": [
-    {
-      "source": "/manifest.webmanifest",
-      "headers": [
-        { "key": "Content-Type", "value": "application/manifest+json" }
-      ]
-    }
   ]
 }
