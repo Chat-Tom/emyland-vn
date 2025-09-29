@@ -54,3 +54,4 @@ vite.config.ts.timestamp-*
 resp_*.json
 
 .vercel
+emyland-vn/
