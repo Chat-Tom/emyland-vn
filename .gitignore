@@ -52,3 +52,5 @@ vite.config.ts.timestamp-*
 
 # local test artifacts
 resp_*.json
+
+.vercel
