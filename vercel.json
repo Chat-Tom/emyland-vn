@@ -1,20 +1,15 @@
 {
-  "framework": "vite",
-  "installCommand": "npm ci",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-
-  "redirects": [
-    {
-      "source": "/(.*)",
-      "destination": "https://nhadat.ai.vn/$1",
-      "permanent": true,
-      "has": [{ "type": "host", "value": "emyland.vn" }]
-    }
-  ],
-
+  "git": {
+    "productionBranch": "vercel-free"
+  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/(.*)", "destination": "https://emyland-vn.vercel.app/api/$1" },
+    { "source": "/((?!.*\\.).*)", "destination": "/" }
+  ],
+  "headers": [
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }]
+    }
   ]
 }
