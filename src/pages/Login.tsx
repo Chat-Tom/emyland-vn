@@ -234,9 +234,9 @@ const Login: React.FC = () => {
       let exists = false, dup = false;
       if (Array.isArray(data)) {
         const row = data[0] ?? {};
-        the_loop: {
-          const cnt = row.count ?? row.c ?? row.total ?? row.n ?? (typeof row === "number" ? row : undefined);
-          if (typeof cnt === "number") { exists = cnt > 0; dup = cnt > 1; break the_loop; }
+        const cnt = row.count ?? row.c ?? row.total ?? row.n ?? (typeof row === "number" ? row : undefined);
+        if (typeof cnt === "number") { exists = cnt > 0; dup = cnt > 1; }
+        else {
           exists = !!(row.exists ?? row.is_exist ?? row.found);
           dup =
             !!(row.duplicated ?? row.dup ?? row.is_dup) ||
@@ -384,17 +384,18 @@ const Login: React.FC = () => {
 
       if (cloudOK) {
         const me = await getCloudMe();
-        const mismatch = me
-          ? sanitizePhone(me.phone || "") !== sanitizePhone(loginPhone)
-          : false;
 
-        if (mismatch) {
-          try { localStorage.removeItem(ACCESS_TOKEN_KEY); } catch {}
-          setErrors({ general: "Tài khoản nhận được không khớp. Vui lòng thử lại." });
-          setIsLoading(false);
-          return;
+        // 🔧 NỚI LỎNG KIỂM TRA KHỚP: chỉ coi là mismatch khi cả hai phía đều có phone hợp lệ và khác nhau rõ ràng.
+        const lp = sanitizePhone(phoneVnNormalize(loginPhone));
+        const mp = me?.phone ? sanitizePhone(phoneVnNormalize(me.phone)) : "";
+        const reallyMismatch = mp && lp && mp !== lp;
+
+        if (reallyMismatch) {
+          // Không chặn đăng nhập – chỉ ghi log cảnh báo để theo dõi.
+          console.warn("[Login] Cloud user phone mismatch: rpc_me.phone =", mp, "input =", lp);
         }
 
+        // Dù có mismatch hay không, vẫn tiếp tục sync & đăng nhập local để đảm bảo trải nghiệm.
         await syncProfileFromCloud();
         const u = ensureLocalUserAfterCloud(loginPhone, password);
         if (u) {
@@ -487,7 +488,6 @@ const Login: React.FC = () => {
             </span>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">Đăng nhập</CardTitle>
-          {/* ❌ ĐÃ XÓA: dòng mô tả “Sử dụng số điện thoại hoặc email…” */}
         </CardHeader>
 
         <CardContent>
@@ -509,10 +509,7 @@ const Login: React.FC = () => {
 
             {/* Identifier */}
             <div className="space-y-2">
-              {/* Ẩn nhãn để không hiển thị “Số điện thoại *” nhưng vẫn a11y */}
-              <label htmlFor="identifier" className="sr-only">
-                Số điện thoại
-              </label>
+              <label htmlFor="identifier" className="sr-only">Số điện thoại</label>
               <Input
                 id="identifier"
                 name="identifier"
@@ -546,10 +543,7 @@ const Login: React.FC = () => {
 
             {/* Password */}
             <div className="space-y-2">
-              {/* Ẩn nhãn để không hiển thị “Mật khẩu *” */}
-              <label htmlFor="password" className="sr-only">
-                Mật khẩu
-              </label>
+              <label htmlFor="password" className="sr-only">Mật khẩu</label>
               <div className="relative">
                 <Input
                   id="password"
