@@ -57,3 +57,4 @@ resp_*.json
 emyland-vn/
 
 .vercel
+_api_disabled/
