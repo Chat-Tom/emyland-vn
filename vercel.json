@@ -1,4 +1,3 @@
-// vercel.json
 {
   "git": { "productionBranch": "vercel-free" },
   "redirects": [
