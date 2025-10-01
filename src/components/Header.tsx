@@ -198,7 +198,7 @@ const Header: React.FC<HeaderProps> = ({
   // dùng chung cho desktop + mobile sheet
   const menuItems = useMemo(
     () => [
-      { label: "Tra cứu quy hoạch", path: "/planning-lookup" },
+      { label: "Tra cứu quy hoạch", path: "/planning-lookup?open=1" },
       { label: "Thẩm định giá - Chứng thư", path: "/valuation-certificate" },
     ],
     []
@@ -410,7 +410,7 @@ const Header: React.FC<HeaderProps> = ({
                     className="justify-start text-base h-11 px-4 rounded-xl bg-amber-100/90 hover:bg-amber-200 active:bg-amber-300 transition-all duration-150 shadow-sm hover:shadow md:hover:translate-x-0.5"
                     asChild
                   >
-                    <Link to="/planning-lookup">Tra cứu quy hoạch</Link>
+                    <Link to="/planning-lookup?open=1">Tra cứu quy hoạch</Link>
                   </Button>
 
                   {/* Thẩm định giá - Chứng thư */}

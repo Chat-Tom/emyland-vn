@@ -1,28 +1,8 @@
 {
-  "name": "Nền tảng \"Nhà đất chính chủ\"",
-  "short_name": "Nhà đất chính chủ",
-  "id": "/",
+  "name": "EmyLand",
+  "short_name": "EmyLand",
   "start_url": "/",
-  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#d70000",
-  "lang": "vi",
-  "dir": "ltr",
-  "description": "Đăng tin nhà đất chính chủ miễn phí trên EmyLand. Xác minh minh bạch, tối ưu hiển thị và tiếp cận người mua/thuê phù hợp.",
-  "categories": ["business", "real estate", "utilities", "productivity"],
-  "icons": [
-    {
-      "src": "/emyland-logo.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/emyland-logo.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    }
-  ]
+  "theme_color": "#d70000"
 }

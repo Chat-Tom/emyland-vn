@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck",
     "validate": "npm run lint && npm run typecheck && npm run build",
-    "start:server": "node --loader ts-node/esm src/server/index.ts"
+    "start:server": "node --loader ts-node/esm src/server/index.ts",
+    "vercel-build": "vite build",
+    "now-build": "vite build"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
