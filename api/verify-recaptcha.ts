@@ -14,16 +14,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'method_not_allowed' });
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ success: false, error: 'method_not_allowed' });
+  }
 
   const secret = process.env.RECAPTCHA_SECRET_KEY;
   if (!secret) return res.status(500).json({ success: false, error: 'missing_secret' });
 
-  const token = (req.body && ((req.body as any).token || (req.body as any)['g-recaptcha-response'])) || '';
+  // Lấy token từ body JSON, form-url-encoded, hoặc query ?token=
+  let token = '';
+  try {
+    // @ts-ignore
+    token = (req.body && (req.body.token || req.body['g-recaptcha-response'])) || '';
+  } catch {}
+  if (!token && req.query && typeof req.query.token === 'string') token = req.query.token;
+
   if (!token) return res.status(400).json({ success: false, error: 'missing_token' });
 
   try {
