@@ -1,8 +1,14 @@
 {
   "git": { "productionBranch": "vercel-free" },
+
   "rewrites": [
-    { "source": "/((?!.*\\.).*)", "destination": "/" }
+    // Bảo toàn mọi route API trước khi áp dụng SPA rewrite
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+
+    // SPA rewrite cho mọi đường dẫn KHÔNG có dấu chấm và KHÔNG bắt đầu bằng 'api'
+    { "source": "/((?!api)(?!.*\\.).*)", "destination": "/" }
   ],
+
   "headers": [
     {
       "source": "/manifest.webmanifest",
