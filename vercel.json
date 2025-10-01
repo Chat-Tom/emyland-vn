@@ -1,18 +1,13 @@
 {
   "git": { "productionBranch": "vercel-free" },
-
   "redirects": [
     { "source": "/:path*", "has": [{ "type": "host", "value": "www.nhadat.ai.vn" }],
-      "destination": "https://nhadat.ai.vn/:path*", "permanent": true },
-    { "source": "http://nhadat.ai.vn/:path*", "destination": "https://nhadat.ai.vn/:path*", "permanent": true },
-    { "source": "http://www.nhadat.ai.vn/:path*", "destination": "https://nhadat.ai.vn/:path*", "permanent": true }
+      "destination": "https://nhadat.ai.vn/:path*", "permanent": true }
   ],
-
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/((?!.*\\.).*)", "destination": "/" }
+    { "source": "/((?!api/|.*\\.).*)", "destination": "/" }
   ],
-
   "headers": [
     { "source": "/manifest.webmanifest",
       "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }] }
