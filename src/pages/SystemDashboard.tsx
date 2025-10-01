@@ -31,7 +31,7 @@ import LogsContent from "@/components/LogsContent";
 // import { PROPERTY_TYPES } from "@/data/property-types"; // không dùng
 import { provinces, wardsByProvince } from "@/data/vietnam-locations";
 import NewsAdminPanel from "@/components/admin/NewsAdminPanel";
-import EditPropertyModal from "@/components/admin/EditPropertyModal";
+import EditPropertyModal from "@/components/PropertyEditModal";
 
 /* ✅ Supabase (cloud-first) */
 import { supabase } from "@/lib/supabase";
