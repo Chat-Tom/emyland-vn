@@ -1,3 +1,4 @@
+// vercel.json
 {
   "git": { "productionBranch": "vercel-free" },
   "redirects": [
@@ -11,11 +12,5 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/((?!api/|.*\\.).*)", "destination": "/" }
-  ],
-  "headers": [
-    {
-      "source": "/manifest.webmanifest",
-      "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }]
-    }
   ]
 }
