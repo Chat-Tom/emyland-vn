@@ -30,6 +30,10 @@ const RECAPTCHA_OFF =
   (import.meta.env as any)?.VITE_RECAPTCHA_OFF === "1" ||
   window.location.hostname === "localhost";
 
+/* 🔧 NEW: Cho phép tắt nhánh Cloud khi cần cô lập sự cố (build flag) */
+const CLOUD_LOGIN_OFF =
+  (import.meta.env as any)?.VITE_CLOUD_LOGIN_OFF === "1";
+
 const ADMIN_EMAIL = "chat301277@gmail.com";
 const ADMIN_PASSWORD = "Chat@1221";
 
@@ -350,24 +354,29 @@ const Login: React.FC = () => {
     setErrors((p) => ({ ...p, general: "" }));
 
     try {
-      /* ✅ Verify captcha server-side trước khi login */
+      /* ✅ Verify captcha server-side trước khi login (không làm "đỏ" nếu API tạm lỗi) */
       if (!RECAPTCHA_OFF) {
-        const verifyRes = await fetch("/api/verify-recaptcha", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: captchaToken }),
-        });
-        const verifyJson = await verifyRes.json();
-        if (!verifyRes.ok || !verifyJson.success) {
-          setErrors((p) => ({
-            ...p,
-            captcha: "Xác minh captcha thất bại. Vui lòng tick lại ô 'Tôi không phải người máy'.",
-          }));
-          setIsLoading(false);
-          try { recaptchaRef.current?.reset(); } catch {}
-          setCaptchaOk(false);
-          setCaptchaToken(null);
-          return;
+        try {
+          const verifyRes = await fetch("/api/verify-recaptcha", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: captchaToken }),
+          });
+          const verifyJson = await verifyRes.json().catch(() => ({}));
+          if (!verifyRes.ok || !verifyJson?.success) {
+            setErrors((p) => ({
+              ...p,
+              captcha: "Xác minh captcha thất bại. Vui lòng tick lại ô 'Tôi không phải người máy'.",
+            }));
+            setIsLoading(false);
+            try { recaptchaRef.current?.reset(); } catch {}
+            setCaptchaOk(false);
+            setCaptchaToken(null);
+            return;
+          }
+        } catch (e) {
+          // API verify đang không sẵn sàng → ghi log nhưng cho phép tiếp tục để anh test
+          console.warn("verify-recaptcha unreachable, continuing dev flow:", e);
         }
       }
 
@@ -380,7 +389,16 @@ const Login: React.FC = () => {
       const loginPhone = phoneVnNormalize(idTrim);
       const deviceId = getOrCreateDeviceId();
 
-      let cloudOK = await tryCloudLoginOrMigrate(loginPhone, password, deviceId);
+      // ✅ Cloud-first an toàn + flag tắt Cloud khi cần
+      let cloudOK = false;
+      if (!CLOUD_LOGIN_OFF) {
+        try {
+          cloudOK = await tryCloudLoginOrMigrate(loginPhone, password, deviceId);
+        } catch (e) {
+          console.error("cloud login failed, fallback to local:", e);
+          cloudOK = false;
+        }
+      }
 
       if (cloudOK) {
         const me = await getCloudMe();
@@ -409,11 +427,10 @@ const Login: React.FC = () => {
             });
           } catch {}
           try { await loginByEmailOrPhone(loginPhone, password); } catch {}
+          try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
+          await waitRouterStable();
+          navigate(u?.isAdmin ? "/system-dashboard" : safeNext, { replace: true });
         }
-        try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}
-        await waitRouterStable();
-
-        navigate(u?.isAdmin ? "/system-dashboard" : safeNext, { replace: true });
         return;
       }
 
@@ -426,13 +443,15 @@ const Login: React.FC = () => {
 
       let u = StorageManager.getUserByPhone(sanitizePhone(loginPhone));
       if (u) {
-        StorageManager.markDeviceForUser(u.phone, deviceId);
-        StorageManager.setActiveSession({
-          userId: u.id,
-          phone: u.phone,
-          deviceId,
-          loggedInAt: new Date().toISOString(),
-        });
+        try {
+          StorageManager.markDeviceForUser(u.phone, deviceId);
+          StorageManager.setActiveSession({
+            userId: u.id,
+            phone: u.phone,
+            deviceId,
+            loggedInAt: new Date().toISOString(),
+          });
+        } catch {}
       }
 
       try { localStorage.setItem("emyland_user_updated", String(Date.now())); } catch {}

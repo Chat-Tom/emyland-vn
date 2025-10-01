@@ -1,6 +1,15 @@
 {
   "git": { "productionBranch": "vercel-free" },
+
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/((?!.*\\.).*)", "destination": "/" }
+  ],
+
+  "headers": [
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }]
+    }
   ]
 }
