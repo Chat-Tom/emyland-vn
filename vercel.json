@@ -1,20 +1,13 @@
 {
-  "git": { "productionBranch": "vercel-free" },
-
+  "version": 2,
+  "buildCommand": "vite build",
+  "outputDirectory": "dist",
   "functions": {
-    "api/**/*.ts": { "runtime": "nodejs18.x" },
-    "api/**/*.js": { "runtime": "nodejs18.x" }
+    "api/**/*.ts": { "runtime": "nodejs20.x" },
+    "api/**/*.js": { "runtime": "nodejs20.x" }
   },
-
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/((?!api)(?!.*\\.).*)", "destination": "/" }
-  ],
-
-  "headers": [
-    {
-      "source": "/manifest.webmanifest",
-      "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }]
-    }
+    { "source": "/(.*)", "destination": "/" }
   ]
 }
