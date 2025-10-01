@@ -1,14 +1,30 @@
+# 1) vercel.json mới (chỉ dùng runtime Node 20 cho /api/**)
+cat > vercel.json <<'EOF'
 {
   "version": 2,
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "functions": {
-    "api/**/*.ts": { "runtime": "nodejs20.x" },
-    "api/**/*.js": { "runtime": "nodejs20.x" }
+    "api/**/*.js": { "runtime": "nodejs20.x" },
+    "api/**/*.ts": { "runtime": "nodejs20.x" }
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/" }
+    { "source": "/(.*)",    "destination": "/" }
   ]
 }
+EOF
+
+# 2) .vercelignore: KHÔNG ignore /api nữa
+cat > .vercelignore <<'EOF'
+node_modules
+dist
+.vscode
+.next
+.DS_Store
+.svelte-kit
+EOF
+
+# 3) đảm bảo repo không còn chuỗi 'now-' hay 'runtimes' lỗi thời
+grep -RniE "now-|runtimes|builds" vercel.json || true
