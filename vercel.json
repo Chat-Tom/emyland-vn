@@ -1,6 +1,5 @@
 {
   "git": { "productionBranch": "vercel-free" },
-
   "redirects": [
     {
       "source": "/:path*",
@@ -9,12 +8,10 @@
       "permanent": true
     }
   ],
-
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/((?!api/|.*\\.).*)", "destination": "/" }
   ],
-
   "headers": [
     {
       "source": "/manifest.webmanifest",
