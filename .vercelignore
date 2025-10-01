@@ -1,4 +1,6 @@
-api/**
-supabase/functions/**
-netlify/**
-functions/**
+node_modules
+.vscode
+.DS_Store
+dist
+.svelte-kit
+.next
