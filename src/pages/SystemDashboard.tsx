@@ -11,7 +11,7 @@ import {
   type UserAccount,
   type PropertyListing,
 } from "@utils/storage";
-import { appendLog, getActorEmail } from "../../utils/log";
+import { appendLog, getActorEmail } from "@/utils/log";
 import {
   Users,
   Home,
@@ -28,10 +28,7 @@ import {
   Ban,
 } from "lucide-react";
 import LogsContent from "@/components/LogsContent";
-// import { PROPERTY_TYPES } from "@/data/property-types"; // không dùng
-import { provinces, wardsByProvince } from "@/data/vietnam-locations";
 import NewsAdminPanel from "@/components/admin/NewsAdminPanel";
-import EditPropertyModal from "@/components/PropertyEditModal";
 
 /* ✅ Supabase (cloud-first) */
 import { supabase } from "@/lib/supabase";
@@ -221,7 +218,6 @@ const SystemDashboard: React.FC = () => {
   const [userQuery, setUserQuery] = useState("");
   const [propQuery, setPropQuery] = useState("");
   const [legalImages, setLegalImages] = useState<string[] | null>(null);
-  const [editProp, setEditProp] = useState<any | null>(null);
 
   const sortByDateDesc = (a: any, b: any) => {
     const ad = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
@@ -1013,7 +1009,7 @@ const SystemDashboard: React.FC = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setEditProp(property)}
+                            onClick={() => navigate(`/post-property?id=${property.id}`)}
                           >
                             <Pencil className="h-4 w-4 mr-1" />
                             Sửa
@@ -1099,16 +1095,6 @@ const SystemDashboard: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {editProp && (
-        <EditPropertyModal
-          property={editProp}
-          onClose={() => setEditProp(null)}
-          onSaved={() => {
-            refreshProps();
-          }}
-        />
       )}
     </AppLayout>
   );

@@ -669,7 +669,7 @@ export default function Home() {
     province || minPrice !== undefined || maxPrice !== undefined ||
     minArea !== undefined || maxArea !== undefined
   );
-  const ENABLE_LIVE_FEED_ON_SELL_RENT = false;
+  const ENABLE_LIVE_FEED_ON_SELL_RENT = true;
   const displayMatched = useMemo(() => {
     if (socialMode) return matchedTotal;
     if (!extraFiltersActive) {

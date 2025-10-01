@@ -16,7 +16,7 @@ const saveAccessToken = (t: string) => { try { if (t) localStorage.setItem(ACCES
 const readAccessToken = () => { try { return localStorage.getItem(ACCESS_TOKEN_KEY) || ""; } catch { return ""; } };
 
 /* ✅ Chuẩn hoá số điện thoại (dùng file gốc /utils/phone.ts) */
-import { phoneVnNormalize, phoneVnIsValid } from "/utils/phone";
+import { phoneVnNormalize, phoneVnIsValid } from "@utils/phone";
 
 /* ✅ reCAPTCHA v2 checkbox */
 import ReCAPTCHA from "react-google-recaptcha";
