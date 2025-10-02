@@ -209,6 +209,8 @@ function writeBanned(b: { emails: string[]; phones: string[] }) {
 /* ======================= Component ======================= */
 type ListingType = "sell" | "rent";
 
+const PAGE_SIZE = 12;
+
 const SystemDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -217,7 +219,36 @@ const SystemDashboard: React.FC = () => {
 
   const [userQuery, setUserQuery] = useState("");
   const [propQuery, setPropQuery] = useState("");
+  // === Pagination (12 tin/trang) ===
+const PAGE_SIZE = 12;
+const [page, setPage] = useState(1);
+
+// danh sách đã lọc theo ô tìm kiếm (GIỮ NGUYÊN logic sort đã có)
+const filteredPropsBase = useMemo(() => {
+  const base = properties.slice().sort(sortByDateDesc);
+  if (!propQuery.trim()) return base;
+  const q = propQuery.trim().toLowerCase();
+  return base.filter(
+    (p) =>
+      (p.title || "").toLowerCase().includes(q) ||
+      (p.description || "").toLowerCase().includes(q) ||
+      (p.userEmail || "").toLowerCase().includes(q)
+  );
+}, [properties, propQuery]);
+
+const totalPages = Math.max(1, Math.ceil(filteredPropsBase.length / PAGE_SIZE));
+const pagedProps = useMemo(() => {
+  const start = (page - 1) * PAGE_SIZE;
+  return filteredPropsBase.slice(start, start + PAGE_SIZE);
+}, [filteredPropsBase, page]);
+
+// đổi trang về 1 khi dữ liệu/từ khoá thay đổi
+useEffect(() => { setPage(1); }, [propQuery, properties.length]);
+
   const [legalImages, setLegalImages] = useState<string[] | null>(null);
+
+  // pagination state for properties
+  const [page, setPage] = useState(1);
 
   const sortByDateDesc = (a: any, b: any) => {
     const ad = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
@@ -496,7 +527,8 @@ const SystemDashboard: React.FC = () => {
     );
   }, [users, userQuery]);
 
-  const filteredProps = useMemo(() => {
+  // ===== Properties filtering + pagination (12 / page)
+  const filteredPropsBase = useMemo(() => {
     const base = properties.slice().sort(sortByDateDesc);
     if (!propQuery.trim()) return base;
     const q = propQuery.trim().toLowerCase();
@@ -507,6 +539,18 @@ const SystemDashboard: React.FC = () => {
         (p.userEmail || "").toLowerCase().includes(q)
     );
   }, [properties, propQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredPropsBase.length / PAGE_SIZE));
+
+  const pagedProps = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredPropsBase.slice(start, start + PAGE_SIZE);
+  }, [filteredPropsBase, page]);
+
+  // reset to page 1 when filter or data changes
+  useEffect(() => {
+    setPage(1);
+  }, [propQuery, properties.length]);
 
   const openLegalImages = (propId: string) => {
     const imgs = StorageManager.getLegalImages(propId);
@@ -877,162 +921,209 @@ const SystemDashboard: React.FC = () => {
               ))}
             </div>
           </TabsContent>
+{/* PROPERTIES */}
+<TabsContent value="properties" className="space-y-4">
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <h2 className="text-2xl font-semibold">
+      Danh sách tin đăng ({properties.length})
+    </h2>
+    <div className="relative">
+      <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+      <input
+        className="h-10 pl-9 pr-3 rounded-md border w-80"
+        placeholder="Tìm theo tiêu đề, mô tả, email chủ tin…"
+        value={propQuery}
+        onChange={(e) => setPropQuery(e.target.value)}
+      />
+    </div>
+  </div>
 
-          {/* PROPERTIES */}
-          <TabsContent value="properties" className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <h2 className="text-2xl font-semibold">
-                Danh sách tin đăng ({properties.length})
-              </h2>
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                <input
-                  className="h-10 pl-9 pr-3 rounded-md border w-80"
-                  placeholder="Tìm theo tiêu đề, mô tả, email chủ tin…"
-                  value={propQuery}
-                  onChange={(e) => setPropQuery(e.target.value)}
-                />
+  {/* Header phân trang */}
+  <div className="flex items-center justify-between text-sm text-gray-600">
+    <div>
+      Đang hiển thị{" "}
+      <span className="font-semibold">
+        {Math.min((page - 1) * PAGE_SIZE + 1, filteredPropsBase.length)}
+        {"–"}
+        {Math.min(page * PAGE_SIZE, filteredPropsBase.length)}
+      </span>{" "}
+      / {filteredPropsBase.length} tin
+    </div>
+    <div className="flex items-center gap-1">
+      <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1}>
+        Đầu
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setPage((p) => Math.max(1, p - 1))}
+        disabled={page === 1}
+      >
+        Trước
+      </Button>
+      <span className="px-2">
+        Trang <b>{page}</b> / {totalPages}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+        disabled={page === totalPages}
+      >
+        Sau
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setPage(totalPages)}
+        disabled={page === totalPages}
+      >
+        Cuối
+      </Button>
+    </div>
+  </div>
+
+  <div className="grid gap-4">
+    {pagedProps.map((property: any) => {
+      const legalCount = StorageManager.getLegalImages(property.id)?.length ?? 0;
+      const lt: "sell" | "rent" =
+        property?.listingType ?? (typeof property?.rent_per_month === "number" ? "rent" : "sell");
+      const isVerified =
+        property?.verificationStatus === "verified" ||
+        property?.contactInfo?.ownerVerified;
+
+      const trimTrailingZero = (s: string) => s.replace(/\.0\b/, "");
+      const priceText = (p: any) => {
+        if (lt === "rent") {
+          const v = Number(p?.rent_per_month) || 0;
+          return v > 0 ? `${Math.round(v / 1_000_000)} triệu/tháng` : "Thoả thuận";
+        }
+        const v = Number(p?.price) || 0;
+        if (!v) return "Thoả thuận";
+        if (v >= 1_000_000_000) return `${trimTrailingZero((v / 1_000_000_000).toFixed(1))} tỷ`;
+        if (v >= 1_000_000) return `${Math.round(v / 1_000_000)} triệu`;
+        return v.toLocaleString();
+      };
+      const areaText = (a?: any) => {
+        if (a == null) return "--";
+        const n =
+          typeof a === "number"
+            ? a
+            : Number(String(a).replace(/[^\d.,]/g, "").replace(",", "."));
+        if (!isFinite(n) || n <= 0) return "--";
+        return n < 100 ? `${Math.round(n * 10) / 10} m²` : `${Math.round(n)} m²`;
+      };
+      const toPosInt = (v: any): number | undefined => {
+        if (typeof v === "number" && v > 0) return Math.round(v);
+        if (typeof v === "string") {
+          const m = v.match(/\d+/);
+          if (m) {
+            const n = Number(m[0]);
+            if (n > 0) return n;
+          }
+        }
+        return undefined;
+      };
+      const bedrooms = toPosInt(
+        property?.bedrooms ?? property?.rooms?.bedrooms ?? property?.bedroom_count
+      );
+      const bathrooms = toPosInt(
+        property?.bathrooms ?? property?.rooms?.bathrooms ?? property?.bathroom_count ?? property?.wc
+      );
+
+      return (
+        <Card key={property.id}>
+          <CardContent className="p-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-semibold line-clamp-1">
+                    {property.title}
+                  </h3>
+                  <Badge className={lt === "sell" ? "bg-blue-600" : "bg-emerald-600"}>
+                    {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
+                  </Badge>
+                  {isVerified ? (
+                    <Badge className="bg-emerald-600">Đã xác nhận chính chủ</Badge>
+                  ) : (
+                    <Badge className="bg-amber-500">Đang xác nhận chính chủ</Badge>
+                  )}
+                </div>
+
+                <p className="text-gray-600 line-clamp-2">{property.description}</p>
+
+                <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                  <span>
+                    Giá: <span className="font-semibold text-gray-900">{priceText(property)}</span>
+                  </span>
+                  <span>•</span>
+                  <span>Diện tích: {areaText(property.area)}</span>
+                  {typeof bedrooms === "number" && (
+                    <>
+                      <span>•</span>
+                      <span>{bedrooms}N</span>
+                    </>
+                  )}
+                  {typeof bathrooms === "number" && (
+                    <>
+                      <span>•</span>
+                      <span>{bathrooms}WC</span>
+                    </>
+                  )}
+                  <span>•</span>
+                  <span>Đăng: {vnDateString(property.createdAt)}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{property.propertyType}</Badge>
+                  <span className="text-sm text-gray-500">bởi {property.userEmail}</span>
+                  {legalCount > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ml-2"
+                      onClick={() => openLegalImages(property.id)}
+                      title="Xem ảnh pháp lý / sổ đỏ / HĐMB"
+                    >
+                      <Images className="h-4 w-4 mr-1" />
+                      Ảnh pháp lý ({legalCount})
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="outline" size="sm" onClick={() => navigate(`/property/${property.id}`)}>
+                  <Eye className="h-4 w-4 mr-1" />
+                  Xem
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/post-property?id=${property.id}`)}
+                >
+                  <Pencil className="h-4 w-4 mr-1" />
+                  Sửa
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 hover:text-red-700"
+                  onClick={() => handleDeleteProperty(property.id)}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Xóa
+                </Button>
               </div>
             </div>
-
-            <div className="grid gap-4">
-              {filteredProps.map((property: any) => {
-                const legalCount =
-                  StorageManager.getLegalImages(property.id)?.length ?? 0;
-                const lt: ListingType =
-                  property?.listingType ??
-                  (typeof property?.rent_per_month === "number" ? "rent" : "sell");
-                const isVerified =
-                  property?.verificationStatus === "verified" ||
-                  property?.contactInfo?.ownerVerified;
-
-                const { bedrooms, bathrooms } = inferRooms(property);
-
-                return (
-                  <Card key={property.id}>
-                    <CardContent className="p-6">
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-lg font-semibold line-clamp-1">
-                              {property.title}
-                            </h3>
-                            <Badge
-                              className={
-                                lt === "sell" ? "bg-blue-600" : "bg-emerald-600"
-                              }
-                            >
-                              {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
-                            </Badge>
-                            {isVerified ? (
-                              <Badge className="bg-emerald-600">
-                                {(() => {
-                                  const t =
-                                    property?.verifiedAt ||
-                                    property?.verified_at ||
-                                    property?.contactInfo?.ownerVerifiedAt ||
-                                    property?.contactInfo?.owner_verified_at;
-                                  const d = vnDateString(t);
-                                  return d
-                                    ? `Đã xác nhận chính chủ ngày ${d}`
-                                    : "Đã xác nhận chính chủ";
-                                })()}
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-amber-500">
-                                Đang xác nhận chính chủ
-                              </Badge>
-                            )}
-                          </div>
-
-                          <p className="text-gray-600 line-clamp-2">
-                            {property.description}
-                          </p>
-
-                          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
-                            <span>
-                              Giá:{" "}
-                              <span className="font-semibold text-gray-900">
-                                {priceText(property)}
-                              </span>
-                            </span>
-                            <span>•</span>
-                            <span>Diện tích: {areaText(property.area)}</span>
-
-                            {typeof bedrooms === "number" && (
-                              <>
-                                <span>•</span>
-                                <span>{bedrooms}N</span>
-                              </>
-                            )}
-                            {typeof bathrooms === "number" && (
-                              <>
-                                <span>•</span>
-                                <span>{bathrooms}WC</span>
-                              </>
-                            )}
-
-                            <span>•</span>
-                            <span>Đăng: {vnDateString(property.createdAt)}</span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary">{property.propertyType}</Badge>
-                            <span className="text-sm text-gray-500">
-                              bởi {property.userEmail}
-                            </span>
-                            {legalCount > 0 && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="ml-2"
-                                onClick={() => openLegalImages(property.id)}
-                                title="Xem ảnh pháp lý / sổ đỏ / HĐMB"
-                              >
-                                <Images className="h-4 w-4 mr-1" />
-                                Ảnh pháp lý ({legalCount})
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex gap-2 flex-wrap">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => navigate(`/property/${property.id}`)}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            Xem
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => navigate(`/post-property?id=${property.id}`)}
-                          >
-                            <Pencil className="h-4 w-4 mr-1" />
-                            Sửa
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700"
-                            onClick={() => handleDeleteProperty(property.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            Xóa
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </TabsContent>
-
+          </CardContent>
+        </Card>
+      );
+    })}
+  </div>
+</TabsContent>
           {/* LOGS */}
           <TabsContent value="logs" className="space-y-6">
             <LogsContent />
