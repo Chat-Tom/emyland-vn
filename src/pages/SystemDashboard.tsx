@@ -11,7 +11,7 @@ import {
   type UserAccount,
   type PropertyListing,
 } from "@utils/storage";
-import { appendLog, getActorEmail } from "../../utils/log";
+import { appendLog, getActorEmail } from "@/utils/log";
 import {
   Users,
   Home,
@@ -28,10 +28,7 @@ import {
   Ban,
 } from "lucide-react";
 import LogsContent from "@/components/LogsContent";
-// import { PROPERTY_TYPES } from "@/data/property-types"; // không dùng
-import { provinces, wardsByProvince } from "@/data/vietnam-locations";
 import NewsAdminPanel from "@/components/admin/NewsAdminPanel";
-import EditPropertyModal from "@/components/PropertyEditModal";
 
 /* ✅ Supabase (cloud-first) */
 import { supabase } from "@/lib/supabase";
@@ -212,6 +209,8 @@ function writeBanned(b: { emails: string[]; phones: string[] }) {
 /* ======================= Component ======================= */
 type ListingType = "sell" | "rent";
 
+const PAGE_SIZE = 12;
+
 const SystemDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -221,7 +220,9 @@ const SystemDashboard: React.FC = () => {
   const [userQuery, setUserQuery] = useState("");
   const [propQuery, setPropQuery] = useState("");
   const [legalImages, setLegalImages] = useState<string[] | null>(null);
-  const [editProp, setEditProp] = useState<any | null>(null);
+
+  // pagination state for properties
+  const [page, setPage] = useState(1);
 
   const sortByDateDesc = (a: any, b: any) => {
     const ad = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
@@ -500,7 +501,8 @@ const SystemDashboard: React.FC = () => {
     );
   }, [users, userQuery]);
 
-  const filteredProps = useMemo(() => {
+  // ===== Properties filtering + pagination (12 / page)
+  const filteredPropsBase = useMemo(() => {
     const base = properties.slice().sort(sortByDateDesc);
     if (!propQuery.trim()) return base;
     const q = propQuery.trim().toLowerCase();
@@ -511,6 +513,18 @@ const SystemDashboard: React.FC = () => {
         (p.userEmail || "").toLowerCase().includes(q)
     );
   }, [properties, propQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredPropsBase.length / PAGE_SIZE));
+
+  const pagedProps = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredPropsBase.slice(start, start + PAGE_SIZE);
+  }, [filteredPropsBase, page]);
+
+  // reset to page 1 when filter or data changes
+  useEffect(() => {
+    setPage(1);
+  }, [propQuery, properties.length]);
 
   const openLegalImages = (propId: string) => {
     const imgs = StorageManager.getLegalImages(propId);
@@ -883,7 +897,7 @@ const SystemDashboard: React.FC = () => {
           </TabsContent>
 
           {/* PROPERTIES */}
-          <TabsContent value="properties" className="space-y-6">
+          <TabsContent value="properties" className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <h2 className="text-2xl font-semibold">
                 Danh sách tin đăng ({properties.length})
@@ -899,8 +913,53 @@ const SystemDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Pagination header */}
+            <div className="flex items-center justify-between text-sm text-gray-600">
+              <div>
+                Đang hiển thị{" "}
+                <span className="font-semibold">
+                  {Math.min((page - 1) * PAGE_SIZE + 1, filteredPropsBase.length)}
+                  {"–"}
+                  {Math.min(page * PAGE_SIZE, filteredPropsBase.length)}
+                </span>{" "}
+                / {filteredPropsBase.length} tin
+              </div>
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1}>
+                  Đầu
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  Trước
+                </Button>
+                <span className="px-2">
+                  Trang <b>{page}</b> / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                >
+                  Sau
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(totalPages)}
+                  disabled={page === totalPages}
+                >
+                  Cuối
+                </Button>
+              </div>
+            </div>
+
             <div className="grid gap-4">
-              {filteredProps.map((property: any) => {
+              {pagedProps.map((property: any) => {
                 const legalCount =
                   StorageManager.getLegalImages(property.id)?.length ?? 0;
                 const lt: ListingType =
@@ -1013,7 +1072,7 @@ const SystemDashboard: React.FC = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setEditProp(property)}
+                            onClick={() => navigate(`/post-property?id=${property.id}`)}
                           >
                             <Pencil className="h-4 w-4 mr-1" />
                             Sửa
@@ -1099,16 +1158,6 @@ const SystemDashboard: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {editProp && (
-        <EditPropertyModal
-          property={editProp}
-          onClose={() => setEditProp(null)}
-          onSaved={() => {
-            refreshProps();
-          }}
-        />
       )}
     </AppLayout>
   );
