@@ -6,12 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  StorageManager,
-  type UserAccount,
-  type PropertyListing,
-} from "@utils/storage";
-import { appendLog, getActorEmail } from "@/utils/log";
+import { StorageManager, type UserAccount, type PropertyListing } from "@utils/storage";
+import { appendLog, getActorEmail } from "../../utils/log";
 import {
   Users,
   Home,
@@ -28,6 +24,8 @@ import {
   Ban,
 } from "lucide-react";
 import LogsContent from "@/components/LogsContent";
+import { PROPERTY_TYPES } from "@/data/property-types";
+import { provinces, wardsByProvince } from "@/data/vietnam-locations";
 import NewsAdminPanel from "@/components/admin/NewsAdminPanel";
 
 /* ✅ Supabase (cloud-first) */
@@ -41,8 +39,7 @@ const normalizeVNPhone = (input: string) => {
   if (normalized && normalized[0] !== "0") normalized = "0" + normalized;
   return normalized.slice(0, 10);
 };
-const isVNPhone10 = (v: string) =>
-  /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
+const isVNPhone10 = (v: string) => /^(03|05|07|08|09)\d{8}$/.test(sanitizePhone(v));
 
 /* ======================= UI helpers ======================= */
 const BIG6 = [
@@ -59,9 +56,7 @@ const wardWeight = (name: string) =>
 const vnDateString = (d?: string | number | Date) => {
   if (!d) return "";
   try {
-    return new Date(d).toLocaleDateString("vi-VN", {
-      timeZone: "Asia/Ho_Chi_Minh",
-    });
+    return new Date(d).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
   } catch {
     return "";
   }
@@ -81,11 +76,7 @@ const toPosInt = (v: any): number | undefined => {
 };
 const inferRooms = (p: any): { bedrooms?: number; bathrooms?: number } => {
   const bd = toPosInt(
-    p?.bedrooms ??
-      p?.bedroom ??
-      p?.numBedrooms ??
-      p?.rooms?.bedrooms ??
-      p?.bedroom_count
+    p?.bedrooms ?? p?.bedroom ?? p?.numBedrooms ?? p?.rooms?.bedrooms ?? p?.bedroom_count
   );
   let bt = toPosInt(
     p?.bathrooms ??
@@ -101,9 +92,8 @@ const inferRooms = (p: any): { bedrooms?: number; bathrooms?: number } => {
   let bedrooms = bd;
   let bathrooms = bt;
 
-  const hay = `${p?.title ?? ""} ${p?.description ?? ""} ${
-    p?.summary ?? ""
-  }`.toLowerCase();
+  const hay = `${p?.title ?? ""} ${p?.description ?? ""} ${p?.summary ?? ""}`
+    .toLowerCase();
   if (!bedrooms) {
     const m = hay.match(/(\d+)\s*(pn|phòng\s*ngủ|\bn\b)/i);
     if (m) bedrooms = Number(m[1]);
@@ -180,12 +170,8 @@ const normPhone = (s?: string) => (s || "").replace(/\D+/g, "");
 function readBanned() {
   try {
     return {
-      emails: JSON.parse(
-        localStorage.getItem(BANNED_EMAILS_KEY) || "[]"
-      ) as string[],
-      phones: JSON.parse(
-        localStorage.getItem(BANNED_PHONES_KEY) || "[]"
-      ) as string[],
+      emails: JSON.parse(localStorage.getItem(BANNED_EMAILS_KEY) || "[]") as string[],
+      phones: JSON.parse(localStorage.getItem(BANNED_PHONES_KEY) || "[]") as string[],
     };
   } catch {
     return { emails: [], phones: [] };
@@ -193,14 +179,8 @@ function readBanned() {
 }
 function writeBanned(b: { emails: string[]; phones: string[] }) {
   try {
-    localStorage.setItem(
-      BANNED_EMAILS_KEY,
-      JSON.stringify(Array.from(new Set(b.emails)))
-    );
-    localStorage.setItem(
-      BANNED_PHONES_KEY,
-      JSON.stringify(Array.from(new Set(b.phones)))
-    );
+    localStorage.setItem(BANNED_EMAILS_KEY, JSON.stringify(Array.from(new Set(b.emails))));
+    localStorage.setItem(BANNED_PHONES_KEY, JSON.stringify(Array.from(new Set(b.phones))));
     localStorage.setItem("emyland_banned_updated", String(Date.now()));
     window.dispatchEvent?.(new Event("emyland:banned-updated"));
   } catch {}
@@ -208,9 +188,8 @@ function writeBanned(b: { emails: string[]; phones: string[] }) {
 
 /* ======================= Component ======================= */
 type ListingType = "sell" | "rent";
-const PAGE_SIZE = 12;
 
-const SystemDashboard: React.FC = () => {
+const SystemDashboard = () => {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [properties, setProperties] = useState<PropertyListing[]>([]);
@@ -218,14 +197,14 @@ const SystemDashboard: React.FC = () => {
 
   const [userQuery, setUserQuery] = useState("");
   const [propQuery, setPropQuery] = useState("");
-  const [page, setPage] = useState(1);
   const [legalImages, setLegalImages] = useState<string[] | null>(null);
+  const [editProp, setEditProp] = useState<any | null>(null);
 
   const sortByDateDesc = (a: any, b: any) => {
     const ad = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
     const bd = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
     return bd - ad;
-  };
+    };
 
   const loadAllLocal = () => {
     setUsers(StorageManager.getAllUsers());
@@ -233,25 +212,50 @@ const SystemDashboard: React.FC = () => {
     setProperties(list);
   };
 
-  /* ✅ Kiểm tra quyền admin cloud-first (RPC) */
+  /* ✅ Quan trọng: Kiểm tra quyền admin cloud-first theo SĐT */
   const [cloudAdminChecked, setCloudAdminChecked] = useState(false);
   const [isAdminEffective, setIsAdminEffective] = useState(false);
 
   async function checkAdminCloudFirst(): Promise<boolean> {
     try {
-      const { data, error } = await supabase.rpc("rpc_am_i_admin");
-      if (error) throw error;
+      const me = StorageManager.getCurrentUser();
+      if (!me || !me.isLoggedIn) return false;
 
-      const cloudAdmin = !!data;
-      setIsAdminEffective(cloudAdmin);
-      return cloudAdmin;
+      const phone = normalizeVNPhone(me.phone || "");
+      if (!isVNPhone10(phone)) return false;
+
+      // RLS đã bật, chỉ cần lọc theo phone (chuẩn hóa 0xxxxxxxxx)
+      const { data, error } = await supabase
+        .from("users_public")
+        .select("id, phone, email, is_admin")
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("checkAdminCloudFirst error:", error.message);
+      }
+
+      if (data?.is_admin === true) {
+        // Đồng bộ Local để về sau không bị lệch
+        const u = StorageManager.getUserByPhone(phone) || StorageManager.getCurrentUser();
+        if (u) {
+          StorageManager.saveUser({ ...u, isAdmin: true });
+        }
+        setIsAdminEffective(true);
+        return true;
+      }
+
+      // fallback: siêu admin theo email nếu cần
+      const isSuper = normEmail(me.email) === SUPER_ADMIN_EMAIL;
+      setIsAdminEffective(isSuper || !!me.isAdmin);
+      return isSuper || !!me.isAdmin;
     } catch (e) {
       console.error("checkAdminCloudFirst fatal:", e);
-      // Fallback duy nhất: super-admin bằng email
+      // fallback local
       const me = StorageManager.getCurrentUser();
       const isSuper = normEmail(me?.email) === SUPER_ADMIN_EMAIL;
-      setIsAdminEffective(isSuper);
-      return isSuper;
+      setIsAdminEffective(isSuper || !!me?.isAdmin);
+      return isSuper || !!me?.isAdmin;
     } finally {
       setCloudAdminChecked(true);
     }
@@ -289,6 +293,7 @@ const SystemDashboard: React.FC = () => {
         return;
       }
 
+      // quyền OK -> nạp dữ liệu
       loadAllLocal();
       await loadCloudProps();
       setLoading(false);
@@ -311,116 +316,74 @@ const SystemDashboard: React.FC = () => {
         loadCloudProps();
       }
     };
-    window.addEventListener(
-      "emyland:properties-changed",
-      onChanged as EventListener
-    );
+    window.addEventListener("emyland:properties-changed", onChanged as EventListener);
     window.addEventListener("storage", onStorage);
     return () => {
-      window.removeEventListener(
-        "emyland:properties-changed",
-        onChanged as EventListener
-      );
+      window.removeEventListener("emyland:properties-changed", onChanged as EventListener);
       window.removeEventListener("storage", onStorage);
     };
   }, []);
 
   const refreshUsers = () => setUsers(StorageManager.getAllUsers());
   const refreshProps = () => {
-    setProperties(
-      StorageManager.getAllProperties().slice().sort(sortByDateDesc)
-    );
+    setProperties(StorageManager.getAllProperties().slice().sort(sortByDateDesc));
     loadCloudProps();
   };
 
-  /* ====== Hành động ADMIN — server-first, local-sync ====== */
-
   const handleDeleteUser = async (email: string) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) return;
-
-    try {
-      // 1) Server: xoá user + cascade tin
-      await supabase.rpc("rpc_admin_delete_user", {
-        p_email: email.toLowerCase(),
-      });
-    } catch (e) {
-      console.error("rpc_admin_delete_user failed:", e);
-      // Fallback (giữ logic cũ, tránh phá luồng)
+    if (window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) {
+      StorageManager.deleteUser(email);
       try {
-        await supabase
-          .from("properties")
-          .delete()
-          .eq("user_email", email.toLowerCase());
+        appendLog({
+          actorEmail: getActorEmail(StorageManager),
+          target: "user",
+          targetId: email,
+          action: "delete",
+          summary: "Xóa người dùng " + email,
+        });
       } catch {}
+      // cascade xoá tin của user ở cloud
+      try {
+        await supabase.from("properties").delete().eq("user_email", email.toLowerCase());
+      } catch (e) {
+        console.error(e);
+      }
+      logEvent("user_delete", { email });
+      refreshUsers();
+      refreshProps();
     }
-
-    // 2) Local: đồng bộ UI
-    StorageManager.deleteUser(email);
-    try {
-      appendLog({
-        actorEmail: getActorEmail(StorageManager),
-        target: "user",
-        targetId: email,
-        action: "delete",
-        summary: "Xóa người dùng " + email,
-      });
-    } catch {}
-    logEvent("user_delete", { email });
-
-    // 3) Refresh
-    refreshUsers();
-    refreshProps();
   };
 
   const handleDeleteProperty = async (propertyId: string) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) return;
-
-    try {
-      await supabase.rpc("rpc_admin_delete_property", { p_id: propertyId });
-    } catch (e) {
-      console.error("rpc_admin_delete_property failed:", e);
-      // Fallback an toàn
+    if (window.confirm("Bạn có chắc chắn muốn xóa tin đăng này?")) {
+      StorageManager.deleteProperty(propertyId);
+      try {
+        appendLog({
+          actorEmail: getActorEmail(StorageManager),
+          target: "property",
+          targetId: propertyId,
+          action: "delete",
+          summary: "Xóa tin đăng " + propertyId,
+        });
+      } catch {}
       try {
         await supabase.from("properties").delete().eq("id", propertyId);
-      } catch {}
+      } catch (e) {
+        console.error(e);
+      }
+      logEvent("property_delete", { id: propertyId });
+      refreshProps();
     }
-
-    StorageManager.deleteProperty(propertyId);
-    try {
-      appendLog({
-        actorEmail: getActorEmail(StorageManager),
-        target: "property",
-        targetId: propertyId,
-        action: "delete",
-        summary: "Xóa tin đăng " + propertyId,
-      });
-    } catch {}
-    logEvent("property_delete", { id: propertyId });
-
-    refreshProps();
   };
 
-  const handleToggleAdmin = async (u: UserAccount) => {
+  const handleToggleAdmin = (u: UserAccount) => {
     const next = !u.isAdmin;
     const msg = next
       ? `Cấp quyền Quản trị cho ${u.fullName || u.email}?`
       : `Gỡ quyền Quản trị của ${u.fullName || u.email}?`;
     if (!window.confirm(msg)) return;
 
-    // 1) Server: set quyền
-    try {
-      await supabase.rpc("rpc_admin_set_admin", {
-        p_phone: u.phone || null,
-        p_email: u.email || null,
-        p_is_admin: next,
-      });
-    } catch (e) {
-      console.error("rpc_admin_set_admin failed:", e);
-      alert("Không thể thay đổi quyền trên máy chủ. Vui lòng thử lại.");
-      return;
-    }
-
-    // 2) Local: đồng bộ UI (không phá logic cũ)
+    // Local
     StorageManager.saveUser({ ...u, isAdmin: next });
     try {
       appendLog({
@@ -433,39 +396,30 @@ const SystemDashboard: React.FC = () => {
           (u.fullName || u.email),
       });
     } catch {}
-    logEvent(next ? "user_grant_admin" : "user_revoke_admin", {
-      email: u.email,
-    });
+    logEvent(next ? "user_grant_admin" : "user_revoke_admin", { email: u.email });
 
-    // 3) Nếu gỡ quyền của chính mình → đăng xuất
+    // Nếu gỡ quyền chính mình -> đăng xuất
     const cur = StorageManager.getCurrentUser();
     if (cur?.email === u.email && !next) {
       StorageManager.logout();
-      alert(
-        "Bạn đã gỡ quyền Admin của chính mình. Phiên đăng nhập sẽ kết thúc."
-      );
+      alert("Bạn đã gỡ quyền Admin của chính mình. Phiên đăng nhập sẽ kết thúc.");
       navigate("/login", { replace: true });
       return;
     }
-
     refreshUsers();
   };
-
-  /* ======= Hiển thị ======= */
 
   const trimTrailingZero = (s: string) => s.replace(/\.0\b/, "");
   const priceText = (p: any) => {
     const lt: ListingType =
-      p?.listingType ??
-      (typeof p?.rent_per_month === "number" ? "rent" : "sell");
+      p?.listingType ?? (typeof p?.rent_per_month === "number" ? "rent" : "sell");
     if (lt === "rent") {
       const v = Number(p?.rent_per_month) || 0;
       return v > 0 ? `${Math.round(v / 1_000_000)} triệu/tháng` : "Thoả thuận";
     }
     const v = Number(p?.price) || 0;
     if (!v) return "Thoả thuận";
-    if (v >= 1_000_000_000)
-      return `${trimTrailingZero((v / 1_000_000_000).toFixed(1))} tỷ`;
+    if (v >= 1_000_000_000) return `${trimTrailingZero((v / 1_000_000_000).toFixed(1))} tỷ`;
     if (v >= 1_000_000) return `${Math.round(v / 1_000_000)} triệu`;
     return v.toLocaleString();
   };
@@ -481,18 +435,10 @@ const SystemDashboard: React.FC = () => {
 
   const todayCount = useMemo(() => {
     const today = new Date().toDateString();
-    return properties.filter(
-      (p) => new Date(p.createdAt).toDateString() === today
-    ).length;
+    return properties.filter((p) => new Date(p.createdAt).toDateString() === today).length;
   }, [properties]);
-  const adminsCount = useMemo(
-    () => users.filter((u) => u.isAdmin).length,
-    [users]
-  );
-  const onlineCount = useMemo(
-    () => users.filter((u) => u.isLoggedIn).length,
-    [users]
-  );
+  const adminsCount = useMemo(() => users.filter((u) => u.isAdmin).length, [users]);
+  const onlineCount = useMemo(() => users.filter((u) => u.isLoggedIn).length, [users]);
 
   const filteredUsers = useMemo(() => {
     if (!userQuery.trim()) return users;
@@ -505,8 +451,7 @@ const SystemDashboard: React.FC = () => {
     );
   }, [users, userQuery]);
 
-  // ===== Properties filtering + pagination (12 / page)
-  const filteredPropsBase = useMemo(() => {
+  const filteredProps = useMemo(() => {
     const base = properties.slice().sort(sortByDateDesc);
     if (!propQuery.trim()) return base;
     const q = propQuery.trim().toLowerCase();
@@ -517,18 +462,6 @@ const SystemDashboard: React.FC = () => {
         (p.userEmail || "").toLowerCase().includes(q)
     );
   }, [properties, propQuery]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredPropsBase.length / PAGE_SIZE));
-
-  const pagedProps = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filteredPropsBase.slice(start, start + PAGE_SIZE);
-  }, [filteredPropsBase, page]);
-
-  // reset to page 1 when filter or data changes
-  useEffect(() => {
-    setPage(1);
-  }, [propQuery, properties.length]);
 
   const openLegalImages = (propId: string) => {
     const imgs = StorageManager.getLegalImages(propId);
@@ -543,8 +476,7 @@ const SystemDashboard: React.FC = () => {
   const [banned, setBanned] = useState<{ emails: string[]; phones: string[] }>(
     readBanned()
   );
-  const isSuperAdmin =
-    normEmail(StorageManager.getCurrentUser()?.email) === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = normEmail(StorageManager.getCurrentUser()?.email) === SUPER_ADMIN_EMAIL;
   const reloadBanned = () => setBanned(readBanned());
 
   const banEmail = async (email: string) => {
@@ -589,16 +521,10 @@ const SystemDashboard: React.FC = () => {
         reloadBanned();
     };
     window.addEventListener("storage", onStorage);
-    window.addEventListener(
-      "emyland:banned-updated",
-      reloadBanned as EventListener
-    );
+    window.addEventListener("emyland:banned-updated", reloadBanned as EventListener);
     return () => {
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener(
-        "emyland:banned-updated",
-        reloadBanned as EventListener
-      );
+      window.removeEventListener("emyland:banned-updated", reloadBanned as EventListener);
     };
   }, []);
 
@@ -616,12 +542,8 @@ const SystemDashboard: React.FC = () => {
     <AppLayout>
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Quản lý hệ thống EmyLand
-          </h1>
-          <p className="text-gray-600">
-            Quản lý người dùng và tin đăng trong hệ thống
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Quản lý hệ thống EmyLand</h1>
+          <p className="text-gray-600">Quản lý người dùng và tin đăng trong hệ thống</p>
         </div>
 
         {/* Thống kê */}
@@ -631,12 +553,8 @@ const SystemDashboard: React.FC = () => {
               <div className="flex items-center">
                 <Users className="h-8 w-8 text-blue-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">
-                    Tổng người dùng
-                  </p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {users.length}
-                  </p>
+                  <p className="text-sm font-medium text-gray-600">Tổng người dùng</p>
+                  <p className="text-2xl font-bold text-gray-900">{users.length}</p>
                 </div>
               </div>
             </CardContent>
@@ -647,12 +565,8 @@ const SystemDashboard: React.FC = () => {
               <div className="flex items-center">
                 <Home className="h-8 w-8 text-green-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">
-                    Tổng tin đăng
-                  </p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {properties.length}
-                  </p>
+                  <p className="text-sm font-medium text-gray-600">Tổng tin đăng</p>
+                  <p className="text-2xl font-bold text-gray-900">{properties.length}</p>
                 </div>
               </div>
             </CardContent>
@@ -663,12 +577,8 @@ const SystemDashboard: React.FC = () => {
               <div className="flex items-center">
                 <BarChart3 className="h-8 w-8 text-purple-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">
-                    Tin đăng hôm nay
-                  </p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {todayCount}
-                  </p>
+                  <p className="text-sm font-medium text-gray-600">Tin đăng hôm nay</p>
+                  <p className="text-2xl font-bold text-gray-900">{todayCount}</p>
                 </div>
               </div>
             </CardContent>
@@ -719,9 +629,7 @@ const SystemDashboard: React.FC = () => {
           {/* USERS */}
           <TabsContent value="users" className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <h2 className="text-2xl font-semibold">
-                Danh sách người dùng ({users.length})
-              </h2>
+              <h2 className="text-2xl font-semibold">Danh sách người dùng ({users.length})</h2>
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
                 <input
@@ -744,19 +652,13 @@ const SystemDashboard: React.FC = () => {
                             {user.fullName || "(Chưa đặt tên)"}
                           </h3>
                           {user.isAdmin && (
-                            <Badge className="bg-blue-600 text-white">
-                              Admin
-                            </Badge>
+                            <Badge className="bg-blue-600 text-white">Admin</Badge>
                           )}
-                          <Badge
-                            variant={user.isLoggedIn ? "default" : "secondary"}
-                          >
+                          <Badge variant={user.isLoggedIn ? "default" : "secondary"}>
                             {user.isLoggedIn ? "Đang online" : "Offline"}
                           </Badge>
                           {banned.emails.includes(normEmail(user.email)) && (
-                            <Badge className="bg-red-600 text-white">
-                              Email bị chặn
-                            </Badge>
+                            <Badge className="bg-red-600 text-white">Email bị chặn</Badge>
                           )}
                           {user.phone &&
                             banned.phones.includes(normPhone(user.phone)) && (
@@ -766,18 +668,15 @@ const SystemDashboard: React.FC = () => {
                             )}
                         </div>
                         <p className="text-gray-600">{user.email}</p>
-                        {user.phone && (
-                          <p className="text-gray-600">{user.phone}</p>
-                        )}
+                        {user.phone && <p className="text-gray-600">{user.phone}</p>}
                         <p className="text-sm text-gray-500">
                           Đăng ký:{" "}
                           {(() => {
                             try {
-                              return new Date(
-                                user.registeredAt
-                              ).toLocaleDateString("vi-VN", {
-                                timeZone: "Asia/Ho_Chi_Minh",
-                              });
+                              return new Date(user.registeredAt).toLocaleDateString(
+                                "vi-VN",
+                                { timeZone: "Asia/Ho_Chi_Minh" }
+                              );
                             } catch {
                               return "";
                             }
@@ -795,9 +694,7 @@ const SystemDashboard: React.FC = () => {
                               : "bg-blue-600"
                           }
                           onClick={() => handleToggleAdmin(user)}
-                          title={
-                            user.isAdmin ? "Gỡ quyền Admin" : "Cấp quyền Admin"
-                          }
+                          title={user.isAdmin ? "Gỡ quyền Admin" : "Cấp quyền Admin"}
                         >
                           {user.isAdmin ? (
                             <>
@@ -817,10 +714,8 @@ const SystemDashboard: React.FC = () => {
                               size="sm"
                               onClick={() => {
                                 const fullName =
-                                  window.prompt(
-                                    "Họ tên",
-                                    user.fullName || ""
-                                  ) ?? user.fullName;
+                                  window.prompt("Họ tên", user.fullName || "") ??
+                                  user.fullName;
                                 const phone =
                                   window.prompt("SĐT", user.phone || "") ??
                                   user.phone;
@@ -829,12 +724,9 @@ const SystemDashboard: React.FC = () => {
                                   user.email;
                                 StorageManager.saveUser({
                                   ...user,
-                                  fullName:
-                                    (fullName || "").trim() || user.fullName,
-                                  phone:
-                                    (phone || "").trim() || user.phone,
-                                  email:
-                                    (email || "").trim() || user.email,
+                                  fullName: (fullName || "").trim() || user.fullName,
+                                  phone: (phone || "").trim() || user.phone,
+                                  email: (email || "").trim() || user.email,
                                 });
                                 logEvent("user_update_admin", {
                                   from: user.email,
@@ -856,14 +748,10 @@ const SystemDashboard: React.FC = () => {
                                   : "text-red-600"
                               }
                               onClick={() => {
-                                if (
-                                  banned.emails.includes(normEmail(user.email))
-                                ) {
+                                if (banned.emails.includes(normEmail(user.email))) {
                                   unbanEmail(user.email);
                                 } else if (
-                                  window.confirm(
-                                    `Chặn VĨNH VIỄN email ${user.email}?`
-                                  )
+                                  window.confirm(`Chặn VĨNH VIỄN email ${user.email}?`)
                                 ) {
                                   banEmail(user.email);
                                 }
@@ -881,23 +769,15 @@ const SystemDashboard: React.FC = () => {
                                 variant="outline"
                                 size="sm"
                                 className={
-                                  banned.phones.includes(
-                                    normPhone(user.phone)
-                                  )
+                                  banned.phones.includes(normPhone(user.phone))
                                     ? "text-emerald-600"
                                     : "text-red-600"
                                 }
                                 onClick={() => {
-                                  if (
-                                    banned.phones.includes(
-                                      normPhone(user.phone)
-                                    )
-                                  ) {
+                                  if (banned.phones.includes(normPhone(user.phone))) {
                                     unbanPhone(user.phone);
                                   } else if (
-                                    window.confirm(
-                                      `Chặn VĨNH VIỄN số ${user.phone}?`
-                                    )
+                                    window.confirm(`Chặn VĨNH VIỄN số ${user.phone}?`)
                                   ) {
                                     banPhone(user.phone);
                                   }
@@ -931,11 +811,9 @@ const SystemDashboard: React.FC = () => {
           </TabsContent>
 
           {/* PROPERTIES */}
-          <TabsContent value="properties" className="space-y-4">
+          <TabsContent value="properties" className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <h2 className="text-2xl font-semibold">
-                Danh sách tin đăng ({properties.length})
-              </h2>
+              <h2 className="text-2xl font-semibold">Danh sách tin đăng ({properties.length})</h2>
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
                 <input
@@ -947,68 +825,13 @@ const SystemDashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* Header phân trang */}
-            <div className="flex items-center justify-between text-sm text-gray-600">
-              <div>
-                Đang hiển thị{" "}
-                <span className="font-semibold">
-                  {Math.min(
-                    (page - 1) * PAGE_SIZE + 1,
-                    filteredPropsBase.length
-                  )}
-                  {"–"}
-                  {Math.min(page * PAGE_SIZE, filteredPropsBase.length)}
-                </span>{" "}
-                / {filteredPropsBase.length} tin
-              </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(1)}
-                  disabled={page === 1}
-                >
-                  Đầu
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  Trước
-                </Button>
-                <span className="px-2">
-                  Trang <b>{page}</b> / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                >
-                  Sau
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(totalPages)}
-                  disabled={page === totalPages}
-                >
-                  Cuối
-                </Button>
-              </div>
-            </div>
-
             <div className="grid gap-4">
-              {pagedProps.map((property: any) => {
+              {filteredProps.map((property: any) => {
                 const legalCount =
                   StorageManager.getLegalImages(property.id)?.length ?? 0;
                 const lt: ListingType =
                   property?.listingType ??
-                  (typeof property?.rent_per_month === "number"
-                    ? "rent"
-                    : "sell");
+                  (typeof property?.rent_per_month === "number" ? "rent" : "sell");
                 const isVerified =
                   property?.verificationStatus === "verified" ||
                   property?.contactInfo?.ownerVerified;
@@ -1029,9 +852,7 @@ const SystemDashboard: React.FC = () => {
                                 lt === "sell" ? "bg-blue-600" : "bg-emerald-600"
                               }
                             >
-                              {lt === "sell"
-                                ? "Nhà đất bán"
-                                : "Nhà đất cho thuê"}
+                              {lt === "sell" ? "Nhà đất bán" : "Nhà đất cho thuê"}
                             </Badge>
                             {isVerified ? (
                               <Badge className="bg-emerald-600">
@@ -1086,9 +907,7 @@ const SystemDashboard: React.FC = () => {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <Badge variant="secondary">
-                              {property.propertyType}
-                            </Badge>
+                            <Badge variant="secondary">{property.propertyType}</Badge>
                             <span className="text-sm text-gray-500">
                               bởi {property.userEmail}
                             </span>
@@ -1111,9 +930,7 @@ const SystemDashboard: React.FC = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() =>
-                              navigate(`/property/${property.id}`)
-                            }
+                            onClick={() => navigate(`/property/${property.id}`)}
                           >
                             <Eye className="h-4 w-4 mr-1" />
                             Xem
@@ -1122,9 +939,7 @@ const SystemDashboard: React.FC = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() =>
-                              navigate(`/post-property?id=${property.id}`)
-                            }
+                            onClick={() => setEditProp(property)}
                           >
                             <Pencil className="h-4 w-4 mr-1" />
                             Sửa
@@ -1191,10 +1006,7 @@ const SystemDashboard: React.FC = () => {
           >
             <div className="flex items-center justify-between mb-3">
               <div className="font-semibold">Ảnh pháp lý / HĐMB</div>
-              <button
-                className="text-xl leading-none"
-                onClick={() => setLegalImages(null)}
-              >
+              <button className="text-xl leading-none" onClick={() => setLegalImages(null)}>
                 ×
               </button>
             </div>
@@ -1210,6 +1022,16 @@ const SystemDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {editProp && (
+        <EditPropertyModal
+          property={editProp}
+          onClose={() => setEditProp(null)}
+          onSaved={() => {
+            refreshProps();
+          }}
+        />
       )}
     </AppLayout>
   );
